@@ -310,13 +310,13 @@ public class EDDTableFromOBIS extends EDDTable{
      * the dataVariables and other attributes are the same for all OBIS servers.
      *
      * @param tDatasetID is a very short string identifier 
-     *   (required: just safe characters: A-Z, a-z, 0-9, _, -, or .)
+     *  (recommended: [A-Za-z][A-Za-z0-9_]* )
      *   for this dataset. See EDD.datasetID().
      * @param tAccessibleTo is a comma separated list of 0 or more
      *    roles which will have access to this dataset.
      *    <br>If null, everyone will have access to this dataset (even if not logged in).
      *    <br>If "", no one will have access to this dataset.
-     * @param tOnChange 0 or more actions (starting with "http://" or "mailto:")
+     * @param tOnChange 0 or more actions (starting with http://, https://, or mailto: )
      *    to be done whenever the dataset changes significantly
      * @param tFgdcFile This should be the fullname of a file with the FGDC
      *    that should be used for this dataset, or "" (to cause ERDDAP not
@@ -415,7 +415,7 @@ public class EDDTableFromOBIS extends EDDTable{
             "publications that use the data in order to comply with license. " + 
             "A suitable email address can be found by reading the XML response from the sourceURL.");
         tAddGlobalAttributes.add("cdm_data_type", CDM_POINT);
-        tAddGlobalAttributes.add("standard_name_vocabulary", "CF Standard Name Table v29");
+        tAddGlobalAttributes.add("standard_name_vocabulary", "CF Standard Name Table v55");
         addGlobalAttributes = tAddGlobalAttributes;
         addGlobalAttributes.set("sourceUrl", convertToPublicSourceUrl(tLocalSourceUrl));
         localSourceUrl = tLocalSourceUrl;
@@ -431,7 +431,7 @@ public class EDDTableFromOBIS extends EDDTable{
             tLicense = String2.replaceAll(tLicense, "&creator_email;", tCreator_email);
             combinedGlobalAttributes.set("license", tLicense);
         }
-        combinedGlobalAttributes.removeValue("null");
+        combinedGlobalAttributes.removeValue("\"null\"");
 
         //souceCanConstrain:
         sourceNeedsExpandedFP_EQ      = tSourceNeedsExpandedFP_EQ;
@@ -553,9 +553,9 @@ public class EDDTableFromOBIS extends EDDTable{
 
         //finally
         if (verbose) String2.log(
-            (reallyVerbose? "\n" + toString() : "") +
+            (debugMode? "\n" + toString() : "") +
             "\n*** EDDTableFromOBIS " + datasetID + " constructor finished. TIME=" + 
-            (System.currentTimeMillis() - constructionStartMillis) + "\n"); 
+            (System.currentTimeMillis() - constructionStartMillis) + "ms\n"); 
 
     }
 
@@ -633,11 +633,9 @@ public class EDDTableFromOBIS extends EDDTable{
             }
         }
 
-        //It is very easy for this class since the sourceDapQuery can be 
-        //sent directly to the source after minimal processing.
-        String sourceDapQuery = formatAsDapQuery(resultsVariables.toArray(),
-            constraintVariables.toArray(), constraintOps.toArray(), 
-            constraintValues.toArray());
+        //String sourceDapQuery = formatAsDapQuery(resultsVariables.toArray(),
+        //    constraintVariables.toArray(), constraintOps.toArray(), 
+        //    constraintValues.toArray());
 
         //remove xyztID from resultsVariables  (see includeXYZT below)
         for (int dv = 0; dv < nFixedVariables; dv++) {
@@ -707,8 +705,13 @@ public class EDDTableFromOBIS extends EDDTable{
         Attributes externalAddGlobalAttributes)
         throws Throwable {
 
-        String2.log("EDDTableFromOBIS.generateDatasetsXml  tSourceCode=" + tSourceCode + 
-            "\n  url=" + tLocalSourceUrl);
+        tLocalSourceUrl = EDStatic.updateUrls(tLocalSourceUrl); //http: to https:
+        String2.log("\n*** EDDTableFromOBIS.generateDatasetsXml" +
+            "\nlocalSourceUrl=" + tLocalSourceUrl +
+            " tSourceCode=" + tSourceCode + 
+            " reloadEveryNMinutes=" + tReloadEveryNMinutes +
+            "\ncreatorEmail=" + tCreatorEmail +
+            "\nexternalAddGlobalAttributes=" + externalAddGlobalAttributes);
         //!!! this could try to read sourceAttributes from the source, but it currently doesn't
         //  (partly because it would be slow)
         String tPublicSourceUrl = convertToPublicSourceUrl(tLocalSourceUrl);
@@ -735,11 +738,11 @@ public class EDDTableFromOBIS extends EDDTable{
             tLocalSourceUrl, externalAddGlobalAttributes,
             new HashSet());
 
+        //don't use suggestSubsetVariables since sourceTable not really available
+
         //generate the datasets.xml
         StringBuilder sb = new StringBuilder();
         sb.append(
-directionsForGenerateDatasetsXml() +
-"-->\n\n" +
 "<dataset type=\"EDDTableFromOBIS\" datasetID=\"" + suggestDatasetID(tPublicSourceUrl) +
         "\" active=\"true\">\n" +
 "    <sourceUrl>" + XML.encodeAsXML(tLocalSourceUrl) + "</sourceUrl>\n" +
@@ -783,34 +786,33 @@ directionsForGenerateDatasetsXml() +
             String gdxResults = (new GenerateDatasetsXml()).doIt(new String[]{"-verbose", 
                 "EDDTableFromOBIS",
                 "http://iobis.marine.rutgers.edu/digir2/DiGIR.php", 
-                "OBIS-SEAMAP", "" + DEFAULT_RELOAD_EVERY_N_MINUTES, "dhyrenbach@duke.edu"},
+                "OBIS-SEAMAP", "" + DEFAULT_RELOAD_EVERY_N_MINUTES, "dhyrenbach@duke.edu", 
+                "-1"}, //defaultStandardizeWhat
                 false); //doIt loop?
             Test.ensureEqual(gdxResults, results, "Unexpected results from GenerateDatasetsXml.doIt.");
 
 expected = 
-directionsForGenerateDatasetsXml() +
-"-->\n" +
-"\n" +
 "<dataset type=\"EDDTableFromOBIS\" datasetID=\"rutgers_marine_6cb4_a970_1d67\" active=\"true\">\n" +
 "    <sourceUrl>http://iobis.marine.rutgers.edu/digir2/DiGIR.php</sourceUrl>\n" +
 "    <sourceCode>OBIS-SEAMAP</sourceCode>\n" +
 "    <sourceNeedsExpandedFP_EQ>true</sourceNeedsExpandedFP_EQ>\n" +
 "    <reloadEveryNMinutes>10080</reloadEveryNMinutes>\n" +
 "    <!-- Please specify the actual cdm_data_type (TimeSeries?) and related info below, for example...\n" +
-"        <att name=\"cdm_timeseries_variables\">station, longitude, latitude</att>\n" +
-"        <att name=\"subsetVariables\">station, longitude, latitude</att>\n" +
+"        <att name=\"cdm_timeseries_variables\">station_id, longitude, latitude</att>\n" +
+"        <att name=\"subsetVariables\">station_id, longitude, latitude</att>\n" +
 "    -->\n" +
 "    <addAttributes>\n" +
 "        <att name=\"cdm_data_type\">Point</att>\n" +
 "        <att name=\"Conventions\">COARDS, CF-1.6, ACDD-1.3</att>\n" +
 "        <att name=\"creator_email\">dhyrenbach@duke.edu</att>\n" +
 "        <att name=\"creator_name\">DHYRENBACH</att>\n" +
-"        <att name=\"creator_url\">http://marine.rutgers.edu/main/</att>\n" +
+"        <att name=\"creator_type\">person</att>\n" +
+"        <att name=\"creator_url\">https://marine.rutgers.edu/main/</att>\n" +
 "        <att name=\"infoUrl\">http://iobis.marine.rutgers.edu/digir2/DiGIR.php</att>\n" +
 "        <att name=\"institution\">DUKE</att>\n" +
 "        <att name=\"keywords\">area, assessment, biogeographic, data, digir.php, duke, information, marine, monitoring, obis, obis-seamap, ocean, program, rutgers, seamap, server, southeast, system</att>\n" +
 "        <att name=\"license\">[standard]</att>\n" +
-"        <att name=\"standard_name_vocabulary\">CF Standard Name Table v29</att>\n" +
+"        <att name=\"standard_name_vocabulary\">CF Standard Name Table v55</att>\n" +
 "        <att name=\"summary\">Ocean Biogeographic Information System (OBIS)-Southeast Area Monitoring &amp; Assessment Program (SEAMAP) Data from the OBIS Server at RUTGERS MARINE.\n" +
 "\n" +
 "[OBIS_SUMMARY]</att>\n" +
@@ -821,8 +823,10 @@ directionsForGenerateDatasetsXml() +
             Test.ensureEqual(results, expected, "results=\n" + results);
 
             //ensure it is ready-to-use by making a dataset from it
+            String tDatasetID = "rutgers_marine_6cb4_a970_1d67";
+            EDD.deleteCachedDatasetInfo(tDatasetID);
             EDD edd = oneFromXmlFragment(null, results);
-            Test.ensureEqual(edd.datasetID(), "rutgers_marine_6cb4_a970_1d67", "");
+            Test.ensureEqual(edd.datasetID(), tDatasetID, "");
             Test.ensureEqual(edd.title(), "OBIS-SEAMAP Data from the OBIS Server at RUTGERS MARINE (DiGIR.php)", "");
             Test.ensureEqual(String2.toCSSVString(edd.dataVariableDestinationNames()), 
                 "longitude, latitude, altitude, time, ID, BasisOfRecord, BoundingBox, " +
@@ -881,8 +885,8 @@ directionsForGenerateDatasetsXml() +
         userDapQuery = "&Genus=\"Macrocystis\""; 
         tName = obis.makeNewFileForDapQuery(null, null, userDapQuery, EDStatic.fullTestCacheDirectory, 
             obis.className(), ".das"); 
-        results = String2.annotatedString(new String((new ByteArray(
-            EDStatic.fullTestCacheDirectory + tName)).toArray()));
+        results = String2.annotatedString(String2.directReadFrom88591File(
+            EDStatic.fullTestCacheDirectory + tName));
         //String2.log(results);
         expected = 
 "Attributes {[10]\n" +
@@ -1059,7 +1063,7 @@ today + " " + EDStatic.erddapUrl + //in tests, always use non-https url
 "    Float64 Northernmost_Northing 90.0;[10]\n" +
 "    String sourceUrl \"http://iobis.marine.rutgers.edu/digir2/DiGIR.php\";[10]\n" +
 "    Float64 Southernmost_Northing -90.0;[10]\n" +
-"    String standard_name_vocabulary \"CF Standard Name Table v29\";[10]\n" +
+"    String standard_name_vocabulary \"CF Standard Name Table v55\";[10]\n" +
 "    String subsetVariables \"ScientificName\";[10]\n" +
 "    String summary \"The database covers the Haida Gwaii archipelago on the West Coast of Canada, including all species of the Haida Gwaii region from any published source, accessible collection and unpublished observations from scientists.Lists all marine plant species and maps their distributions from the first records (1911) to 1999 and includes 348 seaweed and 4 seagrass species from 456 intertidal to shallow subtidal locations. This inventory had detailed regional starting points (Hawkes et al. 1978; Scagel et al. 1993) and >90% of the plant species are represented by specimens in the Phycological Herbarium of the University of British Columbia Botany Department. OBIS Schema concepts implemented in this data set are:DateLastModified, InstitutionCode, CollectionCode, CatalogNumber, ScientificName, Phylum, Class, Order, Family, Genus, Species, Subspecies, ScientificNameAuthor, YearCollected, MonthCollected, DayCollected, Country, Locality, Longitude, Latitude, Citation, DepthRange. For OBIS Schema concept details see http://www.iobis.org/tech/provider/[10]\n" +
 "[10]\n" +
@@ -1140,7 +1144,7 @@ today + " " + EDStatic.erddapUrl + //in tests, always use non-https url
         //.csv        
         tName = obis.makeNewFileForDapQuery(null, null, userDapQuery, EDStatic.fullTestCacheDirectory, 
             obis.className(), ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         expected = 
 //2010-07-20 -132.4223 changed to -132.422 in 3 places
@@ -1173,7 +1177,7 @@ today + " " + EDStatic.erddapUrl + //in tests, always use non-https url
             "&longitude>-134&longitude<-131&latitude>53&latitude<55&time<1973-01-01"; //Carcharodon";
         tName = obis.makeNewFileForDapQuery(null, null, userDapQuery, EDStatic.fullTestCacheDirectory, 
             obis.className() + "latlon", ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         expected = 
 "longitude, latitude, time, ID, Genus, Species\n" +
@@ -1207,7 +1211,7 @@ so standardize results table removes all but 1 record.
             "&longitude>-134&longitude<-131&latitude>53&latitude<55&time<1973-01-01"; //Carcharodon";
         tName = obis.makeNewFileForDapQuery(null, null, userDapQuery, EDStatic.fullTestCacheDirectory, 
             obis.className() + "latlon", ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         Test.ensureEqual(results, expected, "\nresults=\n" + results);
         */
@@ -1217,7 +1221,7 @@ so standardize results table removes all but 1 record.
             "&longitude>-134&longitude<-131&latitude>53&latitude<55&time<1973-01-01"; //Carcharodon";
         tName = obis.makeNewFileForDapQuery(null, null, userDapQuery, EDStatic.fullTestCacheDirectory, 
             obis.className() + "latlon", ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         Test.ensureEqual(results, expected, "\nresults=\n" + results);
 
@@ -1226,7 +1230,7 @@ so standardize results table removes all but 1 record.
             "&longitude>-134&longitude<-131&latitude>53&latitude<55&time<1973-01-01"; //Carcharodon";
         tName = obis.makeNewFileForDapQuery(null, null, userDapQuery, EDStatic.fullTestCacheDirectory, 
             obis.className() + "latlon", ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         Test.ensureEqual(results, expected, "\nresults=\n" + results);
 
@@ -1255,7 +1259,7 @@ so standardize results table removes all but 1 record.
         userDapQuery = "longitude,latitude,time,ID,Genus,Species,Citation&Genus=\"Carcharodon\"&time>=1990-01-01"; 
         tName = fishbase.makeNewFileForDapQuery(null, null, userDapQuery, EDStatic.fullTestCacheDirectory, 
             fishbase.className() + "FishBaseGraph", ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         expected = 
 "longitude, latitude, time, ID, Genus, Species, Citation\n" +
@@ -1270,7 +1274,7 @@ so standardize results table removes all but 1 record.
         //data for mapExample
         tName = fishbase.makeNewFileForDapQuery(null, null, "longitude,latitude&Genus=Carcharodon&longitude!=NaN", 
             EDStatic.fullTestCacheDirectory, fishbase.className() + "Map", ".csv");
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         expected = 
 "longitude, latitude\n" +
@@ -1398,7 +1402,7 @@ Ursus (25), Xiphias (16), Zalophus (4668), Ziphius (455)
             userDapQuery = "longitude,latitude,time,ID,Genus,Species,Citation&Genus=\"Carcharodon\"&time>=1990-01-01"; 
             tName = dukeSeamap.makeNewFileForDapQuery(null, null, userDapQuery, 
                 EDStatic.fullTestCacheDirectory, dukeSeamap.className() + "duke", ".csv"); 
-            results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+            results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
             //String2.log(results);
             expected = 
     "longitude, latitude, time, ID, Genus, Species, Citation\n" +
@@ -1435,7 +1439,7 @@ Ursus (25), Xiphias (16), Zalophus (4668), Ziphius (455)
         userDapQuery = "longitude,latitude,time,ID,Genus,Species&Genus=\"Aptenodytes\"&time<=2008-01-01"; 
         tName = argos.makeNewFileForDapQuery(null, null, userDapQuery, EDStatic.fullTestCacheDirectory, 
             argos.className() + "Argos", ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         expected = "";
         Test.ensureEqual(results, expected, "\nresults=\n" + results);
@@ -1446,6 +1450,7 @@ Ursus (25), Xiphias (16), Zalophus (4668), Ziphius (455)
      */
     public static void test() throws Throwable {
 
+/* for releases, this line should have open/close comment */
         //usually done
         testGenerateDatasetsXml();
 

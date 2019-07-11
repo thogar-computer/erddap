@@ -18,6 +18,7 @@ import com.cohort.util.Test;
 import com.cohort.util.XML;
 
 import gov.noaa.pfel.coastwatch.griddata.NcHelper;
+import gov.noaa.pfel.coastwatch.pointdata.Table;
 import gov.noaa.pfel.coastwatch.util.FileVisitorDNLS;
 import gov.noaa.pfel.coastwatch.util.SimpleXMLReader;
 import gov.noaa.pfel.coastwatch.util.SSR;
@@ -79,6 +80,8 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
         int tMatchAxisNDigits = DEFAULT_MATCH_AXIS_N_DIGITS;
         String tDefaultDataQuery = null;
         String tDefaultGraphQuery = null;
+        int tnThreads = -1; //interpret invalid values (like -1) as EDStatic.nGridThreads
+        boolean tDimensionValuesInMemory = true;
 
         String tSUServerType = null;
         String tSURegex = null;
@@ -165,6 +168,10 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
             else if (localTags.equals("</defaultDataQuery>")) tDefaultDataQuery = content; 
             else if (localTags.equals( "<defaultGraphQuery>")) {}
             else if (localTags.equals("</defaultGraphQuery>")) tDefaultGraphQuery = content; 
+            else if (localTags.equals( "<nThreads>")) {}
+            else if (localTags.equals("</nThreads>")) tnThreads = String2.parseInt(content); 
+            else if (localTags.equals( "<dimensionValuesInMemory>")) {}
+            else if (localTags.equals("</dimensionValuesInMemory>")) tDimensionValuesInMemory = String2.parseBoolean(content);
 
             else xmlReader.unexpectedTagException();
         }
@@ -176,7 +183,7 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
             tDefaultDataQuery, tDefaultGraphQuery,
             firstChild, tLocalSourceUrls.toArray(),
             tSUServerType, tSURegex, tSURecursive, tSUPathRegex, tSU, 
-            tMatchAxisNDigits);
+            tMatchAxisNDigits, tnThreads, tDimensionValuesInMemory);
 
     }
 
@@ -190,7 +197,7 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
      *    roles which will have access to this dataset.
      *    <br>If null, everyone will have access to this dataset (even if not logged in).
      *    <br>If "", no one will have access to this dataset.
-     * @param tOnChange 0 or more actions (starting with "http://" or "mailto:")
+     * @param tOnChange 0 or more actions (starting with http://, https://, or mailto: )
      *    to be done whenever the dataset changes significantly
      * @param tFgdcFile This should be the fullname of a file with the FGDC
      *    that should be used for this dataset, or "" (to cause ERDDAP not
@@ -210,7 +217,9 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
         String tDefaultDataQuery, String tDefaultGraphQuery,
         EDDGrid firstChild, String tLocalSourceUrls[], 
         String tSUServerType, String tSURegex, boolean tSURecursive, 
-        String tSUPathRegex, String tSU, int tMatchAxisNDigits) throws Throwable {
+        String tSUPathRegex, String tSU, int tMatchAxisNDigits, 
+        int tnThreads, boolean tDimensionValuesInMemory) 
+        throws Throwable {
 
         if (verbose) String2.log(
             "\n*** constructing EDDGridAggregateExistingDimension " + tDatasetID); 
@@ -232,6 +241,8 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
         defaultDataQuery = tDefaultDataQuery;
         defaultGraphQuery = tDefaultGraphQuery;
         matchAxisNDigits = tMatchAxisNDigits;
+        nThreads = tnThreads; //interpret invalid values (like -1) as EDStatic.nGridThreads
+        dimensionValuesInMemory = tDimensionValuesInMemory; 
 
         //if no tLocalSourceURLs, generate from hyrax, thredds, waf, or dodsindex catalog?
         if (tLocalSourceUrls.length == 0 && tSU != null && tSU.length() > 0) {
@@ -246,7 +257,7 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
             else if (tSUServerType.toLowerCase().equals("waf"))
                 tsa.add(FileVisitorDNLS.getUrlsFromWAF(tSU, tSURegex, tSURecursive, tSUPathRegex));
             else if (tSUServerType.toLowerCase().equals("thredds"))
-                tsa.add(EDDGridFromDap.getUrlsFromThreddsCatalog(tSU, tSURegex, tSURecursive, tSUPathRegex));
+                tsa.add(EDDGridFromDap.getUrlsFromThreddsCatalog(tSU, tSURegex, tSUPathRegex, null).toStringArray());
             else if (tSUServerType.toLowerCase().equals("dodsindex"))
                 getDodsIndexUrls(tSU, tSURegex, tSURecursive, tSUPathRegex, tsa);
             else throw new RuntimeException(errorInMethod + 
@@ -312,7 +323,7 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
         String dn = av0.destinationName();
         Attributes sa = av0.sourceAttributes();
         Attributes aa = av0.addAttributes();
-        axisVariables[0] = makeAxisVariable(0, sn, dn, sa, aa, cumSV); 
+            axisVariables[0] = makeAxisVariable(tDatasetID, 0, sn, dn, sa, aa, cumSV); 
 
         //make the local dataVariables
         int nDv = firstChild.dataVariables.length;
@@ -329,11 +340,33 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
 
         //finally
         if (verbose) String2.log(
-            (reallyVerbose? "\n" + toString() : "") +
+            (debugMode? "\n" + toString() : "") +
             "\n*** EDDGridAggregateExistingDimension " + datasetID + " constructor finished. TIME=" + 
-            (System.currentTimeMillis() - constructionStartMillis) + "\n"); 
+            (System.currentTimeMillis() - constructionStartMillis) + "ms\n"); 
 
+        //very last thing: saveDimensionValuesInFile
+        if (!dimensionValuesInMemory)
+            saveDimensionValuesInFile();
     }
+
+    /**
+     * This returns a list of childDatasetIDs.
+     * Most dataset types don't have any children. A few, like
+     * EDDGridSideBySide do, so they overwrite this method to return the IDs.
+     *
+     * @return a new list of childDatasetIDs. 
+     */
+    public StringArray childDatasetIDs() {
+        StringArray sa = new StringArray();
+        try {
+            for (int i = 0; i < childDatasets.length; i++)  
+                sa.add(childDatasets[i].datasetID());
+        } catch (Exception e) {
+            String2.log("Error caught in edd.childDatasetIDs(): " + MustBe.throwableToString(e));
+        }
+        return sa;
+    }
+
 
     /**
      * This makes a sibling dataset, based on the new sourceUrl.
@@ -350,7 +383,8 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
      * This gets a list of URLs from the sourceUrl, perhaps recursively.
      *
      * @param startUrl is the first URL to look at.
-     *   E.g., http://www.marine.csiro.au/dods/nph-dods/dods-data/bl/BRAN2.1/bodas/
+     *   E.g., https://opendap.jpl.nasa.gov/opendap/GeodeticsGravity/tellus/L3/ocean_mass/RL05/netcdf/contents.html
+     *   [was http://www.marine.csiro.au/dods/nph-dods/dods-data/bl/BRAN2.1/bodas/ ]
      *   It MUST end with a / or a file name (e.g., catalog.html).
      * @param regex The regex is used to test file names, not directory names.
      *   E.g. .*\.nc to catch all .nc files, or use .* to catch all files.
@@ -370,7 +404,7 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
         String regexHtml = regex + "\\.html"; //link href will have .html at end
         String lines[] = null;
         try {
-            lines = SSR.getUrlResponse(startUrl);
+            lines = SSR.getUrlResponseLines(startUrl);
         } catch (Throwable t) {
             String2.log(MustBe.throwableToString(t));
             return;
@@ -453,6 +487,8 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
      * full user's request, but will be a partial request (for less than
      * EDStatic.partialRequestMaxBytes).
      * 
+     * @param tDirTable If EDDGridFromFiles, this MAY be the dirTable, else null. 
+     * @param tFileTable If EDDGridFromFiles, this MAY be the fileTable, else null. 
      * @param tDataVariables EDV[] with just the requested data variables
      * @param tConstraints  int[nAxisVariables*3] 
      *   where av*3+0=startIndex, av*3+1=stride, av*3+2=stopIndex.
@@ -464,7 +500,8 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
      *   not modified.
      * @throws Throwable if trouble (notably, WaitThenTryAgainException)
      */
-    public PrimitiveArray[] getSourceData(EDV tDataVariables[], IntArray tConstraints) 
+    public PrimitiveArray[] getSourceData(Table tDirTable, Table tFileTable,
+        EDV tDataVariables[], IntArray tConstraints) 
         throws Throwable {
 
         //parcel first dimension's constraints to appropriate datasets
@@ -500,7 +537,7 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
                     "  datasetStartsAt=" + currentDatasetStartsAt + 
                     "  localStart=" + childConstraints.get(0) +
                     "  localStop=" + childConstraints.get(2));
-                PrimitiveArray[] tResults = childDatasets[currentDataset].getSourceData(
+                PrimitiveArray[] tResults = childDatasets[currentDataset].getSourceData(null, null,
                     tDataVariables, childConstraints);
                 //childDataset has already checked that axis values are as *it* expects          
                 if (cumResults == null) {
@@ -538,7 +575,7 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
      * @param serverType Currently, only "hyrax", "thredds", and "waf" are supported  (case insensitive)
      * @param startUrl the url of the current web page (with a hyrax catalog) e.g.,
      *   <br>hyrax: "http://dods.jpl.nasa.gov/opendap/ocean_wind/ccmp/L3.5a/data/flk/1988/contents.html" 
-     *   <br>thredds: "http://thredds1.pfeg.noaa.gov/thredds/catalog/Satellite/aggregsatMH/chla/catalog.xml" 
+     *   <br>thredds: "https://thredds1.pfeg.noaa.gov/thredds/catalog/Satellite/aggregsatMH/chla/catalog.xml" 
      * @param fileNameRegex e.g.,
      *   <br>hyrax: "pentad.*flk\\.nc\\.gz"
      *   <br>thredds: ".*"
@@ -549,6 +586,11 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
     public static String generateDatasetsXml(String serverType, String startUrl, 
         String fileNameRegex, int tReloadEveryNMinutes) throws Throwable {
 
+        startUrl = EDStatic.updateUrls(startUrl); //http: to https:
+        String2.log("\n*** EDDGridAggregateExistingDimension.generateDatasetsXml" +
+            "\nserverType=" + serverType + " startUrl=" + startUrl + 
+            "\nfileNameRegex=" + fileNameRegex + 
+            " reloadEveryNMinutes=" + tReloadEveryNMinutes);
         long time = System.currentTimeMillis();
 
         StringBuilder sb = new StringBuilder();
@@ -565,33 +607,31 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
             Test.ensureTrue(startUrl.endsWith("/catalog.xml"),
                 "startUrl must end with '/catalog.xml'.");
             sa = EDDGridFromDap.getUrlsFromThreddsCatalog(
-                startUrl, fileNameRegex, recursive, pathRegex);
+                startUrl, fileNameRegex, pathRegex, null).toStringArray();
         } else if ("waf".equals(serverType)) {
             sa = FileVisitorDNLS.getUrlsFromWAF(
                 startUrl, fileNameRegex, recursive, pathRegex);
         } else {
-            throw new RuntimeException("ERROR: serverType must be \"hyrax\" or \"thredds\".");
+            throw new RuntimeException("ERROR: serverType must be \"hyrax\", \"thredds\", or \"waf\".");
         }
 
         if (sa.length == 0)
             throw new RuntimeException("ERROR: No matching URLs were found.");
 
         if (sa.length == 1) 
-            return EDDGridFromDap.generateDatasetsXml(true, //writeDirections, 
+            return EDDGridFromDap.generateDatasetsXml(
                 sa[0], null, null, null,
                 tReloadEveryNMinutes, null);
 
         //multiple URLs, so aggregate them
         //outer EDDGridAggregateExistingDimension
         sb.append(
-            directionsForGenerateDatasetsXml() +
-            "-->\n\n" +
             "<dataset type=\"EDDGridAggregateExistingDimension\" datasetID=\"" + 
                 suggestDatasetID(startUrl + "?" + fileNameRegex) + "\" active=\"true\">\n" +
             "\n");
 
         //first child -- fully defined
-        sb.append(EDDGridFromDap.generateDatasetsXml(false, //writeDirections, 
+        sb.append(EDDGridFromDap.generateDatasetsXml(
             sa[0], null, null, null,
             tReloadEveryNMinutes, null));
 
@@ -611,7 +651,7 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
             "\n");
 
         String2.log("\n\n*** generateDatasetsXml finished successfully; time=" +
-            (System.currentTimeMillis() - time) + "\n\n");
+            (System.currentTimeMillis() - time) + "ms\n\n");
         return sb.toString();
     }
 
@@ -624,43 +664,13 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
         //******* test thredds -- lame test: the datasets can't actually be aggregated
         try {
         results = generateDatasetsXml("thredds",
-            "http://thredds1.pfeg.noaa.gov/thredds/catalog/Satellite/aggregsatMH/chla/catalog.xml", 
+            "https://thredds1.pfeg.noaa.gov/thredds/catalog/Satellite/aggregsatMH/chla/catalog.xml", 
             ".*", 1440); //recursive
         expected = 
-"<!--\n" +
-" DISCLAIMER:\n" +
-"   The chunk of datasets.xml made by GenerageDatasetsXml isn't perfect.\n" +
-"   YOU MUST READ AND EDIT THE XML BEFORE USING IT IN A PUBLIC ERDDAP.\n" +
-"   GenerateDatasetsXml relies on a lot of rules-of-thumb which aren't always\n" +
-"   correct.  *YOU* ARE RESPONSIBLE FOR ENSURING THE CORRECTNESS OF THE XML\n" +
-"   THAT YOU ADD TO ERDDAP'S datasets.xml FILE.\n" +
+"<dataset type=\"EDDGridAggregateExistingDimension\" datasetID=\"noaa_pfeg_56a4_10ee_2221\" active=\"true\">\n" +
 "\n" +
-" DIRECTIONS:\n" +
-" * Read about this type of dataset in\n" +
-"   http://coastwatch.pfeg.noaa.gov/erddap/download/setupDatasetsXml.html .\n" +
-" * Read http://coastwatch.pfeg.noaa.gov/erddap/download/setupDatasetsXml.html#addAttributes\n" +
-"   so that you understand about sourceAttributes and addAttributes.\n" +
-" * Note: Global sourceAttributes and variable sourceAttributes are listed\n" +
-"   below as comments, for informational purposes only.\n" +
-"   ERDDAP combines sourceAttributes and addAttributes (which have\n" +
-"   precedence) to make the combinedAttributes that are shown to the user.\n" +
-"   (And other attributes are automatically added to longitude, latitude,\n" +
-"   altitude, depth, and time variables).\n" +
-" * If you don't like a sourceAttribute, override it by adding an\n" +
-"   addAttribute with the same name but a different value\n" +
-"   (or no value, if you want to remove it).\n" +
-" * All of the addAttributes are computer-generated suggestions. Edit them!\n" +
-"   If you don't like an addAttribute, change it.\n" +
-" * If you want to add other addAttributes, add them.\n" +
-" * If you want to change a destinationName, change it.\n" +
-"   But don't change sourceNames.\n" +
-" * You can change the order of the dataVariables or remove any of them.\n" +
-"-->\n" +
-"\n" +
-"<dataset type=\"EDDGridAggregateExistingDimension\" datasetID=\"noaa_pfeg_8d37_4596_befd\" active=\"true\">\n" +
-"\n" +
-"<dataset type=\"EDDGridFromDap\" datasetID=\"noaa_pfeg_adfb_8ff5_678c\" active=\"true\">\n" +
-"    <sourceUrl>http://thredds1.pfeg.noaa.gov/thredds/dodsC/satellite/MH/chla/1day</sourceUrl>\n" +
+"<dataset type=\"EDDGridFromDap\" datasetID=\"noaa_pfeg_077f_0be4_21d3\" active=\"true\">\n" +
+"    <sourceUrl>https://thredds1.pfeg.noaa.gov/thredds/dodsC/satellite/MH/chla/1day</sourceUrl>\n" +
 "    <reloadEveryNMinutes>1440</reloadEveryNMinutes>\n" +
 "    <!-- sourceAttributes>\n" +
 "        <att name=\"acknowledgement\">NOAA NESDIS COASTWATCH, NOAA SWFSC ERD</att>\n" +
@@ -728,24 +738,30 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
 "    <addAttributes>\n" +
 "        <att name=\"cols\">null</att>\n" +
 "        <att name=\"Conventions\">COARDS, CF-1.6, ACDD-1.3</att>\n" +
+"        <att name=\"creator_email\">erd.data@noaa.gov</att>\n" +
+"        <att name=\"creator_type\">institution</att>\n" +
+"        <att name=\"creator_url\">https://coastwatch.pfeg.noaa.gov</att>\n" +
 "        <att name=\"cwhdf_version\">null</att>\n" +
+"        <att name=\"date_created\">2013-04-18</att>\n" + //changes
+"        <att name=\"date_issued\">2013-04-18</att>\n" +  //changes
 "        <att name=\"et_affine\">null</att>\n" +
 "        <att name=\"gctp_datum\">null</att>\n" +
 "        <att name=\"gctp_parm\">null</att>\n" +
 "        <att name=\"gctp_sys\">null</att>\n" +
 "        <att name=\"gctp_zone\">null</att>\n" +
-"        <att name=\"infoUrl\">http://thredds1.pfeg.noaa.gov/thredds/dodsC/satellite/MH/chla/1day.html</att>\n" +
+"        <att name=\"infoUrl\">https://thredds1.pfeg.noaa.gov/thredds/dodsC/satellite/MH/chla/1day.html</att>\n" +
 "        <att name=\"institution\">NOAA CoastWatch WCN</att>\n" +
-"        <att name=\"keywords\">1day, altitude, aqua, chemistry, chla, chlorophyll, chlorophyll-a, coast, coastwatch, color, concentration, concentration_of_chlorophyll_in_sea_water, daily, data, day, degrees, global, imaging, MHchla, moderate, modis, national, noaa, node, npp, ocean, ocean color, oceans,\n" +
-"Oceans &gt; Ocean Chemistry &gt; Chlorophyll,\n" +
-"orbiting, partnership, polar, polar-orbiting, quality, resolution, science, science quality, sea, seawater, spectroradiometer, time, water, wcn, west</att>\n" +
+"        <att name=\"keywords\">1day, altitude, aqua, chemistry, chla, chlorophyll, chlorophyll-a, coast, coastwatch, color, concentration, concentration_of_chlorophyll_in_sea_water, daily, data, day, degrees, earth, Earth Science &gt; Oceans &gt; Ocean Chemistry &gt; Chlorophyll, global, imaging, latitude, longitude, MHchla, moderate, modis, national, noaa, node, npp, ocean, ocean color, oceans, orbiting, partnership, polar, polar-orbiting, quality, resolution, science, science quality, sea, seawater, spectroradiometer, time, water, wcn, west</att>\n" +
+"        <att name=\"naming_authority\">gov.noaa.pfeg.coastwatch</att>\n" +
 "        <att name=\"pass_date\">null</att>\n" +
 "        <att name=\"polygon_latitude\">null</att>\n" +
 "        <att name=\"polygon_longitude\">null</att>\n" +
+"        <att name=\"project\">CoastWatch (https://coastwatch.noaa.gov/)</att>\n" +
+"        <att name=\"references\">Aqua/MODIS information: https://oceancolor.gsfc.nasa.gov/ . MODIS information: https://coastwatch.noaa.gov/modis_ocolor_overview.html .</att>\n" +
 "        <att name=\"rows\">null</att>\n" +
-"        <att name=\"standard_name_vocabulary\">CF Standard Name Table v29</att>\n" +
+"        <att name=\"standard_name_vocabulary\">CF Standard Name Table v55</att>\n" +
 "        <att name=\"start_time\">null</att>\n" +
-"        <att name=\"title\">Chlorophyll-a, Aqua MODIS, NPP, 0.05 degrees, Global, Science Quality (1day)</att>\n" +
+"        <att name=\"title\">Chlorophyll-a, Aqua MODIS, NPP, 0.05 degrees, Global, Science Quality (1day), 2003-2013</att>\n" +
 "    </addAttributes>\n" +
 "    <axisVariable>\n" +
 "        <sourceName>time</sourceName>\n" +
@@ -846,7 +862,7 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
 "    </dataVariable>\n" +
 "</dataset>\n" +
 "\n" +
-"<sourceUrls serverType=\"thredds\" regex=\".*\" recursive=\"true\" pathRegex=\".*\">http://thredds1.pfeg.noaa.gov/thredds/catalog/Satellite/aggregsatMH/chla/catalog.xml</sourceUrls>\n" +
+"<sourceUrls serverType=\"thredds\" regex=\".*\" recursive=\"true\" pathRegex=\".*\">https://thredds1.pfeg.noaa.gov/thredds/catalog/Satellite/aggregsatMH/chla/catalog.xml</sourceUrls>\n" +
 "\n" +
 "</dataset>\n" +
 "\n";
@@ -861,44 +877,14 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
         //****** test HYRAX
         try {
         results = generateDatasetsXml("hyrax",
-            "http://podaac-opendap.jpl.nasa.gov/opendap/allData/ccmp/L3.5a/monthly/flk/1988/contents.html", 
+            "https://opendap.jpl.nasa.gov/opendap/allData/ccmp/L3.5a/monthly/flk/1988/contents.html", 
             "month_[0-9]{8}_v11l35flk\\.nc\\.gz", //note: v one one L
             1440); 
         expected = 
-"<!--\n" +
-" DISCLAIMER:\n" +
-"   The chunk of datasets.xml made by GenerageDatasetsXml isn't perfect.\n" +
-"   YOU MUST READ AND EDIT THE XML BEFORE USING IT IN A PUBLIC ERDDAP.\n" +
-"   GenerateDatasetsXml relies on a lot of rules-of-thumb which aren't always\n" +
-"   correct.  *YOU* ARE RESPONSIBLE FOR ENSURING THE CORRECTNESS OF THE XML\n" +
-"   THAT YOU ADD TO ERDDAP'S datasets.xml FILE.\n" +
+"<dataset type=\"EDDGridAggregateExistingDimension\" datasetID=\"nasa_jpl_2458_4e43_c52a\" active=\"true\">\n" +
 "\n" +
-" DIRECTIONS:\n" +
-" * Read about this type of dataset in\n" +
-"   http://coastwatch.pfeg.noaa.gov/erddap/download/setupDatasetsXml.html .\n" +
-" * Read http://coastwatch.pfeg.noaa.gov/erddap/download/setupDatasetsXml.html#addAttributes\n" +
-"   so that you understand about sourceAttributes and addAttributes.\n" +
-" * Note: Global sourceAttributes and variable sourceAttributes are listed\n" +
-"   below as comments, for informational purposes only.\n" +
-"   ERDDAP combines sourceAttributes and addAttributes (which have\n" +
-"   precedence) to make the combinedAttributes that are shown to the user.\n" +
-"   (And other attributes are automatically added to longitude, latitude,\n" +
-"   altitude, depth, and time variables).\n" +
-" * If you don't like a sourceAttribute, override it by adding an\n" +
-"   addAttribute with the same name but a different value\n" +
-"   (or no value, if you want to remove it).\n" +
-" * All of the addAttributes are computer-generated suggestions. Edit them!\n" +
-"   If you don't like an addAttribute, change it.\n" +
-" * If you want to add other addAttributes, add them.\n" +
-" * If you want to change a destinationName, change it.\n" +
-"   But don't change sourceNames.\n" +
-" * You can change the order of the dataVariables or remove any of them.\n" +
-"-->\n" +
-"\n" +
-"<dataset type=\"EDDGridAggregateExistingDimension\" datasetID=\"nasa_jpl_790b_dd75_9ec2\" active=\"true\">\n" +
-"\n" +
-"<dataset type=\"EDDGridFromDap\" datasetID=\"nasa_jpl_03ee_a693_74ed\" active=\"true\">\n" +
-"    <sourceUrl>http://podaac-opendap.jpl.nasa.gov/opendap/allData/ccmp/L3.5a/monthly/flk/1988/month_19880101_v11l35flk.nc.gz</sourceUrl>\n" +
+"<dataset type=\"EDDGridFromDap\" datasetID=\"nasa_jpl_ef57_7a3b_e14d\" active=\"true\">\n" +
+"    <sourceUrl>https://opendap.jpl.nasa.gov/opendap/allData/ccmp/L3.5a/monthly/flk/1988/month_19880101_v11l35flk.nc.gz</sourceUrl>\n" +
 "    <reloadEveryNMinutes>1440</reloadEveryNMinutes>\n" +
 "    <!-- sourceAttributes>\n" +
 "        <att name=\"base_date\" type=\"shortList\">1988 1 1</att>\n" +
@@ -910,20 +896,18 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
 "    <addAttributes>\n" +
 "        <att name=\"cdm_data_type\">Grid</att>\n" +
 "        <att name=\"Conventions\">COARDS, CF-1.6, ACDD-1.3</att>\n" +
-"        <att name=\"creator_email\">podaac@podaac.jpl.nasa.gov</att>\n" +
+"        <att name=\"creator_email\">support-podaac@earthdata.nasa.gov</att>\n" +
 "        <att name=\"creator_name\">NASA GSFC MEaSUREs, NOAA</att>\n" +
-"        <att name=\"creator_url\">http://podaac.jpl.nasa.gov/dataset/CCMP_MEASURES_ATLAS_L4_OW_L3_0_WIND_VECTORS_FLK</att>\n" +
-"        <att name=\"infoUrl\">http://podaac-opendap.jpl.nasa.gov/opendap/allData/ccmp/L3.5a/monthly/flk/1988/contents.html</att>\n" +
+"        <att name=\"creator_type\">group</att>\n" +
+"        <att name=\"creator_url\">https://podaac.jpl.nasa.gov/dataset/CCMP_MEASURES_ATLAS_L4_OW_L3_0_WIND_VECTORS_FLK</att>\n" +
+"        <att name=\"infoUrl\">https://opendap.jpl.nasa.gov/opendap/allData/ccmp/L3.5a/monthly/flk/1988/contents.html</att>\n" +
 "        <att name=\"institution\">NASA GSFC, NOAA</att>\n" +
-"        <att name=\"keywords\">atlas, atmosphere,\n" +
-"Atmosphere &gt; Atmospheric Winds &gt; Surface Winds,\n" +
-"Atmosphere &gt; Atmospheric Winds &gt; Wind Stress,\n" +
-"atmospheric, center, component, data, derived, downward, eastward, eastward_wind, flight, flk, goddard, gsfc, level, meters, month, nasa, noaa, nobs, northward, northward_wind, number, observations, oceanography, physical, physical oceanography, pseudostress, space, speed, statistics, stress, surface, surface_downward_eastward_stress, surface_downward_northward_stress, time, u-component, u-wind, upstr, uwnd, v-component, v-wind, v1.1, v11l35flk, vpstr, vwnd, wind, wind_speed, winds, wspd</att>\n" +
+"        <att name=\"keywords\">atlas, atmosphere, atmospheric, center, component, data, derived, downward, earth, Earth Science &gt; Atmosphere &gt; Atmospheric Winds &gt; Surface Winds, Earth Science &gt; Atmosphere &gt; Atmospheric Winds &gt; Wind Stress, eastward, eastward_wind, flight, flk, goddard, gsfc, latitude, level, longitude, meters, month, nasa, noaa, nobs, northward, northward_wind, number, observations, oceanography, physical, physical oceanography, pseudostress, science, space, speed, statistics, stress, surface, surface_downward_eastward_stress, surface_downward_northward_stress, time, u-component, u-wind, upstr, uwnd, v-component, v-wind, v1.1, v11l35flk, vpstr, vwnd, wind, wind_speed, winds, wspd</att>\n" +
 "        <att name=\"keywords_vocabulary\">GCMD Science Keywords</att>\n" +
 "        <att name=\"license\">[standard]</att>\n" +
-"        <att name=\"standard_name_vocabulary\">CF Standard Name Table v29</att>\n" +
+"        <att name=\"standard_name_vocabulary\">CF Standard Name Table v55</att>\n" +
 "        <att name=\"summary\">Time average of level3.0 products for the period: 1988-01-01 to 1988-01-31</att>\n" +
-"        <att name=\"title\">Atlas FLK v1.1 derived surface winds (level 3.5) (month 19880101 v11l35flk)</att>\n" +
+"        <att name=\"title\">Atlas FLK v1.1 derived surface winds (level 3.5) (month 19880101 v11l35flk), 0.25&#xb0;</att>\n" +
 "    </addAttributes>\n" +
 "    <axisVariable>\n" +
 "        <sourceName>time</sourceName>\n" +
@@ -938,6 +922,7 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
 "        <addAttributes>\n" +
 "            <att name=\"ioos_category\">Time</att>\n" +
 "            <att name=\"standard_name\">time</att>\n" +
+"            <att name=\"units\">hours since 1987-01-01T00:00:00.000Z</att>\n" +
 "        </addAttributes>\n" +
 "    </axisVariable>\n" +
 "    <axisVariable>\n" +
@@ -1081,7 +1066,7 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
 "    </dataVariable>\n" +
 "</dataset>\n" +
 "\n" +
-"<sourceUrls serverType=\"hyrax\" regex=\"month_[0-9]{8}_v11l35flk\\.nc\\.gz\" recursive=\"true\" pathRegex=\".*\">http://podaac-opendap.jpl.nasa.gov/opendap/allData/ccmp/L3.5a/monthly/flk/1988/contents.html</sourceUrls>\n" +
+"<sourceUrls serverType=\"hyrax\" regex=\"month_[0-9]{8}_v11l35flk\\.nc\\.gz\" recursive=\"true\" pathRegex=\".*\">https://opendap.jpl.nasa.gov/opendap/allData/ccmp/L3.5a/monthly/flk/1988/contents.html</sourceUrls>\n" +
 "\n" +
 "</dataset>\n" +
 "\n";
@@ -1103,7 +1088,9 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
 
         try {
         StringArray sourceUrls = new StringArray();
-        String dir = "http://www.marine.csiro.au/dods/nph-dods/dods-data/bl/BRAN2.1/bodas/";
+        String dir = "https://opendap.jpl.nasa.gov/opendap/GeodeticsGravity/tellus/L3/ocean_mass/RL05/netcdf/contents.html";
+            //"http://www.marine.csiro.au/dods/nph-dods/dods-data/bl/BRAN2.1/bodas/"; //now requires authorization
+            //"http://dods.marine.usf.edu/dods-bin/nph-dods/modis/";  //but it has no files
         getDodsIndexUrls(dir, "[0-9]{8}\\.bodas_ts\\.nc", true, "", sourceUrls);
 
         Test.ensureEqual(sourceUrls.get(0),   dir + "19921014.bodas_ts.nc", "");
@@ -1112,7 +1099,7 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
         String2.log("EDDGridAggregateExistingDimension.testGetDodsIndexUrls finished successfully.");
         } catch (Throwable t) {
             String2.pressEnterToContinue(MustBe.throwableToString(t) + 
-                "\nUnexpected error."); 
+                "\nKnown problem: CSIRO bodas now requires authorization. No known examples now."); 
         }
     }
 
@@ -1142,7 +1129,7 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
         String ndbcDapQuery = "wind_speed[1:5][0][0]";
         tName = gridDataset.makeNewFileForDapQuery(null, null, ndbcDapQuery, 
             EDStatic.fullTestCacheDirectory, gridDataset.className(), ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         expected = 
 "time, latitude, longitude, wind_speed\n" +
@@ -1157,7 +1144,7 @@ public class EDDGridAggregateExistingDimension extends EDDGrid {
         ndbcDapQuery = "wind_speed[1:5][0][0]";
         tName = gridDataset.makeNewFileForDapQuery(null, null, ndbcDapQuery, EDStatic.fullTestCacheDirectory, 
             gridDataset.className(), ".nc"); 
-        results = NcHelper.dumpString(EDStatic.fullTestCacheDirectory + tName, true);
+        results = NcHelper.ncdump(EDStatic.fullTestCacheDirectory + tName, "");
         int dataPo = results.indexOf("data:");
         String today = Calendar2.getCurrentISODateTimeStringZulu().substring(0, 10);
         expected = 
@@ -1222,7 +1209,7 @@ expected =
 " :history = \"" + today + " http://dods.ndbc.noaa.gov/thredds/dodsC/data/cwind/41002/41002c1989.nc\n" +
 today + " " + EDStatic.erddapUrl + //in tests, always non-https url
 "/griddap/ndbcCWind41002.nc?wind_speed[1:5][0][0]\";\n" +
-" :infoUrl = \"http://www.ndbc.noaa.gov/cwind.shtml\";\n" +
+" :infoUrl = \"https://www.ndbc.noaa.gov/cwind.shtml\";\n" +
 " :institution = \"NOAA NDBC\";\n" +
 " :license = \"The data may be used and redistributed for free but is not intended\n" +
 "for legal use, since it may contain inaccuracies. Neither the data\n" +
@@ -1275,7 +1262,7 @@ today + " " + EDStatic.erddapUrl + //in tests, always non-https url
         ndbcDapQuery = "wind_direction[1:5][0][0]";
         tName = gridDataset.makeNewFileForDapQuery(null, null, ndbcDapQuery, EDStatic.fullTestCacheDirectory, 
             gridDataset.className() + "2", ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         expected = 
 "time, latitude, longitude, wind_direction\n" +
@@ -1290,7 +1277,7 @@ today + " " + EDStatic.erddapUrl + //in tests, always non-https url
         ndbcDapQuery = "wind_speed[1:5][0][0],wind_direction[1:5][0][0]";
         tName = gridDataset.makeNewFileForDapQuery(null, null, ndbcDapQuery, EDStatic.fullTestCacheDirectory, 
             gridDataset.className() + "3", ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         expected = 
 "time, latitude, longitude, wind_speed, wind_direction\n" +
@@ -1305,7 +1292,7 @@ today + " " + EDStatic.erddapUrl + //in tests, always non-https url
         ndbcDapQuery = "wind_direction[1:5][0][0],wind_speed[1:5][0][0]";
         tName = gridDataset.makeNewFileForDapQuery(null, null, ndbcDapQuery, EDStatic.fullTestCacheDirectory, 
             gridDataset.className() + "4", ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         expected = 
 "time, latitude, longitude, wind_direction, wind_speed\n" +
@@ -1319,7 +1306,7 @@ today + " " + EDStatic.erddapUrl + //in tests, always non-https url
 
         tName = gridDataset.makeNewFileForDapQuery(null, null, ndbcDapQuery, EDStatic.fullTestCacheDirectory, 
             gridDataset.className() + "4", ".nc"); 
-        results = NcHelper.dumpString(EDStatic.fullTestCacheDirectory + tName, true);
+        results = NcHelper.ncdump(EDStatic.fullTestCacheDirectory + tName, "");
         dataPo = results.indexOf("data:");
         results = results.substring(dataPo);
         expected = 
@@ -1373,7 +1360,7 @@ today + " " + EDStatic.erddapUrl + //in tests, always non-https url
         ndbcDapQuery = "wind_direction[22232:22239][0][0],wind_speed[22232:22239][0][0]";
         tName = gridDataset.makeNewFileForDapQuery(null, null, ndbcDapQuery, EDStatic.fullTestCacheDirectory, 
             gridDataset.className() + "5", ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         expected = 
 "time, latitude, longitude, wind_direction, wind_speed\n" +
@@ -1392,7 +1379,7 @@ today + " " + EDStatic.erddapUrl + //in tests, always non-https url
         ndbcDapQuery = "wind_direction[22232:2:22239][0][0],wind_speed[22232:2:22239][0][0]";
         tName = gridDataset.makeNewFileForDapQuery(null, null, ndbcDapQuery, EDStatic.fullTestCacheDirectory, 
             gridDataset.className() + "6", ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         expected = 
 "time, latitude, longitude, wind_direction, wind_speed\n" +
@@ -1409,7 +1396,7 @@ today + " " + EDStatic.erddapUrl + //in tests, always non-https url
                            "wind_speed[(2007-12-31T22:40:00):1:(2007-12-31T22:55:00)][0][0]";
         tName = gridDataset.makeNewFileForDapQuery(null, null, ndbcDapQuery, EDStatic.fullTestCacheDirectory, 
             gridDataset.className() + "7", ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         expected = 
 "time, latitude, longitude, wind_direction, wind_speed\n" +
@@ -1439,7 +1426,7 @@ today + " " + EDStatic.erddapUrl + //in tests, always non-https url
         tName = eddGrid.makeNewFileForDapQuery(null, null, 
             "time", EDStatic.fullTestCacheDirectory, 
             eddGrid.className() + "_rtofs", ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         expected = 
 "time\n" +
 "UTC\n" +
@@ -1461,6 +1448,7 @@ today + " " + EDStatic.erddapUrl + //in tests, always non-https url
     public static void test() throws Throwable {
 
         String2.log("\n****************** EDDGridAggregateExistingDimension.test() *****************\n");
+/* for releases, this line should have open/close comment */       
         testGenerateDatasetsXml();
         testBasic();
 

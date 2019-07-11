@@ -14,16 +14,21 @@ package gov.noaa.pfel.erddap.dataset;
 public interface FromErddap { 
 
     /** The version of the source ERDDAP. */
-    public double sourceErddapVersion();
+    public double sourceErddapVersion();  //e.g., 1.76
+    public int intSourceErddapVersion();  //e.g., 176
 
     /**
-     * This returns the source ERDDAP's local url.
+     * This returns the source ERDDAP's local URL.
      */
     public String getLocalSourceErddapUrl();
 
     /**
-     * This returns the source ERDDAP's public url.
+     * This returns the source ERDDAP's public URL.
      */
     public String getPublicSourceErddapUrl();
 
+    /**
+     * This indicates whether user requests should be redirected.
+     */
+    public boolean redirect();
 }

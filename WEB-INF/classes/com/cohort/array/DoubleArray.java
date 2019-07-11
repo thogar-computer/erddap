@@ -24,6 +24,9 @@ import java.util.Set;
  */
 public class DoubleArray extends PrimitiveArray {
 
+    public final static DoubleArray MV9 = new DoubleArray(Math2.COMMON_MV9);
+
+
     /**
      * This is the main data structure.
      * This should be private, but is public so you can manipulate it if you 
@@ -38,7 +41,6 @@ public class DoubleArray extends PrimitiveArray {
      */
     public DoubleArray() {
         array = new double[8];
-
     }
 
     /**
@@ -77,6 +79,13 @@ public class DoubleArray extends PrimitiveArray {
         size = anArray.length;
     }
 
+    /** The minimum value that can be held by this class. */
+    public String MINEST_VALUE() {return "" + -Double.MAX_VALUE;}
+
+    /** The maximum value that can be held by this class 
+        (not including the cohort missing value). */
+    public String MAXEST_VALUE() {return "" + Double.MAX_VALUE;}
+
     /**
      * This returns the current capacity (number of elements) of the internal data array.
      * 
@@ -84,6 +93,12 @@ public class DoubleArray extends PrimitiveArray {
      */
     public int capacity() {
         return array.length;
+    }
+
+    /** This indicates if this class' type is float.class or double.class. 
+     */
+    public boolean isFloatingPointType() {
+        return true;
     }
 
     /**
@@ -96,7 +111,7 @@ public class DoubleArray extends PrimitiveArray {
      */
     public int hashCode() {
         //see https://docs.oracle.com/javase/8/docs/api/java/util/List.html#hashCode()
-        //and http://stackoverflow.com/questions/299304/why-does-javas-hashcode-in-string-use-31-as-a-multiplier
+        //and https://stackoverflow.com/questions/299304/why-does-javas-hashcode-in-string-use-31-as-a-multiplier
         //and java docs for Double.hashCode
         int code = 0;
         for (int i = 0; i < size; i++) {
@@ -110,14 +125,17 @@ public class DoubleArray extends PrimitiveArray {
      * This makes a new subset of this PrimitiveArray based on startIndex, stride,
      * and stopIndex.
      *
+     * @param pa the pa to be filled (may be null). If not null, must be of same type as this class. 
      * @param startIndex must be a valid index
      * @param stride   must be at least 1
      * @param stopIndex (inclusive) If &gt;= size, it will be changed to size-1.
-     * @return a new PrimitiveArray with the desired subset.
-     *    It will have a new backing array with a capacity equal to its size.
+     * @return The same pa (or a new PrimitiveArray if it was null) with the desired subset.
+     *    If new, it will have a backing array with a capacity equal to its size.
      *    If stopIndex &lt; startIndex, this returns PrimitiveArray with size=0;
      */
-    public PrimitiveArray subset(int startIndex, int stride, int stopIndex) {
+    public PrimitiveArray subset(PrimitiveArray pa, int startIndex, int stride, int stopIndex) {
+        if (pa != null)
+            pa.clear();
         if (startIndex < 0)
             throw new IndexOutOfBoundsException(MessageFormat.format(
                 ArraySubsetStart, getClass().getSimpleName(), "" + startIndex));
@@ -127,11 +145,18 @@ public class DoubleArray extends PrimitiveArray {
         if (stopIndex >= size)
             stopIndex = size - 1;
         if (stopIndex < startIndex)
-            return new DoubleArray(new double[0]);
+            return pa == null? new DoubleArray(new double[0]) : pa;
 
         int willFind = strideWillFind(stopIndex - startIndex + 1, stride);
-        Math2.ensureMemoryAvailable(8L * willFind, "DoubleArray"); 
-        double tar[] = new double[willFind];
+        DoubleArray da = null;
+        if (pa == null) {
+            da = new DoubleArray(willFind, true);
+        } else {
+            da = (DoubleArray)pa;
+            da.ensureCapacity(willFind);
+            da.size = willFind;
+        }
+        double tar[] = da.array;
         if (stride == 1) {
             System.arraycopy(array, startIndex, tar, 0, willFind);
         } else {
@@ -139,7 +164,7 @@ public class DoubleArray extends PrimitiveArray {
             for (int i = startIndex; i <= stopIndex; i+=stride) 
                 tar[po++] = array[i];
         }
-        return new DoubleArray(tar);
+        return da;
     }
 
     /**
@@ -186,7 +211,7 @@ public class DoubleArray extends PrimitiveArray {
     /**
      * This adds n copies of value to the array (increasing 'size' by n).
      *
-     * @param n  if less than 0, this throws Exception
+     * @param n  If less than 0, this throws Exception.
      * @param value the value to be added to the array.
      *    n &lt; 0 throws an Exception.
      */
@@ -241,7 +266,8 @@ public class DoubleArray extends PrimitiveArray {
     /**
      * This adds n Strings to the array.
      *
-     * @param n the number of times 'value' should be added
+     * @param n the number of times 'value' should be added.
+     *    If less than 0, this throws Exception.
      * @param value the value, as a String.
      */
     public void addNStrings(int n, String value) {
@@ -269,7 +295,8 @@ public class DoubleArray extends PrimitiveArray {
     /**
      * This adds n doubles to the array.
      *
-     * @param n the number of times 'value' should be added
+     * @param n the number of times 'value' should be added.
+     *    If less than 0, this throws Exception.
      * @param value the value, as a double.
      */
     public void addNDoubles(int n, double value) {
@@ -515,7 +542,7 @@ public class DoubleArray extends PrimitiveArray {
         String sar[] = new String[size];
         for (int i = 0; i < size; i++) {
             double d = array[i];
-            sar[i] = Math2.isFinite(d)? String.valueOf(d) : "";
+            sar[i] = Double.isFinite(d)? String.valueOf(d) : "";
         }
         return sar;
     }
@@ -589,7 +616,7 @@ public class DoubleArray extends PrimitiveArray {
      *   to Double.NaN.
      */
     public void setLong(int index, long i) {
-        set(index, i == Long.MAX_VALUE? Double.NaN : i);
+        set(index, Math2.longToDoubleNaN(i));
     }
 
     /**
@@ -645,7 +672,19 @@ public class DoubleArray extends PrimitiveArray {
      */
     public String getString(int index) {
         double b = get(index);
-        return Math2.isFinite(b)? String.valueOf(b) : "";
+        return Double.isFinite(b)? String.valueOf(b) : "";
+    }
+
+    /**
+     * Return a value from the array as a String suitable for a JSON file. 
+     * char returns a String with 1 character.
+     * String returns a json String with chars above 127 encoded as \\udddd.
+     * 
+     * @param index the index number 0 ... size-1 
+     * @return For numeric types, this returns ("" + ar[index]), or null for NaN or infinity.
+     */
+    public String getJsonString(int index) {
+        return String2.toJson(get(index));
     }
 
     /**
@@ -701,6 +740,8 @@ public class DoubleArray extends PrimitiveArray {
      * @return the index where 'lookFor' is found, or -1 if not found.
      */
     public int indexOf(String lookFor, int startIndex) {
+        if (startIndex >= size)
+            return -1;
         return indexOf(String2.parseDouble(lookFor), startIndex);
     }
 
@@ -753,6 +794,7 @@ public class DoubleArray extends PrimitiveArray {
     /**
      * Test if o is an DoubleArray with the same size and values,
      * but returns a String describing the difference (or "" if equal).
+     * Here NaN in one array equals NaN in another array (whereas Java would say false).
      *
      * @param o
      * @return a String describing the difference (or "" if equal).
@@ -774,7 +816,7 @@ public class DoubleArray extends PrimitiveArray {
                                    "s (from " + other.array[0] + " to " + other.array[other.size() - 1] + ")") +
                ".";
         for (int i = 0; i < size; i++)
-            if (array[i] != other.array[i])
+            if (!Math2.equalsIncludingNanOrInfinite(array[i], other.array[i]))
                 return "The two DoubleArrays aren't equal: this[" + i + "]=" + array[i] + 
                                                        "; other[" + i + "]=" + other.array[i] + ".";
         return "";
@@ -788,6 +830,18 @@ public class DoubleArray extends PrimitiveArray {
      */
     public String toString() {
         return String2.toCSSVString(toArray()); //toArray() gets just 'size' elements
+    }
+
+    /** 
+     * This converts the elements into an NCCSV attribute String, e.g.,: -128b, 127b
+     *
+     * @return an NCCSV attribute String
+     */
+    public String toNccsvAttString() {
+        StringBuilder sb = new StringBuilder(size * 15);
+        for (int i = 0; i < size; i++) 
+            sb.append((i == 0? "" : ",") + array[i] + "d");
+        return sb.toString();
     }
 
     /** 
@@ -848,6 +902,33 @@ public class DoubleArray extends PrimitiveArray {
         for (int i = 0; i < n; i++)
             newArray[i] = array[rank[i]];
         array = newArray;
+    }
+
+    /**
+     * This reverses the order of the bytes in each value,
+     * e.g., if the data was read from a little-endian source.
+     */
+    public void reverseBytes() {
+        for (int i = 0; i < size; i++)
+            //this probably fails for some values since not all bit combos are valid doubles
+            array[i] = Double.longBitsToDouble(Long.reverseBytes(
+                Double.doubleToLongBits(array[i])));
+    }
+
+    /**
+     * This writes 'size' elements to a DataOutputStream.
+     *
+     * @param dos the DataOutputStream
+     * @return the number of bytes used per element (for Strings, this is
+     *    the size of one of the strings, not others, and so is useless;
+     *    for other types the value is consistent).
+     *    But if size=0, this returns 0.
+     * @throws Exception if trouble
+     */
+    public int writeDos(DataOutputStream dos) throws Exception {
+        for (int i = 0; i < size; i++)
+            dos.writeDouble(array[i]);
+        return size == 0? 0 : 8;
     }
 
     /**
@@ -1125,11 +1206,11 @@ public class DoubleArray extends PrimitiveArray {
     public String isAscending() {
         if (size == 0)
             return "";
-        if (!Math2.isFinite(array[0]))
+        if (!Double.isFinite(array[0]))
             return MessageFormat.format(ArrayNotAscending, getClass().getSimpleName(),
                 "[0]=" + array[0]);
         for (int i = 1; i < size; i++) {
-            if (!Math2.isFinite(array[i]))
+            if (!Double.isFinite(array[i]))
                 return MessageFormat.format(ArrayNotAscending, getClass().getSimpleName(),
                     "[" + i + "]=" + array[i]);
             if (array[i - 1] > array[i]) {
@@ -1151,11 +1232,11 @@ public class DoubleArray extends PrimitiveArray {
     public String isDescending() {
         if (size == 0)
             return "";
-        if (!Math2.isFinite(array[0]))
+        if (!Double.isFinite(array[0]))
             return MessageFormat.format(ArrayNotDescending, getClass().getSimpleName(), 
                 "[0]=" + array[0]);
         for (int i = 1; i < size; i++) {
-            if (!Math2.isFinite(array[i]))
+            if (!Double.isFinite(array[i]))
                 return MessageFormat.format(ArrayNotDescending, getClass().getSimpleName(), 
                     "[" + i + "]=" + array[i]);
             if (array[i - 1] < array[i]) {
@@ -1218,12 +1299,6 @@ public class DoubleArray extends PrimitiveArray {
         return "";
     }
 
-    /** This returns the minimum value that can be held by this class. */
-    public String minValue() {return "" + -Double.MAX_VALUE;}
-
-    /** This returns the maximum value that can be held by this class. */
-    public String maxValue() {return "" + Double.MAX_VALUE;}
-
     /**
      * This finds the number of non-missing values, and the index of the min and
      *    max value.
@@ -1238,7 +1313,7 @@ public class DoubleArray extends PrimitiveArray {
         double tmax = -Double.MAX_VALUE;
         for (int i = 0; i < size; i++) {
             double v = array[i];
-            if (Math2.isFinite(v)) {
+            if (Double.isFinite(v)) {
                 n++;
                 if (v <= tmin) {tmini = i; tmin = v; }
                 if (v >= tmax) {tmaxi = i; tmax = v; }
@@ -1248,6 +1323,55 @@ public class DoubleArray extends PrimitiveArray {
     }
 
 
+    /**
+     * Assuming this is an ascending sorted array of "seconds since 1970-01-01T00:00:00Z" values,
+     * this returns a String with a list of gaps larger than the median or gap=NaN (one per line).
+     * The values of this array won't be changed.
+     *
+     * @return a descriptive String with a list of gaps larger than the median 
+     *    (one per line, with info at the top and with a trailing newline),
+     *  There will be a results line for any gaps that are NaN.
+     *  If the median is NaN, this will return a list of gaps that are NaN.
+     */
+    public String findTimeGaps() {
+
+        if (size <= 2)
+            return "Time gaps: (none, because nTimeValues=" + size + ")\n" +
+                   "nGaps=0\n";
+
+        //find median 
+        DoubleArray gaps = new DoubleArray(size - 1, false);
+        for (int i = 1; i < size; i++)  //1 because looking back
+            gaps.add(array[i] - array[i-1]);
+        gaps.sort();
+        int size1o2 = (size - 1) / 2;
+        double median = (size-1) % 2 == 0?  //even number of gaps?
+            (gaps.get(size1o2) + gaps.get(size1o2 + 1)) / 2.0 : //average of 2 values
+            gaps.get(size1o2);
+        gaps = null; //allow gc
+
+        //look for gaps that are NaN or > median
+        StringBuilder sb = new StringBuilder("Time gaps greater than the median (" + 
+            Calendar2.elapsedTimeString(median * 1000)+ "):");
+        int count = 0;
+        for (int i = 1; i < size; i++) { //1 because looking back
+            double gap = array[i] - array[i-1];
+            if (!Double.isFinite(gap) || gap > median) {
+                if (count++ == 0) 
+                    sb.append('\n');
+                sb.append("[" + (i-1) + "]=" + 
+                    Calendar2.safeEpochSecondsToIsoStringTZ(array[i-1], "(NaN)") +
+                    " -> [" + i + "]=" + 
+                    Calendar2.safeEpochSecondsToIsoStringTZ(array[i  ], "(NaN)") +
+                    ", gap=" + Calendar2.elapsedTimeString(gap * 1000) + "\n");
+            }
+        }
+        if (count == 0)
+            sb.append(" (none)\n");
+        sb.append("nGaps=" + count + "\n");
+        return sb.toString();
+    }
+       
 
     /**
      * This tests the methods of this class.
@@ -1256,6 +1380,7 @@ public class DoubleArray extends PrimitiveArray {
      */
     public static void test() throws Throwable{
         String2.log("*** Testing DoubleArray");
+/* for releases, this line should have open/close comment */
 
         //** test default constructor and many of the methods
         DoubleArray anArray = new DoubleArray();
@@ -1627,6 +1752,16 @@ public class DoubleArray extends PrimitiveArray {
         ss = anArray.subset(1, 1, 0);
         Test.ensureEqual(ss.toString(), "", "");
 
+        ss.trimToSize();
+        anArray.subset(ss, 1, 3, 4);
+        Test.ensureEqual(ss.toString(), "5.0, 19.0", "");
+        anArray.subset(ss, 0, 1, 0);
+        Test.ensureEqual(ss.toString(), "25.0", "");
+        anArray.subset(ss, 0, 1, -1);
+        Test.ensureEqual(ss.toString(), "", "");
+        anArray.subset(ss, 1, 1, 0);
+        Test.ensureEqual(ss.toString(), "", "");
+
         //evenlySpaced
         String2.log("\nevenlySpaced test #1");
         anArray = new DoubleArray(new double[] {10,20,30});
@@ -1702,11 +1837,18 @@ public class DoubleArray extends PrimitiveArray {
 
         //min max
         anArray = new DoubleArray();
-        anArray.addString(anArray.minValue());
-        anArray.addString(anArray.maxValue());
-        Test.ensureEqual(anArray.getString(0), anArray.minValue(), "");
+        anArray.addString(anArray.MINEST_VALUE());
+        anArray.addString(anArray.MAXEST_VALUE());
+        Test.ensureEqual(anArray.getString(0), anArray.MINEST_VALUE(), "");
         Test.ensureEqual(anArray.getString(0), "-1.7976931348623157E308", "");
-        Test.ensureEqual(anArray.getString(1), anArray.maxValue(), "");
+        Test.ensureEqual(anArray.getString(1), anArray.MAXEST_VALUE(), "");
+
+        //tryToFindNumericMissingValue() 
+        Test.ensureEqual((new DoubleArray(new double[] {       })).tryToFindNumericMissingValue(), Double.NaN, "");
+        Test.ensureEqual((new DoubleArray(new double[] {1, 2   })).tryToFindNumericMissingValue(), Double.NaN, "");
+        Test.ensureEqual((new DoubleArray(new double[] {-1e300})).tryToFindNumericMissingValue(), -1e300, "");
+        Test.ensureEqual((new DoubleArray(new double[] {1e300 })).tryToFindNumericMissingValue(),  1e300, "");
+        Test.ensureEqual((new DoubleArray(new double[] {1, 99  })).tryToFindNumericMissingValue(),   99, "");
     }
 
 }

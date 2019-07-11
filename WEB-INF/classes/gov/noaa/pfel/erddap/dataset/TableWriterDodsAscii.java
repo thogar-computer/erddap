@@ -4,6 +4,8 @@
  */
 package gov.noaa.pfel.erddap.dataset;
 
+import com.cohort.array.CharArray;
+import com.cohort.array.PrimitiveArray;
 import com.cohort.util.Calendar2;
 import com.cohort.util.MustBe;
 import com.cohort.util.SimpleException;
@@ -14,8 +16,10 @@ import gov.noaa.pfel.coastwatch.pointdata.Table;
 import gov.noaa.pfel.erddap.util.EDStatic;
 import gov.noaa.pfel.erddap.variable.EDV;
 
+import java.io.BufferedWriter;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
+import java.io.Writer;
 
 /**
  * TableWriterDodsAscii provides a way to write a table to a DAP .asc format
@@ -33,8 +37,8 @@ public class TableWriterDodsAscii extends TableWriter {
     protected String sequenceName;
 
     //set by firstTime
-    protected boolean isStringCol[];
-    protected OutputStreamWriter writer;
+    protected boolean isCharOrString[];
+    protected Writer writer;
 
     public long totalNRows = 0;
 
@@ -61,11 +65,10 @@ public class TableWriterDodsAscii extends TableWriter {
      * The number of columns, the column names, and the types of columns 
      *   must be the same each time this is called.
      *
-     * <p>The table should have missing values stored as destinationMissingValues
-     * or destinationFillValues.
-     * This implementation doesn't change them.
-     *
-     * @param table with destinationValues
+     * @param table with destinationValues.
+     *   The table should have missing values stored as destinationMissingValues
+     *   or destinationFillValues.
+     *   This implementation doesn't change them.
      * @throws Throwable if trouble
      */
     public void writeSome(Table table) throws Throwable {
@@ -76,8 +79,12 @@ public class TableWriterDodsAscii extends TableWriter {
         boolean firstTime = columnNames == null;
         ensureCompatible(table);
 
-        //do firstTime stuff
         int nColumns = table.nColumns();
+        PrimitiveArray pas[] = new PrimitiveArray[nColumns];
+        for (int col = 0; col < nColumns; col++) 
+            pas[col] = table.getColumn(col);
+
+        //do firstTime stuff
         int nRows = table.nRows();
         if (firstTime) {
 
@@ -86,15 +93,17 @@ public class TableWriterDodsAscii extends TableWriter {
             table.saveAsDDS(outputStream, sequenceName);  
 
             //see OpendapHelper.EOL for comments
-            writer = new OutputStreamWriter(outputStream,
-                "ISO-8859-1"); //DAP 2.0 section 3.2.3 says US-ASCII (7bit), so might as well go for compatible common 8bit
+            writer = new BufferedWriter(new OutputStreamWriter(outputStream,
+                String2.ISO_8859_1)); //DAP 2.0 section 3.2.3 says US-ASCII (7bit), so might as well go for compatible common 8bit
             writer.write("---------------------------------------------" + 
                 OpendapHelper.EOL); //this exactly mimics the example
 
             //write the column names
-            isStringCol = new boolean[nColumns];
+            isCharOrString = new boolean[nColumns];
             for (int col = 0; col < nColumns; col++) {
-                isStringCol[col] = table.getColumn(col).elementClass() == String.class;
+                isCharOrString[col] = 
+                    pas[col].elementClass() == char.class ||
+                    pas[col].elementClass() == String.class;
                 writer.write(sequenceName + "." + table.getColumnName(col) +
                     (col == nColumns - 1? OpendapHelper.EOL : ", "));
             }
@@ -111,10 +120,14 @@ public class TableWriterDodsAscii extends TableWriter {
         //write elements of the sequence, in dds order
         for (int row = 0; row < nRows; row++) {
             for (int col = 0; col < nColumns; col++) {
-                String s = table.getColumn(col).getString(row);
-                if (isStringCol[col]) //see DODS Appendix A, quoted-string
+                String s = pas[col].getString(row);
+                if (isCharOrString[col]) {
+                    //see DODS Appendix A, quoted-string, with \\ and \"
+                    s = String2.replaceAll(s, "\\", "\\\\");
                     s = "\"" + String2.replaceAll(s, "\"", "\\\"") + "\"";
-                writer.write(s + (col == nColumns - 1? OpendapHelper.EOL : ", "));
+                }
+                writer.write(s);
+                writer.write(col == nColumns - 1? OpendapHelper.EOL : ", ");
             }
         }
 
@@ -144,7 +157,7 @@ public class TableWriterDodsAscii extends TableWriter {
         //diagnostic
         if (verbose)
             String2.log("TableWriterDodsAscii done. TIME=" + 
-                (System.currentTimeMillis() - time) + "\n");
+                (System.currentTimeMillis() - time) + "ms\n");
 
     }
 

@@ -92,6 +92,8 @@ public class EDDTableFromFileNames extends EDDTable{
         Attributes tGlobalAttributes = null;
         ArrayList tDataVariables = new ArrayList();
         int tReloadEveryNMinutes = Integer.MAX_VALUE;
+        //this doesn't support updateEveryNMillis because (unless remote dir, which is cached)
+        //  this always gets file info anew for every request.
         String tAccessibleTo = null;
         String tGraphsAccessibleTo = null;
         String tFileDir = null;
@@ -183,13 +185,13 @@ public class EDDTableFromFileNames extends EDDTable{
      * constructor.
      *
      * @param tDatasetID is a very short string identifier 
-     *   (required: just safe characters: A-Z, a-z, 0-9, _, -, or .)
+     *  (recommended: [A-Za-z][A-Za-z0-9_]* )
      *   for this dataset. See EDD.datasetID().
      * @param tAccessibleTo is a comma separated list of 0 or more
      *    roles which will have access to this dataset.
      *    <br>If null, everyone will have access to this dataset (even if not logged in).
      *    <br>If "", no one will have access to this dataset.
-     * @param tOnChange 0 or more actions (starting with "http://" or "mailto:")
+     * @param tOnChange 0 or more actions (starting with http://, https://, or mailto: )
      *    to be done whenever the dataset changes significantly
      * @param tFgdcFile This should be the fullname of a file with the FGDC
      *    that should be used for this dataset, or "" (to cause ERDDAP not
@@ -229,10 +231,10 @@ public class EDDTableFromFileNames extends EDDTable{
      *        describing how to interpret source time values 
      *        (which should always be numeric since they are a dimension of a grid)
      *        (e.g., "seconds since 1970-01-01T00:00:00").
-     *      <li> a org.joda.time.format.DateTimeFormat string
+     *      <li> a java.time.format.DateTimeFormatter string
      *        (which is compatible with java.text.SimpleDateFormat) describing how to interpret 
      *        string times  (e.g., the ISO8601TZ_FORMAT "yyyy-MM-dd'T'HH:mm:ssZ", see 
-     *        http://www.joda.org/joda-time/apidocs/org/joda/time/format/DateTimeFormat.html or 
+     *        https://docs.oracle.com/javase/8/docs/api/index.html?java/time/format/DateTimeFomatter.html or 
      *        https://docs.oracle.com/javase/8/docs/api/index.html?java/text/SimpleDateFormat.html)).
      *      </ul>
      * @param tReloadEveryNMinutes indicates how often the source should
@@ -296,7 +298,7 @@ public class EDDTableFromFileNames extends EDDTable{
         if (tLicense != null)
             combinedGlobalAttributes.set("license", 
                 String2.replaceAll(tLicense, "[standard]", EDStatic.standardLicense));
-        combinedGlobalAttributes.removeValue("null");
+        combinedGlobalAttributes.removeValue("\"null\"");
 
         //useCachedInfo?
         Table tCachedDNLSTable = null;
@@ -314,7 +316,7 @@ public class EDDTableFromFileNames extends EDDTable{
                 long tCreationTime = File2.getLastModified(qrName); //0 if trouble
                 if (verbose)
                     String2.log("  quickRestart " + tDatasetID + " previous=" + 
-                        Calendar2.millisToIsoZuluString(tCreationTime) + "Z");
+                        Calendar2.millisToIsoStringTZ(tCreationTime));
 
                 //use cached info
                 tCachedDNLSTable = getCachedDNLSTable();
@@ -471,9 +473,9 @@ public class EDDTableFromFileNames extends EDDTable{
 
         //finally
         if (verbose) String2.log(
-            (reallyVerbose? "\n" + toString() : "") +
+            (debugMode? "\n" + toString() : "") +
             "\n*** EDDTableFromFileNames " + datasetID + " constructor finished. TIME=" + 
-            (System.currentTimeMillis() - constructionStartMillis) + "\n"); 
+            (System.currentTimeMillis() - constructionStartMillis) + "ms\n"); 
 
     }
 
@@ -491,7 +493,7 @@ public class EDDTableFromFileNames extends EDDTable{
      */
     public Table getCachedDNLSTable() throws Exception {
         Table table = new Table();
-        table.readFlatNc(quickRestartFullFileName(), null, 0); 
+        table.readFlatNc(quickRestartFullFileName(), null, 0); //standardizeWhat=0 
         table.setColumn(2, new LongArray(table.getColumn(2))); //double -> long
         table.setColumn(3, new LongArray(table.getColumn(3))); //double -> long
         return table;
@@ -629,8 +631,16 @@ public class EDDTableFromFileNames extends EDDTable{
         String tInfoUrl, String tInstitution, String tSummary, String tTitle,
         Attributes externalGlobalAttributes) throws Throwable {
 
-        String2.log("EDDTableFromFileNames.generateDatasetsXml" +
-            "\n  tFileDir=" + tFileDir);
+        String2.log("\n*** EDDTableFromFileNames.generateDatasetsXml" +
+            "\nfileDir=" + tFileDir + " fileNameRegex=" + tFileNameRegex +
+            " recursive=" + tRecursive +
+            " reloadEveryNMinutes=" + tReloadEveryNMinutes +
+            "\ninfoUrl=" + tInfoUrl + 
+            "\ninstitution=" + tInstitution +
+            "\nsummary=" + tSummary +
+            "\ntitle=" + tTitle +
+            "\nexternalGlobalAttributes=" + externalGlobalAttributes);
+
         if (!String2.isSomething(tFileDir))
             throw new IllegalArgumentException("fileDir wasn't specified.");
         tFileDir = File2.addSlash(String2.replaceAll(tFileDir, '\\', '/')); //important for consistency with urls for users
@@ -660,6 +670,7 @@ public class EDDTableFromFileNames extends EDDTable{
             .add("infoUrl",     String2.isSomething(tInfoUrl    )? tInfoUrl     : "???")
             .add("institution", String2.isSomething(tInstitution)? tInstitution : "???")
             .add("sourceUrl", "(" + (tFilesAreLocal? "local" : "remote") + " files)")
+            .add("subsetVariables", "fileType")
             .add("summary",     String2.isSomething(tSummary    )? tSummary     : "???")
             .add("title",       String2.isSomething(tTitle      )? tTitle       : "???");
         int nCols = sourceTable.nColumns();
@@ -680,8 +691,6 @@ public class EDDTableFromFileNames extends EDDTable{
         //write the information
         StringBuilder sb = new StringBuilder();
         sb.append(
-            directionsForGenerateDatasetsXml() +
-            "-->\n\n" +
             "<dataset type=\"EDDTableFromFileNames\" datasetID=\"" + tDatasetID + 
                 "\" active=\"true\">\n" +
             "    <fileDir>" + XML.encodeAsXML(tFileDir) + "</fileDir>\n" +
@@ -693,15 +702,26 @@ public class EDDTableFromFileNames extends EDDTable{
         sb.append(writeAttsForDatasetsXml(true,     addTable.globalAttributes(), "    "));
         sb.append(writeVariablesForDatasetsXml(sourceTable, addTable, 
             "dataVariable", 
-            true, false, false)); //includeDataType, tryToFindLLAT, questionDestinationName
+            true, false)); //includeDataType, questionDestinationName
         sb.append(
+"    <dataVariable>\n" +
+"        <sourceName>fileType</sourceName>\n" +
+"        <destinationName>fileType</destinationName>\n" +
+"        <dataType>String</dataType>\n" +
+"        <addAttributes>\n" +
+"            <att name=\"extractRegex\">.*(\\..+?)</att>\n" +
+"            <att name=\"extractGroup\" type=\"int\">1</att>\n" +
+"            <att name=\"ioos_category\">Identifier</att>\n" +
+"            <att name=\"long_name\">File Type</att>\n" +
+"        </addAttributes>\n" +
+"    </dataVariable>\n" +
 "    <!-- You can create other variables which are derived from extracts\n" +
 "         from the file names.  Use an extractRegex attribute to specify a\n" +
 "         regular expression with a capturing group (in parentheses). The\n" +
 "         part of the file name which matches the specified capturing group\n" +
 "         (usually group #1) will be extracted to make the new data variable.\n" +
-"         Below are examples showing how to extract a date and how to extract\n" +
-"         an integer.\n" +
+"         fileType above shows how to extract a String. Below are examples\n" +
+"         showing how to extract a date, and how to extract an integer.\n" +
 "    <dataVariable>\n" +
 "        <sourceName>time</sourceName>\n" +
 "        <destinationName>time</destinationName>\n" +
@@ -748,9 +768,6 @@ public class EDDTableFromFileNames extends EDDTable{
         //datasetID changes with different unitTestDataDir
         String tDatasetID = "fileNames_e21d_ef79_13da";
 String expected = 
-directionsForGenerateDatasetsXml() +
-"-->\n" +
-"\n" +
 "<dataset type=\"EDDTableFromFileNames\" datasetID=\"" + tDatasetID + "\" active=\"true\">\n" +
 "    <fileDir>" + tDir + "/</fileDir>\n" +
 "    <fileNameRegex>.*\\.png</fileNameRegex>\n" +
@@ -769,6 +786,7 @@ directionsForGenerateDatasetsXml() +
 "        <att name=\"institution\">" + tInstitution + "</att>\n" +
 "        <att name=\"keywords\">data, file, high, identifier, images, jet, jpl, laboratory, lastModified, modified, multi, multi-scale, mur, name, nasa, propulsion, resolution, scale, sea, size, sst, surface, temperature, time, ultra, ultra-high</att>\n" +
 "        <att name=\"sourceUrl\">(local files)</att>\n" +
+"        <att name=\"subsetVariables\">fileType</att>\n" +
 "        <att name=\"summary\">" + tSummary + "</att>\n" +
 "        <att name=\"title\">" + tTitle + "</att>\n" +
 "    </addAttributes>\n" +
@@ -818,13 +836,24 @@ directionsForGenerateDatasetsXml() +
 "        <addAttributes>\n" +
 "        </addAttributes>\n" +
 "    </dataVariable>\n" +
+"    <dataVariable>\n" +
+"        <sourceName>fileType</sourceName>\n" +
+"        <destinationName>fileType</destinationName>\n" +
+"        <dataType>String</dataType>\n" +
+"        <addAttributes>\n" +
+"            <att name=\"extractRegex\">.*(\\..+?)</att>\n" +
+"            <att name=\"extractGroup\" type=\"int\">1</att>\n" +
+"            <att name=\"ioos_category\">Identifier</att>\n" +
+"            <att name=\"long_name\">File Type</att>\n" +
+"        </addAttributes>\n" +
+"    </dataVariable>\n" +
 "    <!-- You can create other variables which are derived from extracts\n" +
 "         from the file names.  Use an extractRegex attribute to specify a\n" +
 "         regular expression with a capturing group (in parentheses). The\n" +
 "         part of the file name which matches the specified capturing group\n" +
 "         (usually group #1) will be extracted to make the new data variable.\n" +
-"         Below are examples showing how to extract a date and how to extract\n" +
-"         an integer.\n" +
+"         fileType above shows how to extract a String. Below are examples\n" +
+"         showing how to extract a date, and how to extract an integer.\n" +
 "    <dataVariable>\n" +
 "        <sourceName>time</sourceName>\n" +
 "        <destinationName>time</destinationName>\n" +
@@ -855,18 +884,20 @@ directionsForGenerateDatasetsXml() +
         String gdxResults = (new GenerateDatasetsXml()).doIt(new String[]{"-verbose", 
             "EDDTableFromFileNames",
             tDir, tRegex, "" + tRecursive, "-1", 
-            tInfoUrl, tInstitution, tSummary, tTitle},
+            tInfoUrl, tInstitution, tSummary, tTitle, 
+            "-1"}, //defaultStandardizeWhat
             false); //doIt loop?
         Test.ensureEqual(gdxResults, results, 
             "Unexpected results from GenerateDatasetsXml.doIt.");
 
         //ensure it is ready-to-use by making a dataset from it
         String2.log("results=\n" + results);
+        EDD.deleteCachedDatasetInfo(tDatasetID);
         EDD edd = oneFromXmlFragment(null, results);
         Test.ensureEqual(edd.datasetID(), tDatasetID, "");
         Test.ensureEqual(edd.title(), tTitle, "");
         Test.ensureEqual(String2.toCSSVString(edd.dataVariableDestinationNames()), 
-            "url, name, lastModified, size",
+            "url, name, lastModified, size, fileType",
             "");
         String2.log("\n*** EDDTableFromFileNames.testGenerateDatasetsXml() finished successfully.");
     }
@@ -894,9 +925,6 @@ directionsForGenerateDatasetsXml() +
         String tTitle = "My Great Title";
         String tDatasetID = "s3nasanex_803b_6c09_f004";
 String expected = 
-directionsForGenerateDatasetsXml() +
-"-->\n" +
-"\n" +
 "<dataset type=\"EDDTableFromFileNames\" datasetID=\"" + tDatasetID + "\" active=\"true\">\n" +
 "    <fileDir>" + tDir + "/</fileDir>\n" +
 "    <fileNameRegex>" + tRegex + "</fileNameRegex>\n" +
@@ -915,6 +943,7 @@ directionsForGenerateDatasetsXml() +
 "        <att name=\"institution\">" + tInstitution + "</att>\n" +
 "        <att name=\"keywords\">data, earth, exchange, file, great, identifier, lastModified, modified, name, nasa, size, time, title</att>\n" +
 "        <att name=\"sourceUrl\">(remote files)</att>\n" +
+"        <att name=\"subsetVariables\">fileType</att>\n" +
 "        <att name=\"summary\">" + tSummary + "</att>\n" +
 "        <att name=\"title\">" + tTitle + "</att>\n" +
 "    </addAttributes>\n" +
@@ -964,13 +993,24 @@ directionsForGenerateDatasetsXml() +
 "        <addAttributes>\n" +
 "        </addAttributes>\n" +
 "    </dataVariable>\n" +
+"    <dataVariable>\n" +
+"        <sourceName>fileType</sourceName>\n" +
+"        <destinationName>fileType</destinationName>\n" +
+"        <dataType>String</dataType>\n" +
+"        <addAttributes>\n" +
+"            <att name=\"extractRegex\">.*(\\..+?)</att>\n" +
+"            <att name=\"extractGroup\" type=\"int\">1</att>\n" +
+"            <att name=\"ioos_category\">Identifier</att>\n" +
+"            <att name=\"long_name\">File Type</att>\n" +
+"        </addAttributes>\n" +
+"    </dataVariable>\n" +
 "    <!-- You can create other variables which are derived from extracts\n" +
 "         from the file names.  Use an extractRegex attribute to specify a\n" +
 "         regular expression with a capturing group (in parentheses). The\n" +
 "         part of the file name which matches the specified capturing group\n" +
 "         (usually group #1) will be extracted to make the new data variable.\n" +
-"         Below are examples showing how to extract a date and how to extract\n" +
-"         an integer.\n" +
+"         fileType above shows how to extract a String. Below are examples\n" +
+"         showing how to extract a date, and how to extract an integer.\n" +
 "    <dataVariable>\n" +
 "        <sourceName>time</sourceName>\n" +
 "        <destinationName>time</destinationName>\n" +
@@ -1001,18 +1041,20 @@ directionsForGenerateDatasetsXml() +
         String gdxResults = (new GenerateDatasetsXml()).doIt(new String[]{"-verbose", 
             "EDDTableFromFileNames",
             tDir, tRegex, "" + tRecursive, "-1", 
-            tInfoUrl, tInstitution, tSummary, tTitle},
+            tInfoUrl, tInstitution, tSummary, tTitle,
+            "-1"}, //defaultStandardizeWhat
             false); //doIt loop?
         Test.ensureEqual(gdxResults, results, 
             "Unexpected results from GenerateDatasetsXml.doIt.");
 
         //ensure it is ready-to-use by making a dataset from it
         String2.log("results=\n" + results);
+        EDD.deleteCachedDatasetInfo(tDatasetID);
         EDD edd = oneFromXmlFragment(null, results);
         Test.ensureEqual(edd.datasetID(), tDatasetID, "");
         Test.ensureEqual(edd.title(), tTitle, "");
         Test.ensureEqual(String2.toCSSVString(edd.dataVariableDestinationNames()), 
-            "url, name, lastModified, size",
+            "url, name, lastModified, size, fileType",
             "");
 
         String2.log("\n*** EDDTableFromFileNames.testGenerateDatasetsXmlAwsS3() finished successfully.");
@@ -1037,7 +1079,7 @@ directionsForGenerateDatasetsXml() +
         //.dds
         tName = tedd.makeNewFileForDapQuery(null, null, "", dir, 
             tedd.className() + "_all", ".dds"); 
-        results = new String((new ByteArray(dir + tName)).toArray());
+        results = String2.directReadFrom88591File(dir + tName);
         expected = 
 "Dataset {\n" +
 "  Sequence {\n" +
@@ -1048,6 +1090,7 @@ directionsForGenerateDatasetsXml() +
 "    Int32 day;\n" +
 "    Float64 lastModified;\n" +
 "    Float64 size;\n" +
+"    String fileType;\n" +         
 "  } s;\n" +
 "} s;\n";
         Test.ensureEqual(results, expected, "results=\n" + results);
@@ -1055,7 +1098,7 @@ directionsForGenerateDatasetsXml() +
         //.das
         tName = tedd.makeNewFileForDapQuery(null, null, "", dir, 
             tedd.className() + "_all", ".das"); 
-        results = new String((new ByteArray(dir + tName)).toArray());
+        results = String2.directReadFrom88591File(dir + tName);
         expected = 
 "Attributes \\{\n" +
 " s \\{\n" +
@@ -1095,31 +1138,43 @@ directionsForGenerateDatasetsXml() +
 "    String long_name \"Size\";\n" +
 "    String units \"bytes\";\n" +
 "  \\}\n" +
+"  fileType \\{\n" +         
+"    String ioos_category \"Identifier\";\n" +
+"    String long_name \"File Type\";\n" +
+"  \\}\n" +
 " \\}\n" +
 "  NC_GLOBAL \\{\n" +
 "    String cdm_data_type \"Other\";\n" +
 "    String history \".{19}Z \\(local files\\)\n" +
 ".{19}Z http://localhost:8080/cwexperimental/tabledap/testFileNames.das\";\n" +
-"    String infoUrl \"http://www.pfeg.noaa.gov/\";\n" +
+"    String infoUrl \"https://www.pfeg.noaa.gov/\";\n" +
 "    String institution \"NASA JPL\";\n" +
 "    String keywords \"file, images, jpl, modified, mur, name, nasa, size, sst, time, URL\";\n" +
+"    String license \"The data may be used and redistributed for free but is not intended\n" +
+"for legal use, since it may contain inaccuracies. Neither the data\n" +
+"Contributor, ERD, NOAA, nor the United States Government, nor any\n" +
+"of their employees or contractors, makes any warranty, express or\n" +
+"implied, including warranties of merchantability and fitness for a\n" +
+"particular purpose, or assumes any legal liability for the accuracy,\n" +
+"completeness, or usefulness, of this information.\";\n" +
 "    String sourceUrl \"\\(local files\\)\";\n" +
+"    String subsetVariables \"fileType\";\n" +
 "    String summary \"Images from JPL MUR SST Daily.\";\n" +
 "    String title \"JPL MUR SST Images\";\n" +
 "  \\}\n" +
 "\\}\n";
-        Test.ensureLinesMatch(results, expected, "results=\n" + results);
+        Test.repeatedlyTestLinesMatch(results, expected, "results=\n" + results);
 
         //get all as .csv
         tName = tedd.makeNewFileForDapQuery(null, null, "", dir, 
             tedd.className() + "_all", ".csv"); 
-        results = new String((new ByteArray(dir + tName)).toArray());
+        results = String2.directReadFrom88591File(dir + tName);
         expected = 
-"five,url,name,time,day,lastModified,size\n" +
-"m,,,UTC,,UTC,bytes\n" +
-"5.0,http://localhost:8080/cwexperimental/files/testFileNames/jplMURSST20150103090000.png,jplMURSST20150103090000.png,2015-01-03T09:00:00Z,3,2015-01-14T22:54:04Z,46482.0\n" +
-"5.0,http://localhost:8080/cwexperimental/files/testFileNames/jplMURSST20150104090000.png,jplMURSST20150104090000.png,2015-01-04T09:00:00Z,4,2015-01-07T22:22:18Z,46586.0\n" +
-"5.0,http://localhost:8080/cwexperimental/files/testFileNames/sub/jplMURSST20150105090000.png,jplMURSST20150105090000.png,2015-01-05T09:00:00Z,5,2015-01-07T22:21:44Z,46549.0\n";
+"five,url,name,time,day,lastModified,size,fileType\n" +
+"m,,,UTC,,UTC,bytes,\n" +
+"5.0,http://localhost:8080/cwexperimental/files/testFileNames/jplMURSST20150103090000.png,jplMURSST20150103090000.png,2015-01-03T09:00:00Z,3,2015-01-14T21:54:04Z,46482.0,.png\n" +
+"5.0,http://localhost:8080/cwexperimental/files/testFileNames/jplMURSST20150104090000.png,jplMURSST20150104090000.png,2015-01-04T09:00:00Z,4,2015-01-07T21:22:18Z,46586.0,.png\n" +
+"5.0,http://localhost:8080/cwexperimental/files/testFileNames/sub/jplMURSST20150105090000.png,jplMURSST20150105090000.png,2015-01-05T09:00:00Z,5,2015-01-07T21:21:44Z,46549.0,.png\n";
         Test.ensureEqual(results, expected, "results=\n" + results);
 
         //test that min and max are being set by the constructor
@@ -1132,8 +1187,8 @@ directionsForGenerateDatasetsXml() +
         Test.ensureEqual(edv.destinationMax(), 5, "max");
 
         edv = tedd.findVariableByDestinationName("lastModified");
-        Test.ensureEqual(edv.destinationMinString(), "2015-01-07T22:21:44Z", "min");
-        Test.ensureEqual(edv.destinationMaxString(), "2015-01-14T22:54:04Z", "max");
+        Test.ensureEqual(edv.destinationMinString(), "2015-01-07T21:21:44Z", "min"); //2018-08-09 these changed by 1 hr with switch to lenovo
+        Test.ensureEqual(edv.destinationMaxString(), "2015-01-14T21:54:04Z", "max");
 
         edv = tedd.findVariableByDestinationName("size");
         Test.ensureEqual(edv.destinationMin(), 46482, "min");
@@ -1142,7 +1197,7 @@ directionsForGenerateDatasetsXml() +
         //a constraint on an extracted variable, and fewer results variables
         tName = tedd.makeNewFileForDapQuery(null, null, "name,day,size&day=4", dir, 
             tedd.className() + "_all", ".csv"); 
-        results = new String((new ByteArray(dir + tName)).toArray());
+        results = String2.directReadFrom88591File(dir + tName);
         expected = 
 "name,day,size\n" +
 ",,bytes\n" +
@@ -1171,7 +1226,7 @@ directionsForGenerateDatasetsXml() +
         //.dds
         tName = tedd.makeNewFileForDapQuery(null, null, "", dir, 
             tedd.className() + "_all", ".dds"); 
-        results = new String((new ByteArray(dir + tName)).toArray());
+        results = String2.directReadFrom88591File(dir + tName);
         expected = 
 "Dataset {\n" +
 "  Sequence {\n" +
@@ -1182,6 +1237,7 @@ directionsForGenerateDatasetsXml() +
 "    Float64 endMonth;\n" +
 "    Float64 lastModified;\n" +
 "    Float64 size;\n" +
+"    String fileType;\n" +
 "  } s;\n" +
 "} s;\n";
         Test.ensureEqual(results, expected, "results=\n" + results);
@@ -1189,7 +1245,7 @@ directionsForGenerateDatasetsXml() +
         //.das
         tName = tedd.makeNewFileForDapQuery(null, null, "", dir, 
             tedd.className() + "_all", ".das"); 
-        results = new String((new ByteArray(dir + tName)).toArray());
+        results = String2.directReadFrom88591File(dir + tName);
         expected = 
 "Attributes \\{\n" +
 " s \\{\n" +
@@ -1229,6 +1285,10 @@ directionsForGenerateDatasetsXml() +
 "    String long_name \"Size\";\n" +
 "    String units \"bytes\";\n" +
 "  \\}\n" +
+"  fileType \\{\n" +         
+"    String ioos_category \"Identifier\";\n" +
+"    String long_name \"File Type\";\n" +
+"  \\}\n" +
 " \\}\n" +
 "  NC_GLOBAL \\{\n" +
 "    String cdm_data_type \"Other\";\n" +
@@ -1239,23 +1299,31 @@ directionsForGenerateDatasetsXml() +
 "    String infoUrl \"https://nex.nasa.gov/nex/\";\n" +
 "    String institution \"NASA Earth Exchange\";\n" +
 "    String keywords \"data, earth, exchange, file, great, identifier, lastModified, modified, name, nasa, size, time, title\";\n" +
+"    String license \"The data may be used and redistributed for free but is not intended\n" +
+"for legal use, since it may contain inaccuracies. Neither the data\n" +
+"Contributor, ERD, NOAA, nor the United States Government, nor any\n" +
+"of their employees or contractors, makes any warranty, express or\n" +
+"implied, including warranties of merchantability and fitness for a\n" +
+"particular purpose, or assumes any legal liability for the accuracy,\n" +
+"completeness, or usefulness, of this information.\";\n" +
 "    String sourceUrl \"\\(remote files\\)\";\n" +
+"    String subsetVariables \"fileType\";\n" +
 "    String summary \"File Names from http://nasanex.s3.amazonaws.com/NEX-DCP30/BCSD/rcp26/mon/atmos/tasmin/r1i1p1/v1.0/CONUS/\";\n" +
 "    String title \"File Names from Amazon AWS S3 NASA NEX tasmin Files\";\n" +
 "  \\}\n" +
 "\\}\n";
-        Test.ensureLinesMatch(results, expected, "results=\n" + results);
+        Test.repeatedlyTestLinesMatch(results, expected, "results=\n" + results);
 
         //get all as .csv
         tName = tedd.makeNewFileForDapQuery(null, null, "", dir, 
             tedd.className() + "_all", ".csv"); 
-        results = new String((new ByteArray(dir + tName)).toArray());
+        results = String2.directReadFrom88591File(dir + tName);
         expected = 
-"five,url,name,startMonth,endMonth,lastModified,size\n" +
-"m,,,UTC,UTC,UTC,bytes\n" +
-"5.0,http://localhost:8080/cwexperimental/files/testFileNamesAwsS3/tasmin_amon_BCSD_rcp26_r1i1p1_CONUS_CESM1-CAM5_200601-201012.nc,tasmin_amon_BCSD_rcp26_r1i1p1_CONUS_CESM1-CAM5_200601-201012.nc,2006-01-01T00:00:00Z,2010-12-01T00:00:00Z,2013-10-25T20:46:53Z,1.372730447E9\n" +
-"5.0,http://localhost:8080/cwexperimental/files/testFileNamesAwsS3/tasmin_amon_BCSD_rcp26_r1i1p1_CONUS_CESM1-CAM5_201101-201512.nc,tasmin_amon_BCSD_rcp26_r1i1p1_CONUS_CESM1-CAM5_201101-201512.nc,2011-01-01T00:00:00Z,2015-12-01T00:00:00Z,2013-10-25T20:47:18Z,1.373728987E9\n" +
-"5.0,http://localhost:8080/cwexperimental/files/testFileNamesAwsS3/tasmin_amon_BCSD_rcp26_r1i1p1_CONUS_CESM1-CAM5_201601-202012.nc,tasmin_amon_BCSD_rcp26_r1i1p1_CONUS_CESM1-CAM5_201601-202012.nc,2016-01-01T00:00:00Z,2020-12-01T00:00:00Z,2013-10-25T20:51:23Z,1.373747344E9\n";
+"five,url,name,startMonth,endMonth,lastModified,size,fileType\n" +
+"m,,,UTC,UTC,UTC,bytes,\n" +
+"5.0,http://localhost:8080/cwexperimental/files/testFileNamesAwsS3/tasmin_amon_BCSD_rcp26_r1i1p1_CONUS_CESM1-CAM5_200601-201012.nc,tasmin_amon_BCSD_rcp26_r1i1p1_CONUS_CESM1-CAM5_200601-201012.nc,2006-01-01T00:00:00Z,2010-12-01T00:00:00Z,2013-10-25T20:46:53Z,1.372730447E9,.nc\n" +
+"5.0,http://localhost:8080/cwexperimental/files/testFileNamesAwsS3/tasmin_amon_BCSD_rcp26_r1i1p1_CONUS_CESM1-CAM5_201101-201512.nc,tasmin_amon_BCSD_rcp26_r1i1p1_CONUS_CESM1-CAM5_201101-201512.nc,2011-01-01T00:00:00Z,2015-12-01T00:00:00Z,2013-10-25T20:47:18Z,1.373728987E9,.nc\n" +
+"5.0,http://localhost:8080/cwexperimental/files/testFileNamesAwsS3/tasmin_amon_BCSD_rcp26_r1i1p1_CONUS_CESM1-CAM5_201601-202012.nc,tasmin_amon_BCSD_rcp26_r1i1p1_CONUS_CESM1-CAM5_201601-202012.nc,2016-01-01T00:00:00Z,2020-12-01T00:00:00Z,2013-10-25T20:51:23Z,1.373747344E9,.nc\n";
         Test.ensureEqual(results.substring(0, expected.length()), expected, "results=\n" + results);
 
         //test that min and max are being set by the constructor
@@ -1278,7 +1346,7 @@ directionsForGenerateDatasetsXml() +
         //a constraint on an extracted variable, and fewer results variables
         tName = tedd.makeNewFileForDapQuery(null, null, "name,startMonth,size&size=1098815646", dir, 
             tedd.className() + "_subset", ".csv"); 
-        results = new String((new ByteArray(dir + tName)).toArray());
+        results = String2.directReadFrom88591File(dir + tName);
         expected = 
 "name,startMonth,size\n" +
 ",UTC,bytes\n" +
@@ -1303,12 +1371,14 @@ directionsForGenerateDatasetsXml() +
     public static void test() throws Throwable {
         String2.log("\n****************** EDDTableFromFileNames.test() *****************\n");
         testVerboseOn();
-/* */
+
+/* for releases, this line should have open/close comment */
         //always done        
         testGenerateDatasetsXml();
-        testGenerateDatasetsXmlAwsS3();
         testLocal();
+        testGenerateDatasetsXmlAwsS3();
         testAwsS3();
+        /* */
     }
 
 }

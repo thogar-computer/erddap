@@ -28,14 +28,9 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * Get netcdf-X.X.XX.jar from 
- * http://www.unidata.ucar.edu/software/thredds/current/netcdf-java/index.html
+ * Get netcdfAll-......jar from ftp://ftp.unidata.ucar.edu/pub
  * and copy it to <context>/WEB-INF/lib renamed as netcdf-latest.jar.
- * Get slf4j-jdk14.jar from 
- * ftp://ftp.unidata.ucar.edu/pub/netcdf-java/slf4j-jdk14.jar
- * and copy it to <context>/WEB-INF/lib.
- * 2013-02-21 new netcdfAll uses Java logging, not slf4j.
- * Put both of these .jar files in the classpath for the compiler and for Java.
+ * Put it in the classpath for the compiler and for Java.
  */
 import ucar.nc2.*;
 import ucar.nc2.dataset.NetcdfDataset;
@@ -335,7 +330,7 @@ public class CacheOpendapStation {
                             for (int row = 1; row < nRows; row++) {
                                 double dOld = dNew;
                                 dNew = timeDA.getDouble(row);
-                                if (!Math2.isFinite(dNew) || dNew <= dOld)
+                                if (!Double.isFinite(dNew) || dNew <= dOld)
                                     Test.error(errorInMethod + "time(row=" + row + ")=" + dNew + 
                                         " is less than or equal to time(row-1)=" + dOld + 
                                         "\ntimes=" + timeDA);
@@ -387,11 +382,11 @@ public class CacheOpendapStation {
                 //read the data as a table
                 //String2.log("  pre read table " + Math2.memoryString());
                 Table table = new Table();
-                table.read4DNc(fullStationFileName + randomInt, null, 1);
+                table.read4DNc(fullStationFileName + randomInt, null, 1); //standardizeWhat=1
 
                 String2.log("  post read table nRows=" + table.nRows() + 
                     " nCols=" + table.nColumns());
-                String2.log(table.toString("row", 3));
+                String2.log(table.toString(3));
                 //print column data ranges
                 for (int col = 0; col < table.nColumns(); col++) 
                     String2.log("col=" + col + " " + table.getColumn(col).statsString()); 
@@ -614,7 +609,7 @@ public class CacheOpendapStation {
                             for (int row = 1; row < nRows; row++) {
                                 double dOld = dNew;
                                 dNew = timeDA.getDouble(row);
-                                if (!Math2.isFinite(dNew) || dNew <= dOld)
+                                if (!Double.isFinite(dNew) || dNew <= dOld)
                                     Test.error(errorInMethod + "time(row=" + row + ")=" + dNew + 
                                         " is less than or equal to time(row-1)=" + dOld + 
                                         "\ntimes=" + timeDA);
@@ -680,11 +675,11 @@ public class CacheOpendapStation {
                 //read the data as a table
                 //String2.log("  pre read table " + Math2.memoryString());
                 Table table = new Table();
-                table.read4DNc(fullStationFileName + randomInt, null, 1, null, -1);
+                table.read4DNc(fullStationFileName + randomInt, null, 1, null, -1); //standardizeWhat=1
 
                 String2.log("  post read table nRows=" + table.nRows() + 
                     " nCols=" + table.nColumns());
-                String2.log(table.toString("row", 3));
+                String2.log(table.toString(3));
                 //print column data ranges
                 for (int col = 0; col < table.nColumns(); col++) 
                     String2.log("col=" + col + " " + table.getColumn(col).statsString()); 
@@ -789,7 +784,7 @@ public class CacheOpendapStation {
                 String2.log("  read4DNc...");
                 //String2.log("  pre read table ");
                 Table table = new Table();
-                table.read4DNc(fullStationFileName, null, 1, null, -1);
+                table.read4DNc(fullStationFileName, null, 1, null, -1); //standardizeWhat=1
                 int oldNRows = table.nRows(); //will be different from opendapTimeDimensionSize because flattened
                 PrimitiveArray timeColumn = table.getColumn(3);
                 String2.log("  table from cache file nRows=" + oldNRows + 
@@ -829,7 +824,7 @@ public class CacheOpendapStation {
                     //don't use Test.ensure since it would generate lots of strings needlessly
                     double oldTime = newTime;
                     newTime = newTimes.getDouble(i);
-                    if (!Math2.isFinite(newTime) || newTime > 1e15 || newTime <= oldTime)
+                    if (!Double.isFinite(newTime) || newTime > 1e15 || newTime <= oldTime)
                         Test.error(errorInMethod + "newTime(" + newTime + 
                             ") is less than or equal to previous time(" + oldTime + 
                             ") when i=" + i);
@@ -893,7 +888,7 @@ public class CacheOpendapStation {
                 table.saveAs4DNc(fullStationFileName, 0, 1, 2, 3, null, null, null);
                 nNewRows = table.nRows() - oldNRows;
                 if (verbose) {
-                    //String2.log(table.toString("row", 3));
+                    //String2.log(table.toString(3));
                     //print column data ranges
                     //for (int col = 0; col < table.nColumns(); col++) 
                     //    String2.log("col=" + col + " " + table.getColumn(col).statsString()); 
@@ -933,7 +928,7 @@ public class CacheOpendapStation {
         while (true) {
             //adcp stations chosen because I think they give gibberish answers sometimes (ascii and opendap)
             String2.log("\n*** CacheOpendapStation.test rep=" + rep + " " + 
-                Calendar2.getCurrentISODateTimeStringLocal());
+                Calendar2.getCurrentISODateTimeStringLocalTZ());
             if (rep > 0) Math2.incgc(5000); //5 seconds    //in a test
             //first time, ensure there are at least 3000 time points; then pick time randomly
             int randomInt = rep == 0? 3000 : random.nextInt(3000); 
@@ -946,7 +941,7 @@ public class CacheOpendapStation {
                 "v_component_uncorrected[" + randomInt + ":1:" + randomInt + "][0:1:1][0:1:0][0:1:0]";
             String2.log("url=" + url);
             try { 
-                response = SSR.getUrlResponseString(url);
+                response = SSR.getUrlResponseStringUnchanged(url);
                 String2.log("response=" + response);
                 match = "u_component_uncorrected, [1][2][1][1]\n" +
                     "[0][0][0], ";
@@ -981,7 +976,7 @@ public class CacheOpendapStation {
                 "v_component_uncorrected[" + randomInt + ":1:" + randomInt + "][0:1:1][0:1:0][0:1:0]";
             String2.log("url=" + url);
             try {
-                response = SSR.getUrlResponseString(url);
+                response = SSR.getUrlResponseStringUnchanged(url);
                 String2.log("response=" + response);
                 match = "u_component_uncorrected, [1][2][1][1]\n" +
                     "[0][0][0], ";
@@ -1017,7 +1012,7 @@ public class CacheOpendapStation {
                 "v_component_uncorrected[" + randomInt + ":1:" + randomInt + "][0:1:1][0:1:0][0:1:0]";
             String2.log("url=" + url);
             try {
-                response = SSR.getUrlResponseString(url);
+                response = SSR.getUrlResponseStringUnchanged(url);
                 String2.log("response=" + response);
                 match = "u_component_uncorrected, [1][2][1][1]\n" +
                     "[0][0][0], ";
@@ -1068,7 +1063,7 @@ public class CacheOpendapStation {
         //***************
         //M0: get ascii response
         try {
-            response = SSR.getUrlResponseString(
+            response = SSR.getUrlResponseStringUnchanged(
                 "http://dods.mbari.org/cgi-bin/nph-nc/data/ssdsdata/deployments/m0/200607/m0_adcp1267_20060731.nc.ascii?" + 
                 "u_component_uncorrected[0:1:0][0:1:1][0:1:0][0:1:0],v_component_uncorrected[0:1:0][0:1:1][0:1:0][0:1:0]");
             Test.ensureEqual(response,
@@ -1122,8 +1117,8 @@ public class CacheOpendapStation {
             //M0: compare first part of cache file to ascii response
             //***THE TEST WILL CHANGE IF THEY THROW OUT OLD NRT DATA.
             table.clear();
-            table.read4DNc(fileName, null, 1, null, -1);
-            //String2.log(table.toString("row", 10));
+            table.read4DNc(fileName, null, 1, null, -1); //unpackWaht=1
+            //String2.log(table.toString(10));
             Test.ensureEqual(table.nColumns(), 6, "");
             Test.ensureEqual(table.getColumnName(0), "longitude", ""); //was adcp_longitude
             Test.ensureEqual(table.getColumnName(1), "latitude", ""); //was adcp_latitude
@@ -1152,9 +1147,9 @@ public class CacheOpendapStation {
         //****************
         //M1: get ascii response
         //***THE TEST WILL CHANGE IF THEY THROW OUT OLD NRT DATA.
-        response = String2.toNewlineString(SSR.getUrlResponse(
+        response = SSR.getUrlResponseStringUnchanged(
             "http://dods.mbari.org/cgi-bin/nph-nc/data/ssdsdata/deployments/m1/200510/m1_adcp1417_20051020.nc.ascii?" + 
-            "u_component_uncorrected[0:1:0][0:1:1][0:1:0][0:1:0],v_component_uncorrected[0:1:0][0:1:1][0:1:0][0:1:0]"));
+            "u_component_uncorrected[0:1:0][0:1:1][0:1:0][0:1:0],v_component_uncorrected[0:1:0][0:1:1][0:1:0][0:1:0]");
         Test.ensureEqual(response,
             "u_component_uncorrected, [1][2][1][1]\n" +
             "[0][0][0], -20.1\n" +
@@ -1191,8 +1186,8 @@ public class CacheOpendapStation {
 
         //M1: compare first part of cache file to ascii response
         table.clear();
-        table.read4DNc(fileName, null, 1);
-        //String2.log(table.toString("row", 10));
+        table.read4DNc(fileName, null, 1); //standardizeWhat=1
+        //String2.log(table.toString(10));
         Test.ensureEqual(table.nColumns(), 6, "");
         Test.ensureEqual(table.getColumnName(0), "adcp_longitude", "");
         Test.ensureEqual(table.getColumnName(1), "adcp_latitude", "");
@@ -1217,9 +1212,9 @@ public class CacheOpendapStation {
         //****************
         //M2: get ascii response
         //***THE TEST WILL CHANGE IF THEY THROW OUT OLD NRT DATA.
-        response = String2.toNewlineString(SSR.getUrlResponse(
+        response = SSR.getUrlResponseStringUnchanged(
             "http://dods.mbari.org/cgi-bin/nph-nc/data/ssdsdata/deployments/m2/200603/m2_adcp1352_20060330.nc.ascii?" + 
-            "u_component_uncorrected[0:1:0][0:1:1][0:1:0][0:1:0],v_component_uncorrected[0:1:0][0:1:1][0:1:0][0:1:0]"));
+            "u_component_uncorrected[0:1:0][0:1:1][0:1:0][0:1:0],v_component_uncorrected[0:1:0][0:1:1][0:1:0][0:1:0]");
         Test.ensureEqual(response,
             "u_component_uncorrected, [1][2][1][1]\n" +
             "[0][0][0], -10.8\n" +
@@ -1256,8 +1251,8 @@ public class CacheOpendapStation {
 
         //M2: compare first part of cache file to ascii response
         table.clear();
-        table.read4DNc(fileName, null, 1);
-        //String2.log(table.toString("row", 10));
+        table.read4DNc(fileName, null, 1); //standardizeWhat=1
+        //String2.log(table.toString(10));
         Test.ensureEqual(table.nColumns(), 6, "");
         Test.ensureEqual(table.getColumnName(0), "adcp_longitude", "");
         Test.ensureEqual(table.getColumnName(1), "adcp_latitude", "");

@@ -45,8 +45,8 @@ public class DataStream  {
      * @return a buffered file dataInputStream
      */
     public static DataInputStream getDataInputStream(String fullFileName) throws Exception {
-        return new DataInputStream(new BufferedInputStream(
-            new FileInputStream(fullFileName)));
+        return new DataInputStream(
+            File2.getDecompressedBufferedInputStream(fullFileName));
     }
 
     /**
@@ -710,8 +710,8 @@ public class DataStream  {
         //read bytes from a file
         String2.log("hex dump of " + fileName + "\n" + File2.hexDump(fileName, 500));
 
-        DataInputStream dis = new DataInputStream(new BufferedInputStream(
-            new FileInputStream(fileName)));
+        DataInputStream dis = new DataInputStream(
+            File2.getDecompressedBufferedInputStream(fileName));
         Test.ensureEqual( 1, dis.readByte(), "a");
         Test.ensureEqual(-1, dis.readByte(), "b");
         Test.ensureEqual( 30003, DataStream.readShort(false, dis, buffer), "e");
@@ -758,13 +758,13 @@ public class DataStream  {
         long time = System.currentTimeMillis(); 
         for (int i = 0; i < 4000000; i++) 
             dos.write(myByte);         
-        String2.log("4000000 byte writes, time=" + (System.currentTimeMillis() -  time));
+        String2.log("4000000 byte writes, time=" + (System.currentTimeMillis() -  time) + "ms");
 
         //write individual bytes   typical = 562ms 
         time = System.currentTimeMillis();
         for (int i = 0; i < 1000000; i++)
             dos.write(ba2);
-        String2.log("1000000 byte[4] writes, time=" + (System.currentTimeMillis() -  time));
+        String2.log("1000000 byte[4] writes, time=" + (System.currentTimeMillis() -  time) + "ms");
         dos.close();
 
         //delete the temp file

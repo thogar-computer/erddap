@@ -39,18 +39,13 @@ import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
 /**
- * Get netcdf-X.X.XX.jar from 
- * http://www.unidata.ucar.edu/software/thredds/current/netcdf-java/index.html
+ * Get netcdfAll-......jar from ftp://ftp.unidata.ucar.edu/pub
  * and copy it to <context>/WEB-INF/lib renamed as netcdf-latest.jar.
- * Get slf4j-jdk14.jar from 
- * ftp://ftp.unidata.ucar.edu/pub/netcdf-java/slf4j-jdk14.jar
- * and copy it to <context>/WEB-INF/lib.
- * 2013-02-21 new netcdfAll uses Java logging, not slf4j.
- * Put both of these .jar files in the classpath for the compiler and for Java.
+ * Put it in the classpath for the compiler and for Java.
  */
 import ucar.nc2.*;
 import ucar.nc2.dataset.NetcdfDataset;
-import ucar.nc2.dods.*;
+//import ucar.nc2.dods.*;
 import ucar.nc2.util.*;
 import ucar.ma2.*;
 
@@ -138,21 +133,21 @@ public class GridDataSetThredds extends GridDataSet {
         tActiveTimePeriodTitles.add(""); //always add a blank main title
 
         //make baseBaseUrl
-        //from http://thredds1.pfeg.noaa.gov/thredds/Satellite/aggregsatMO/k490/
-        //make http://thredds1.pfeg.noaa.gov
+        //from https://thredds1.pfeg.noaa.gov/thredds/Satellite/aggregsatMO/k490/
+        //make https://thredds1.pfeg.noaa.gov
         int threddsPo = baseUrl.indexOf("/thredds/");
         Test.ensureTrue(threddsPo != -1, errorInMethod + "\"/thredds/\" not found in baseUrl.");
         String baseBaseUrl = baseUrl.substring(0, threddsPo);
 
 /* 
-top level catalog is at http://oceanwatch.pfeg.noaa.gov:8081/thredds/catalog.xml
-excerpt from http://oceanwatch.pfeg.noaa.gov:8081/thredds/Satellite/aggregsatMO/k490/catalog.xml
-to see opendap server e.g., http://oceanwatch.pfeg.noaa.gov:8081/thredds/dodsC/satellite/MO/k490/1day.html
+top level catalog is at https://oceanwatch.pfeg.noaa.gov/thredds/catalog.xml
+excerpt from https://oceanwatch.pfeg.noaa.gov/thredds/Satellite/aggregsatMO/k490/catalog.xml
+to see opendap server e.g., https://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/MO/k490/1day.html
 oceanwatch numerical ip from coastwatch computer is 192.168.31.13)
 
 Most datasets have 2 levels: <dataset><dataset>
 <?xml version="1.0" encoding="UTF-8"?>
-<catalog xmlns="http://www.unidata.ucar.edu/namespaces/thredds/InvCatalog/v1.0" xmlns:xlink="http://www.w3.org/1999/xlink" name="Satellite Data Server" version="1.0.1">
+<catalog xmlns="http://www.unidata.ucar.edu/namespaces/thredds/InvCatalog/v1.0" xmlns:xlink="https://www.w3.org/1999/xlink" name="Satellite Data Server" version="1.0.1">
   <service name="all" serviceType="Compound" base="">
     <service name="wcs" serviceType="WCS" base="/thredds/wcs/" suffix="?request=GetCapabilities&amp;version=1.0.0&amp;service=WCS" />
     <service name="ncdods" serviceType="OPENDAP" base="/thredds/dodsC/" />
@@ -178,7 +173,7 @@ Most datasets have 2 levels: <dataset><dataset>
 
 J1ugeo has just one level: <dataset>   *** So look for <dataset> with urlPath attribute
 <?xml version="1.0" encoding="UTF-8"?>
-<catalog xmlns="http://www.unidata.ucar.edu/namespaces/thredds/InvCatalog/v1.0" xmlns:xlink="http://www.w3.org/1999/xlink" name="GLOBEC Data Server" version="1.0.1">
+<catalog xmlns="http://www.unidata.ucar.edu/namespaces/thredds/InvCatalog/v1.0" xmlns:xlink="https://www.w3.org/1999/xlink" name="GLOBEC Data Server" version="1.0.1">
   <service name="all" serviceType="Compound" base="">
     <service name="wcs" serviceType="WCS" base="/thredds/wcs/" suffix="?request=GetCapabilities&amp;version=1.0.0&amp;service=WCS" />
     <service name="ncdods" serviceType="OPENDAP" base="/thredds/dodsC/" />
@@ -191,9 +186,8 @@ J1ugeo has just one level: <dataset>   *** So look for <dataset> with urlPath at
 
         //open the thredds catalog xml file
         //String2.log("getUrlString for " + baseUrl + "catalog.xml");
-        //String2.log(XML.encodeAsXML(SSR.getUrlResponseString(baseUrl + "catalog.xml")));
-        Document document = XML.parseXml(new BufferedReader(new InputStreamReader(
-            SSR.getUrlInputStream(baseUrl + "catalog.xml"))), false);
+        //String2.log(XML.encodeAsXML(SSR.getURLResponseStringUnchanged(baseUrl + "catalog.xml")));
+        Document document = XML.parseXml(SSR.getBufferedUrlReader(baseUrl + "catalog.xml"), false);
         XPath xPath = XML.getXPath();
 
         //get the opendapServiceBase, e.g., "/thredds/dodsC/"
@@ -234,8 +228,8 @@ J1ugeo has just one level: <dataset>   *** So look for <dataset> with urlPath at
                 long tTime = System.currentTimeMillis();
 
                 //need to convert 
-                //  baseUrl "http://oceanwatch.pfeg.noaa.gov/thredds/Satellite/aggregsatMO/k490/" + "catalog.xml", 
-                //  to      "http://oceanwatch.pfeg.noaa.gov/thredds/dodsC/" + "satellite/MO/k490/hday",
+                //  baseUrl "https://oceanwatch.pfeg.noaa.gov/thredds/Satellite/aggregsatMO/k490/" + "catalog.xml", 
+                //  to      "https://oceanwatch.pfeg.noaa.gov/thredds/dodsC/" + "satellite/MO/k490/hday",
                 //  just add  ".html" to make user-friendly link
                 dataSetUrl = baseBaseUrl + opendapServiceBase + urlPath;  
 
@@ -882,8 +876,8 @@ String2.log("trying dataSetUrl=" + dataSetUrl);
     public static void testGetTimeSeries() throws Exception {
         String2.log("\n*** start TestBrowsers.testGetTimeSeries");
         String url = 
-            //was "http://oceanwatch.pfeg.noaa.gov/thredds/Satellite/aggregsatGA/ssta/"; //oceanwatch
-            "http://thredds1.pfeg.noaa.gov/thredds/Satellite/aggregsatGA/ssta/"; 
+            //was "https://oceanwatch.pfeg.noaa.gov/thredds/Satellite/aggregsatGA/ssta/"; //oceanwatch
+            "https://thredds1.pfeg.noaa.gov/thredds/Satellite/aggregsatGA/ssta/"; 
 
         DataHelper.verbose = true;
         GridDataSetThredds.verbose = true;
@@ -1038,14 +1032,14 @@ String2.log("trying dataSetUrl=" + dataSetUrl);
         FileNameUtility.verbose = true;
         FileNameUtility fnu = new FileNameUtility("gov.noaa.pfel.coastwatch.CWBrowser");
 
-//       String baseUrl = "http://oceanwatch.pfeg.noaa.gov:8081/thredds/Satellite/aggregsatMO/k490/";
+//       String baseUrl = "https://oceanwatch.pfeg.noaa.gov/thredds/Satellite/aggregsatMO/k490/";
 //       String2.log("getUrlString for " + baseUrl + "catalog.xml");
-//       String2.log(SSR.getUrlResponseString(baseUrl + "catalog.xml"));
+//       String2.log(SSR.getURLResponseStringUnchanged(baseUrl + "catalog.xml"));
 
 //       Opendap opendap = new Opendap(
-//           //"http://oceanwatch.pfeg.noaa.gov/thredds/Satellite/aggregsatMO/k490/hday", 
-//           //"http://oceanwatch.pfeg.noaa.gov/thredds/Satellite/aggregsatMO/k490/hday", 
-//           "http://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/MO/k490/hday.das",
+//           //"https://oceanwatch.pfeg.noaa.gov/thredds/Satellite/aggregsatMO/k490/hday", 
+//           //"https://oceanwatch.pfeg.noaa.gov/thredds/Satellite/aggregsatMO/k490/hday", 
+//           "https://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/MO/k490/hday.das",
 //           acceptDeflate); //throws Exception if trouble
 
 //    public GridDataSetThredds(FileNameUtility fileNameUtility, String internalName, String baseUrl, 
@@ -1073,8 +1067,8 @@ String2.log("trying dataSetUrl=" + dataSetUrl);
             internalName = "TJ1ugeo";
             sixName = internalName.substring(1);
             gridDataSet = new GridDataSetThredds(fnu, internalName,
-                //was "http://oceanwatch.pfeg.noaa.gov/thredds/Satellite/aggregsatJ1/ugeo/", //was :8081
-                "http://thredds1.pfeg.noaa.gov/thredds/Satellite/aggregsatJ1/ugeo/", 
+                //was "https://oceanwatch.pfeg.noaa.gov/thredds/Satellite/aggregsatJ1/ugeo/", //was :8081
+                "https://thredds1.pfeg.noaa.gov/thredds/Satellite/aggregsatJ1/ugeo/", 
                 "BlueWhiteRed", "Linear", "-10", "10", -1, "", null, null,
                 "S", 1, 0, "", 1, 1);
             String2.log("TJ1ugeo activeTimePeriodOptions.length=" + gridDataSet.activeTimePeriodOptions.length);
@@ -1088,7 +1082,7 @@ String2.log("trying dataSetUrl=" + dataSetUrl);
             internalName = "TQSux10";
             sixName = internalName.substring(1);
             gridDataSet = new GridDataSetThredds(fnu, internalName,
-                "http://thredds1.pfeg.noaa.gov/thredds/Satellite/aggregsatQS/ux10/",
+                "https://thredds1.pfeg.noaa.gov/thredds/Satellite/aggregsatQS/ux10/",
                 "BlueWhiteRed", "Linear", "-10", "10", -1, "", null, null, "S", 1, 0, "", 1, 1);
 
             Grid grid = gridDataSet.makeGrid(
@@ -1107,12 +1101,12 @@ String2.log("trying dataSetUrl=" + dataSetUrl);
             Test.ensureEqual(grid.globalAttributes().get("summary"),                    new StringArray(new String[]{"Remote Sensing Inc. distributes science quality wind velocity data from the SeaWinds instrument onboard NASA's QuikSCAT satellite.  SeaWinds is a microwave scatterometer designed to measure surface winds over the global ocean.  Wind velocity fields are provided in zonal, meridional, and modulus sets. The reference height for all wind velocities is 10 meters."}), "summary");  
             Test.ensureEqual(grid.globalAttributes().get("keywords"),                   new StringArray(new String[]{"EARTH SCIENCE > Oceans > Ocean Winds > Surface Winds"}), "keywords");
             //!!!! thredds id differs from opendap at first letter
-            Test.ensureEqual(grid.globalAttributes().get("id"),                         new StringArray(new String[]{"TQSux10S1day_20060610_x-135_X-105_y22_Y50"}), "id");
+            Test.ensureEqual(grid.globalAttributes().get("id"),                         new StringArray(new String[]{"TQSux10S1day"}), "id");
             Test.ensureEqual(grid.globalAttributes().get("naming_authority"),           new StringArray(new String[]{"gov.noaa.pfeg.coastwatch"}), "naming_authority");
             Test.ensureEqual(grid.globalAttributes().get("keywords_vocabulary"),        new StringArray(new String[]{"GCMD Science Keywords"}), "keywords_vocabulary");
             Test.ensureEqual(grid.globalAttributes().get("cdm_data_type"),              new StringArray(new String[]{"Grid"}), "cdm_data_typ");
             Test.ensureTrue(grid.globalAttributes().getString("history").startsWith("Remote Sensing Systems, Inc."), "history=" + grid.globalAttributes().getString("history"));
-            Test.ensureEqual(grid.globalAttributes().get("date_created"),               new StringArray(new String[]{Calendar2.formatAsISODate(Calendar2.newGCalendarZulu()) + "Z"}), "date_created");
+            Test.ensureEqual(grid.globalAttributes().get("date_created"),               new StringArray(new String[]{Calendar2.formatAsISODate(Calendar2.newGCalendarZulu())}), "date_created");
             Test.ensureEqual(grid.globalAttributes().get("creator_name"),               new StringArray(new String[]{"NOAA CoastWatch, West Coast Node"}), "creator_name");
             Test.ensureEqual(grid.globalAttributes().get("creator_url"),                new StringArray(new String[]{"http://coastwatch.pfel.noaa.gov"}), "creator_url");
             Test.ensureEqual(grid.globalAttributes().get("creator_email"),              new StringArray(new String[]{"dave.foley@noaa.gov"}), "creator_email");
@@ -1131,11 +1125,11 @@ String2.log("trying dataSetUrl=" + dataSetUrl);
             Test.ensureEqual(grid.globalAttributes().get("time_coverage_start"),        new StringArray(new String[]{"2006-06-10T00:00:00Z"}), "time_coverage_start");
             Test.ensureEqual(grid.globalAttributes().get("time_coverage_end"),          new StringArray(new String[]{"2006-06-11T00:00:00Z"}), "time_coverage_end");
             //Test.ensureEqual(grid.globalAttributes().get("time_coverage_resolution", new StringArray(new String[]{""}), "time_coverage_resolution");
-            Test.ensureEqual(grid.globalAttributes().get("standard_name_vocabulary"),   new StringArray(new String[]{"CF Standard Name Table v29"}), "standard_name_vocabulary");
+            Test.ensureEqual(grid.globalAttributes().get("standard_name_vocabulary"),   new StringArray(new String[]{"CF Standard Name Table v55"}), "standard_name_vocabulary");
             Test.ensureEqual(grid.globalAttributes().get("license"),                    new StringArray(new String[]{"The data may be used and redistributed for free but is not intended for legal use, since it may contain inaccuracies. Neither the data Contributor, CoastWatch, NOAA, nor the United States Government, nor any of their employees or contractors, makes any warranty, express or implied, including warranties of merchantability and fitness for a particular purpose, or assumes any legal liability for the accuracy, completeness, or usefulness, of this information."}), "license");
             Test.ensureEqual(grid.globalAttributes().get("contributor_name"),           new StringArray(new String[]{"Remote Sensing Systems, Inc."}), "contributor_name");
             Test.ensureEqual(grid.globalAttributes().get("contributor_role"),           new StringArray(new String[]{"Source of level 2 data."}), "contributor_role");
-            Test.ensureEqual(grid.globalAttributes().get("date_issued"),                new StringArray(new String[]{Calendar2.formatAsISODate(Calendar2.newGCalendarZulu())+"Z"}), "date_issued");
+            Test.ensureEqual(grid.globalAttributes().get("date_issued"),                new StringArray(new String[]{Calendar2.formatAsISODate(Calendar2.newGCalendarZulu())}), "date_issued");
             Test.ensureEqual(grid.globalAttributes().get("references"),                 new StringArray(new String[]{"RSS Inc. Winds: http://www.remss.com/ ."}), "references");
             Test.ensureEqual(grid.globalAttributes().get("source"),                     new StringArray(new String[]{"satellite observation: QuikSCAT, SeaWinds"}), "source");
             //Google Earth
@@ -1217,8 +1211,8 @@ String2.log("trying dataSetUrl=" + dataSetUrl);
             //These mimic tests in Grid.testReadGrdSubset().
             //Comment out this line with /* to comment out this test. 
             gridDataSet = new GridDataSetThredds(fnu, "TMBchla",
-                //was "http://oceanwatch.pfeg.noaa.gov/thredds/Satellite/aggregsatMB/chla/", //was :8081
-                "http://thredds1.pfeg.noaa.gov/thredds/Satellite/aggregsatMB/chla/",
+                //was "https://oceanwatch.pfeg.noaa.gov/thredds/Satellite/aggregsatMB/chla/", //was :8081
+                "https://thredds1.pfeg.noaa.gov/thredds/Satellite/aggregsatMB/chla/",
                 "Rainbow", "Log", ".001", "30", -1, "", null, null, "S", 1, 0, "", 1, 1);
             fileName = "temp";
 
@@ -1307,7 +1301,7 @@ String2.log("trying dataSetUrl=" + dataSetUrl);
             //one time only: get one of these files for testing readGrd
             //actual dataset minX=120.0 maxX=320.0 minY=-45.0 maxY=65.0 xInc=0.025 yInc=0.025
             gridDataSet = new GridDataSetThredds(fnu, "TMBchla",
-                "http://oceanwatch.pfeg.noaa.gov/thredds/Satellite/aggregsatMB/chla/", //was :8081
+                "https://oceanwatch.pfeg.noaa.gov/thredds/Satellite/aggregsatMB/chla/", //was :8081
                 "Rainbow", "Log", ".001", "30", -1, "", null, null);
             fileName = "TestReadGrgTMBchla";
 
@@ -1345,8 +1339,8 @@ String2.log("trying dataSetUrl=" + dataSetUrl);
             "gov/noaa/pfel/coastwatch/griddata/";
         GridDataSetThredds gridDataSet = new GridDataSetThredds(fnu, 
             internalName,
-            //was "http://oceanwatch.pfeg.noaa.gov/thredds/Satellite/aggregsat" + 
-            "http://thredds1.pfeg.noaa.gov/thredds/Satellite/aggregsat" +
+            //was "https://oceanwatch.pfeg.noaa.gov/thredds/Satellite/aggregsat" + 
+            "https://thredds1.pfeg.noaa.gov/thredds/Satellite/aggregsat" +
                 twoName + "/" + fourName + "/", 
             "BlueWhiteRed", "Linear", "-10", "10", -1, "", null, null,
             "S", 1, 0, "", 1, 1);

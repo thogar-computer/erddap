@@ -20,6 +20,7 @@ import com.cohort.util.Test;
 import com.cohort.util.XML;
 
 import gov.noaa.pfel.coastwatch.griddata.DataHelper;
+import gov.noaa.pfel.coastwatch.util.FileVisitorDNLS;
 import gov.noaa.pfel.erddap.GenerateDatasetsXml;
 import gov.noaa.pfel.erddap.util.EDStatic;
 import gov.noaa.pfel.erddap.variable.*;
@@ -38,7 +39,7 @@ import org.apache.commons.compress.compressors.CompressorStreamFactory;
 /**
  * This class represents gridded data aggregated from a collection of NCEP/CPC
  * 4km Global (60N - 60S) IR Dataset data files.
- * Project info and file structure: http://www.cpc.ncep.noaa.gov/products/global_precip/html/README
+ * Project info and file structure: https://www.cpc.ncep.noaa.gov/products/global_precip/html/README
  * Source data files: ftp://disc2.nascom.nasa.gov/data/s4pa/TRMM_ANCILLARY/MERG/
  * (which works for Bob in a browser but not yet in FileZilla)
  *
@@ -71,7 +72,9 @@ public class EDDGridFromMergeIRFiles extends EDDGridFromFiles {
             int tReloadEveryNMinutes, int tUpdateEveryNMillis, String tFileDir, 
             String tFileNameRegex, boolean tRecursive, String tPathRegex, 
             String tMetadataFrom, int tMatchAxisNDigits, 
-            boolean tFileTableInMemory, boolean tAccessibleViaFiles)
+            boolean tFileTableInMemory, boolean tAccessibleViaFiles, 
+            int tnThreads, boolean tDimensionValuesInMemory, 
+            String tCacheFromUrl, int tCacheSizeGB, String tCachePartialPathRegex)
             throws Throwable {
 
         super("EDDGridFromMergeIRFiles", tDatasetID, 
@@ -84,7 +87,9 @@ public class EDDGridFromMergeIRFiles extends EDDGridFromFiles {
                 tReloadEveryNMinutes, tUpdateEveryNMillis,
                 tFileDir, tFileNameRegex, tRecursive, tPathRegex, 
                 tMetadataFrom, tMatchAxisNDigits, 
-                tFileTableInMemory, tAccessibleViaFiles);
+                tFileTableInMemory, tAccessibleViaFiles, 
+                tnThreads, tDimensionValuesInMemory, 
+                tCacheFromUrl, tCacheSizeGB, tCachePartialPathRegex);
 
         if (verbose) String2.log("\n*** constructing EDDGridFromMergeIRFiles(xmlReader)...");        
     }
@@ -93,9 +98,8 @@ public class EDDGridFromMergeIRFiles extends EDDGridFromFiles {
      * This gets sourceGlobalAttributes and sourceDataAttributes from the
      * specified source file.
      *
-     * @param fileDir
-     * @param fileName
-     * @param sourceAxisNames If special axis0, this list will be the instances list[1 ... n-1].
+     * @param tFullName the name of the decompressed data file
+     * @param sourceAxisNames If there is a special axis0, this list will be the instances list[1 ... n-1].
      * @param sourceDataNames the names of the desired source data columns.
      * @param sourceDataTypes the data types of the desired source columns
      * (e.g., "String" or "float")
@@ -109,7 +113,7 @@ public class EDDGridFromMergeIRFiles extends EDDGridFromFiles {
      * sourceDataName not found). If there is trouble, this doesn't call
      * addBadFile or requestReloadASAP().
      */
-    public void lowGetSourceMetadata(String fileDir, String fileName,
+    public void lowGetSourceMetadata(String tFullName,
             StringArray sourceAxisNames,
             StringArray sourceDataNames, 
             String sourceDataTypes[],
@@ -117,10 +121,29 @@ public class EDDGridFromMergeIRFiles extends EDDGridFromFiles {
             Attributes sourceAxisAttributes[],
             Attributes sourceDataAttributes[]) throws Throwable {
         
-        if (reallyVerbose) String2.log("getSourceMetadata " + fileDir + fileName);
+        if (reallyVerbose) String2.log("getSourceMetadata " + tFullName);
         
-        String getWhat = "globalAttributes";
         try {
+            //globalAtts
+            sourceGlobalAttributes.add("Conventions", "COARDS, CF-1.6, ACDD-1.3");
+            sourceGlobalAttributes.add("creator_name", "Bob Joyce");
+            sourceGlobalAttributes.add("creator_email", "robert.joyce@noaa.gov");
+            sourceGlobalAttributes.add("creator_type", "person");
+            sourceGlobalAttributes.add("creator_url", "https://www.cpc.ncep.noaa.gov/");
+            sourceGlobalAttributes.add("infoUrl", "https://www.cpc.ncep.noaa.gov/products/global_precip/html/README");
+            sourceGlobalAttributes.add("institution", "NOAA NWS NCEP CPC");
+            sourceGlobalAttributes.add("keywords", "4km, brightness, cpc, flux, global, ir, merge, ncep, noaa, nws, temperature");
+            sourceGlobalAttributes.add("keywords_vocabulary", "GCMD Science Keywords");
+            sourceGlobalAttributes.add("summary", 
+"The Climate Prediction Center/NCEP/NWS is now making available\n" +
+"globally-merged (60N-60S) pixel-resolution IR brightness\n" +
+"temperature data (equivalent blackbody temps), merged from all\n" +
+"available geostationary satellites (GOES-8/10, METEOSAT-7/5 and\n" +
+"GMS).  The availability of data from METEOSAT-7, which is\n" +
+"located at 57E at the present time, yields a unique opportunity\n" +
+"for total global (60N-60S) coverage.");
+            sourceGlobalAttributes.add("title", "NCEP/CPC 4km Global (60N - 60S) IR Dataset");
+
             //This is cognizant of special axis0         
             for (int avi = 0; avi < sourceAxisNames.size(); avi++) {
                 if (reallyVerbose) String2.log("axisAttributes for avi=" + avi + " name=" + sourceAxisNames.get(avi));
@@ -176,8 +199,7 @@ public class EDDGridFromMergeIRFiles extends EDDGridFromFiles {
 
         } catch (Throwable t) {            
             throw new RuntimeException("Error in EDDGridFromMergeIRFiles.getSourceMetadata" +
-                "\nwhile getting " + getWhat + 
-                "\nfrom " + fileDir + fileName + 
+                "\nfrom " + tFullName + 
                 "\nCause: " + MustBe.throwableToShortString(t),
                 t);
         }
@@ -186,27 +208,26 @@ public class EDDGridFromMergeIRFiles extends EDDGridFromFiles {
     /**
      * This gets source axis values from one file.
      *
-     * @param fileDir
-     * @param fileName
+     * @param tFullName the name of the decompressed data file
      * @param sourceAxisNames the names of the desired source axis variables.
-     *   If special axis0, this will not include axis0's name.
+     *   If there is a special axis0, this will not include axis0's name.
      * @return a PrimitiveArray[] with the results (with the requested
      *   sourceDataTypes). It needn't set sourceGlobalAttributes or
      *   sourceDataAttributes (but see getSourceMetadata).
      * @throws Throwable if trouble (e.g., invalid file). If there is trouble,
      * this doesn't call addBadFile or requestReloadASAP().
      */
-    public PrimitiveArray[] lowGetSourceAxisValues(String fileDir, String fileName,
+    public PrimitiveArray[] lowGetSourceAxisValues(String tFullName,
             StringArray sourceAxisNames) throws Throwable {
 
-        String getWhat = "globalAttributes";
+        String getWhat = "";
         
         try {
             PrimitiveArray[] avPa = new PrimitiveArray[sourceAxisNames.size()];
 
             for (int avi = 0; avi < sourceAxisNames.size(); avi++) {
                 String avName = sourceAxisNames.get(avi);
-                getWhat = "axisAttributes for variable=" + avName;
+                getWhat = "axisValues for variable=" + avName;
 
                 switch (avName) {
                     case "longitude":
@@ -228,13 +249,13 @@ public class EDDGridFromMergeIRFiles extends EDDGridFromFiles {
                         avPa[avi] = latBounds;
                         break;
                     case "time": {
-                        if (reallyVerbose) String2.log("case time with " + fileName);
-                        String sdate = File2.getNameNoExtension(fileName)
+                        if (reallyVerbose) String2.log("case time with " + tFullName);
+                        String sdate = File2.getNameNoExtension(tFullName)
                             .replaceAll("merg_", "").replaceAll("_4km-pixel", "");
                         if (reallyVerbose) String2.log("date = " + sdate + " (" + sdate.length() + ")");
 
                         if (sdate.length() != 10) 
-                            throw new RuntimeException("File name (" + fileName + ") must contain a date encoded as 10 characters.");
+                            throw new RuntimeException("File name (" + tFullName + ") must contain a date encoded as 10 characters.");
 
                         //format fdjksdfljk_2014010102
                         String year = sdate.substring(0, 4);
@@ -272,7 +293,7 @@ public class EDDGridFromMergeIRFiles extends EDDGridFromFiles {
         } catch (Throwable t) {
             throw new RuntimeException("Error in EDDGridFromMergeIRFiles.getSourceAxisValues"
                 + "\nwhile getting " + getWhat
-                + "\nfrom " + fileDir + fileName
+                + "\nfrom " + tFullName
                 + "\nCause: " + MustBe.throwableToShortString(t),
                 t);
         }
@@ -281,12 +302,11 @@ public class EDDGridFromMergeIRFiles extends EDDGridFromFiles {
     /**
      * This gets source data from one file.
      *
-     * @param fileDir
-     * @param fileName
+     * @param tFullName the name of the decompressed data file
      * @param tDataVariables the desired data variables
-     * @param tConstraints where the first axis variable's constraints have been
-     *   customized for this file.
-     *   !!! If special axis0, then will not include constraints for axis0.
+     * @param tConstraints 
+     *   For each axis variable, there will be 3 numbers (startIndex, stride, stopIndex).
+     *   !!! If there is a special axis0, this will not include constraints for axis0.
      * @return a PrimitiveArray[] with an element for each tDataVariable with
      *   the dataValues.
      *   <br>The dataValues are straight from the source, not modified.
@@ -297,10 +317,11 @@ public class EDDGridFromMergeIRFiles extends EDDGridFromFiles {
      * @throws Throwable if trouble (notably, WaitThenTryAgainException). If
      *   there is trouble, this doesn't call addBadFile or requestReloadASAP().
      */
-    public PrimitiveArray[] lowGetSourceDataFromFile(String fileDir, String fileName,
+    public PrimitiveArray[] lowGetSourceDataFromFile(String tFullName,
             EDV tDataVariables[], IntArray tConstraints) throws Throwable {
         
-        if (verbose) String2.log("getSourceDataFromFile(" + fileDir + ", " + fileName + ", " + tDataVariables + ", " + tConstraints + ")");
+        if (verbose) String2.log("getSourceDataFromFile(" + tFullName + 
+            ", [" + String2.toCSSVString(tDataVariables) + "], " + tConstraints + ")");
         
          //make the selection spec  and get the axis values
          int nbAxisVariable = axisVariables.length;         
@@ -348,15 +369,8 @@ public class EDDGridFromMergeIRFiles extends EDDGridFromFiles {
             "\nnb: lat=" + nbLat + ", lon=" + nbLon + ", time=" + nbTime + ", total size=" + total);         
         int indexOut = 0;//index in data array
         
-        BufferedInputStream bis = new BufferedInputStream( //because it supports "marks"
-            new FileInputStream(fileDir + fileName));//may throw exception
-        InputStream inStream;
-        String ext = File2.getExtension(fileName);
-        if (ext.equals(""))
-            inStream = bis;
-        else inStream = new CompressorStreamFactory().createCompressorInputStream(
-            bis);  //This inputStream must support "marks".
-        //was just for .gz: else inStream = new GZIPInputStream(bis);
+        BufferedInputStream inStream = new BufferedInputStream( //because it supports "marks"
+            new FileInputStream(tFullName)); //may throw exception
 
         try {
              
@@ -432,7 +446,7 @@ public class EDDGridFromMergeIRFiles extends EDDGridFromFiles {
                         MustBe.throwableToShortString(t2));
                 }
             }
-            if (verbose) String2.log("Error while reading " + fileDir + fileName);
+            if (verbose) String2.log("Error while reading " + tFullName);
             throw t;
         }
         return paa;
@@ -482,28 +496,35 @@ public class EDDGridFromMergeIRFiles extends EDDGridFromFiles {
      *   If no trouble, then a valid dataset.xml chunk has been returned.
      */
     public static String generateDatasetsXml(String tFileDir, String tFileNameRegex,
-        int tReloadEveryNMinutes) throws Throwable {
+        int tReloadEveryNMinutes, String tCacheFromUrl) throws Throwable {
         
-        String2.log("EDDGridFromMergeIRFiles.generateDatasetsXml");
+        String2.log("\n*** EDDGridFromMergeIRFiles.generateDatasetsXml" +
+            "\nfileDir=" + tFileDir + " fileNameRegex=" + tFileNameRegex +
+            " reloadEveryNMinutes=" + tReloadEveryNMinutes);
         if (!String2.isSomething(tFileDir))
             throw new IllegalArgumentException("fileDir wasn't specified.");
         tFileDir = File2.addSlash(tFileDir); //ensure it has trailing slash
+        tFileNameRegex = String2.isSomething(tFileNameRegex)? 
+            tFileNameRegex.trim() : ".*";
+        if (String2.isRemote(tCacheFromUrl)) 
+            FileVisitorDNLS.sync(tCacheFromUrl, tFileDir, tFileNameRegex,
+                true, ".*", false); //not fullSync
         if (tReloadEveryNMinutes < 0 || tReloadEveryNMinutes == Integer.MAX_VALUE)
             tReloadEveryNMinutes = 1440; //daily. More often than usual default.
 
         StringBuilder sb = new StringBuilder();
         //gather the results 
         String tDatasetID = "mergeIR";
-        sb.append(directionsForGenerateDatasetsXml());
 
         //???
-        //sb.append( "!!! The source for " + tDatasetID + " has nGridVariables=" + 2 +".\n");
+        //sb.append( "<!-- NOTE! The source for " + tDatasetID + " has nGridVariables=" + 2 +". -->\n");
 
         sb.append(
-            "-->\n\n" +
             "<dataset type=\"EDDGridFromMergeIRFiles\" datasetID=\"" + tDatasetID +  "\" active=\"true\">\n" +
             "    <reloadEveryNMinutes>" + tReloadEveryNMinutes + "</reloadEveryNMinutes>\n" +  
-            "    <updateEveryNMillis>10000</updateEveryNMillis>\n" +  
+            (String2.isUrl(tCacheFromUrl)? 
+              "    <cacheFromUrl>" + XML.encodeAsXML(tCacheFromUrl) + "</cacheFromUrl>\n" :
+              "    <updateEveryNMillis>" + suggestUpdateEveryNMillis(tFileDir) + "</updateEveryNMillis>\n") +  
             "    <fileDir>" + XML.encodeAsXML(tFileDir) + "</fileDir>\n" +
             "    <fileNameRegex>" + XML.encodeAsXML(tFileNameRegex) + "</fileNameRegex>\n" +
             "    <recursive>true</recursive>\n" +
@@ -517,9 +538,9 @@ public class EDDGridFromMergeIRFiles extends EDDGridFromFiles {
             "        <att name=\"Conventions\">COARDS, CF-1.6, ACDD-1.3</att>\n" +
             "        <att name=\"creator_name\">Bob Joyce</att>\n" +
             "        <att name=\"creator_email\">robert.joyce@noaa.gov</att>\n" +
-            "        <att name=\"creator_url\">http://www.cpc.ncep.noaa.gov/</att>\n" +
+            "        <att name=\"creator_url\">https://www.cpc.ncep.noaa.gov/</att>\n" +
             "        <att name=\"drawLandMask\">under</att>\n" +
-            "        <att name=\"infoUrl\">http://www.cpc.ncep.noaa.gov/products/global_precip/html/README</att>\n" +
+            "        <att name=\"infoUrl\">https://www.cpc.ncep.noaa.gov/products/global_precip/html/README</att>\n" +
             "        <att name=\"institution\">NOAA NWS NCEP CPC</att>\n" +
             "        <att name=\"keywords\">4km, brightness, cpc, flux, global, ir, merge, ncep, noaa, nws, temperature</att>\n" +
             "        <att name=\"keywords_vocabulary\">GCMD Science Keywords</att>\n" +
@@ -605,21 +626,19 @@ public class EDDGridFromMergeIRFiles extends EDDGridFromFiles {
         String2.log("\n*** EDDGridFromMergeIRFiles.testGenerateDatasetsXml");
 
         String results = generateDatasetsXml(
-            EDStatic.unitTestDataDir + "mergeIR/", "merg_[0-9]{10}_4km-pixel\\.gz", -1) + "\n";
+            EDStatic.unitTestDataDir + "mergeIR/", "merg_[0-9]{10}_4km-pixel\\.gz", -1, 
+                "") + "\n"; //cacheFromUrl
 
         //GenerateDatasetsXml
         String gdxResults = (new GenerateDatasetsXml()).doIt(new String[]{"-verbose", 
             "EDDGridFromMergeIRFiles", EDStatic.unitTestDataDir + "mergeIR/", 
-            "merg_[0-9]{10}_4km-pixel\\.gz", "-1"}, //default reloadEvery
+            "merg_[0-9]{10}_4km-pixel\\.gz", "-1", ""}, //default reloadEvery, cacheFromUrl
             false); //doIt loop?
         Test.ensureEqual(gdxResults, results, 
             "Unexpected results from GenerateDatasetsXml.doIt. " + 
             gdxResults.length() + " " + results.length());
 
         String expected = 
-directionsForGenerateDatasetsXml() +
-"-->\n" +
-"\n" +
 "<dataset type=\"EDDGridFromMergeIRFiles\" datasetID=\"mergeIR\" active=\"true\">\n" +
 "    <reloadEveryNMinutes>1440</reloadEveryNMinutes>\n" +
 "    <updateEveryNMillis>10000</updateEveryNMillis>\n" +
@@ -634,9 +653,9 @@ directionsForGenerateDatasetsXml() +
 "        <att name=\"Conventions\">COARDS, CF-1.6, ACDD-1.3</att>\n" +
 "        <att name=\"creator_name\">Bob Joyce</att>\n" +
 "        <att name=\"creator_email\">robert.joyce@noaa.gov</att>\n" +
-"        <att name=\"creator_url\">http://www.cpc.ncep.noaa.gov/</att>\n" +
+"        <att name=\"creator_url\">https://www.cpc.ncep.noaa.gov/</att>\n" +
 "        <att name=\"drawLandMask\">under</att>\n" +
-"        <att name=\"infoUrl\">http://www.cpc.ncep.noaa.gov/products/global_precip/html/README</att>\n" +
+"        <att name=\"infoUrl\">https://www.cpc.ncep.noaa.gov/products/global_precip/html/README</att>\n" +
 "        <att name=\"institution\">NOAA NWS NCEP CPC</att>\n" +
 "        <att name=\"keywords\">4km, brightness, cpc, flux, global, ir, merge, ncep, noaa, nws, temperature</att>\n" +
 "        <att name=\"keywords_vocabulary\">GCMD Science Keywords</att>\n" +
@@ -705,11 +724,15 @@ directionsForGenerateDatasetsXml() +
 "    </dataVariable>\n" +
 "</dataset>\n" +
 "\n\n";
-        Test.ensureEqual(results, expected, results.length() + " " + expected.length() + 
+        Test.ensureEqual(results, expected, 
+            "results.length=" + results.length() + " expected.length=" + expected.length() + 
             "\nresults=\n" + results);
 
         //ensure it is ready-to-use by making a dataset from it
+        String tDatasetID = "mergeIR";
+//        EDD.deleteCachedDatasetInfo(tDatasetID);
         EDD edd = oneFromXmlFragment(null, results);
+        Test.ensureEqual(edd.datasetID(), tDatasetID, "datasetID");
         Test.ensureEqual(edd.className(), "EDDGridFromMergeIRFiles", "className");
         Test.ensureEqual(edd.title(), "NCEP/CPC 4km Global (60N - 60S) IR Dataset", "title");
         Test.ensureEqual(String2.toCSSVString(edd.dataVariableDestinationNames()), 
@@ -722,8 +745,12 @@ directionsForGenerateDatasetsXml() +
     /** This tests this class. */
     public static void testMergeIR() throws Throwable {
 
-        String2.log("\n*** testMergeIRgz\n");
+        String2.log("\n*** EDDGridFromMergeIRFiles.testMergeIRgz\n");
         testVerboseOn();
+        //String2.log(NcHelper.ncdump("/erddapTest/mergeIR/merg_20150101_4km-pixel", "-h"));
+        deleteCachedDatasetInfo("mergeIR");
+        deleteCachedDatasetInfo("mergeIRZ");
+        deleteCachedDatasetInfo("mergeIRgz");
         EDDGrid edd   = (EDDGrid)oneFromDatasetsXml(null, "mergeIR");   //from uncompressed files
         EDDGrid eddZ  = (EDDGrid)oneFromDatasetsXml(null, "mergeIRZ");  //from .Z files
         EDDGrid eddgz = (EDDGrid)oneFromDatasetsXml(null, "mergeIRgz"); //from .gz files
@@ -757,21 +784,21 @@ directionsForGenerateDatasetsXml() +
         //uncompressed
         tName = edd.makeNewFileForDapQuery(null, null, "", 
             dir, edd.className() + "_", ".dds"); 
-        results = new String((new ByteArray(dir + tName)).toArray());
+        results = String2.directReadFrom88591File(dir + tName);
         Test.ensureEqual(results, expected, "results=\n" + results);
 
         //Z
         expected = String2.replaceAll(expected, "mergeIR;", "mergeIRZ;");
         tName = eddZ.makeNewFileForDapQuery(null, null, "", 
             dir, eddZ.className() + "_Z", ".dds"); 
-        results = new String((new ByteArray(dir + tName)).toArray());
+        results = String2.directReadFrom88591File(dir + tName);
         Test.ensureEqual(results, expected, "Z results=\n" + results);
 
         //gz
         expected = String2.replaceAll(expected, "mergeIRZ;", "mergeIRgz;");
         tName = eddgz.makeNewFileForDapQuery(null, null, "", 
             dir, eddgz.className() + "_gz", ".dds"); 
-        results = new String((new ByteArray(dir + tName)).toArray());
+        results = String2.directReadFrom88591File(dir + tName);
         Test.ensureEqual(results, expected, "gz results=\n" + results);
 
 
@@ -830,8 +857,8 @@ directionsForGenerateDatasetsXml() +
 "    String Conventions \"COARDS, CF-1.6, ACDD-1.3\";\n" +
 "    String creator_email \"robert.joyce@noaa.gov\";\n" +
 "    String creator_name \"Bob Joyce\";\n" +
-"    String creator_url \"http://www.cpc.ncep.noaa.gov/\";\n" +
-"    String drawLandMask \"under\";\n" +
+"    String creator_type \"person\";\n" +
+"    String creator_url \"https://www.cpc.ncep.noaa.gov/\";\n" +
 "    Float64 Easternmost_Easting 359.9695;\n" +
 "    Float64 geospatial_lat_max 59.97713;\n" +
 "    Float64 geospatial_lat_min -59.982;\n" +
@@ -847,7 +874,7 @@ directionsForGenerateDatasetsXml() +
 //"2015-03-20T17:28:57Z 
 String expected2 = 
 "http://localhost:8080/cwexperimental/griddap/mergeIR.das\";\n" +
-"    String infoUrl \"http://www.cpc.ncep.noaa.gov/products/global_precip/html/README\";\n" +
+"    String infoUrl \"https://www.cpc.ncep.noaa.gov/products/global_precip/html/README\";\n" +
 "    String institution \"NOAA NWS NCEP CPC\";\n" +
 "    String keywords \"4km, brightness, cpc, flux, global, ir, merge, ncep, noaa, nws, temperature\";\n" +
 "    String keywords_vocabulary \"GCMD Science Keywords\";\n" +
@@ -877,7 +904,7 @@ String expected2 =
         //uncompressed
         tName = edd.makeNewFileForDapQuery(null, null, "", 
             dir, edd.className() + "_", ".das"); 
-        results = new String((new ByteArray(dir + tName)).toArray());
+        results = String2.directReadFrom88591File(dir + tName);
         Test.ensureEqual(results.substring(0, expected.length()), expected, "results=\n" + results);
 
         po = results.indexOf(expected2.substring(0, 20));
@@ -887,7 +914,7 @@ String expected2 =
         expected2 = String2.replaceAll(expected2, "mergeIR.das", "mergeIRZ.das");
         tName = eddZ.makeNewFileForDapQuery(null, null, "", 
             dir, eddZ.className() + "_Z", ".das"); 
-        results = new String((new ByteArray(dir + tName)).toArray());
+        results = String2.directReadFrom88591File(dir + tName);
         Test.ensureEqual(results.substring(0, expected.length()), expected, "Z results=\n" + results);
 
         po = results.indexOf(expected2.substring(0, 20));
@@ -897,7 +924,7 @@ String expected2 =
         expected2 = String2.replaceAll(expected2, "mergeIRZ.das", "mergeIRgz.das");
         tName = eddgz.makeNewFileForDapQuery(null, null, "", 
             dir, eddgz.className() + "_gz", ".das"); 
-        results = new String((new ByteArray(dir + tName)).toArray());
+        results = String2.directReadFrom88591File(dir + tName);
         Test.ensureEqual(results.substring(0, expected.length()), expected, "gz results=\n" + results);
 
         po = results.indexOf(expected2.substring(0, 20));
@@ -952,26 +979,27 @@ String expected2 =
         //uncompressed
         tName = edd.makeNewFileForDapQuery(null, null, dapQuery, 
             dir, edd.className() + "_", ".csv"); 
-        results = new String((new ByteArray(dir + tName)).toArray());
+        results = String2.directReadFrom88591File(dir + tName);
         Test.ensureEqual(results, expected, "results=\n" + results);
 
         //Z
         tName = eddZ.makeNewFileForDapQuery(null, null, dapQuery, 
             dir, eddZ.className() + "_Z", ".csv"); 
-        results = new String((new ByteArray(dir + tName)).toArray());
+        results = String2.directReadFrom88591File(dir + tName);
         Test.ensureEqual(results, expected, "Z results=\n" + results);
 
         //gz
         tName = eddgz.makeNewFileForDapQuery(null, null, dapQuery, 
             dir, eddgz.className() + "_gz", ".csv"); 
-        results = new String((new ByteArray(dir + tName)).toArray());
+        results = String2.directReadFrom88591File(dir + tName);
         Test.ensureEqual(results, expected, "gz results=\n" + results);
 
-        String2.log("\n*** testMergeIR() finished successfully");
+        String2.log("\n*** EDDGridFromMergeIRFiles.testMergeIR() finished successfully");
     }
 
     /** This tests this class. */
     public static void test() throws Throwable {
+/* for releases, this line should have open/close comment */
         testGenerateDatasetsXml();
         testMergeIR();
     }

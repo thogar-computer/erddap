@@ -8,6 +8,7 @@ import com.cohort.util.String2;
 
 import gov.noaa.pfel.erddap.util.EDStatic;
 
+import java.io.BufferedOutputStream;
 import java.io.OutputStream;
 import java.util.Enumeration;
 import java.util.zip.GZIPOutputStream;
@@ -39,7 +40,9 @@ public class OutputStreamFromHttpResponse implements OutputStreamSource {
     private String fileName;
     private String fileType;
     private String extension;
+    private String usingCompression = ""; //not yet set
     private OutputStream outputStream;
+    private boolean hasRangeRequest;
 
     /**
      * The constructor.
@@ -64,30 +67,44 @@ public class OutputStreamFromHttpResponse implements OutputStreamSource {
         fileName = tFileName;
         fileType = tFileType;
         extension = tExtension;
+
+        hasRangeRequest = request.getHeader("Range") != null; 
     }
 
 
-    /**
-     * A variant of outputStream() for when the contentLength isn't known.
-     */
     public OutputStream outputStream(String characterEncoding) throws Throwable {
         return outputStream(characterEncoding, -1);
     }
-
-        
+   
     /**
      * This returns the OutputStream.
      * If called repeatedly, this returns the same outputStream.
      *
-     * @param characterEncoding e.g., "" (for none specified), "UTF-8", or "" (for DAP).
+     * <p>This never calls httpServletResponse.setContentLength 
+     * ("Content-Length") because the length isn't as expected (the file's length) 
+     * if I compress the response or if I send a Byte Range response.
+     * An incorrectly specified Content-Length screws things up --  
+     *   Firefox and Chrome wait 20 seconds before giving up.  
+     * See it esp with full page reload: Ctrl Reload in Chrome.
+     * See it with Performance recording in Firefox:
+     *   In both cases .html loads quickly 
+     *   but related resources take 20 seconds (almost exactly).  
+     * There is no need to set Content-Length (except when dealing with Byte Ranges --
+     * see the 2nd Erddap.doTransfer()).
+     * NOTE: if the request has a Range request (hasRangeRequest), this won't
+     * ever compress the response.
+     * See usage of hasRangeRequest in this class.
+     *
+     * @param characterEncoding e.g., "" (for none specified), String2.UTF_8, or "" (for DAP).
      *     This parameter only matters the first time this method is called.
      *     This only matters for some subclasses.
-     * @param contentLength the number of bytes that will be sent (or -1 if not known).
-     *     Currently, this causes Firefox to freeze, so this method ignores it.
-     * @return outputStream
+     * @param tLength The length of the entire file for the response, if known 
+     *     (else -1).  Currently, this is not used.
+     * @return a buffered outputStream.  If outputStream has already been created,
+     *   the same one is returned.
      * @throws Throwable if trouble
      */
-    public OutputStream outputStream(String characterEncoding, long contentLength) 
+    public OutputStream outputStream(String characterEncoding, long tLength) 
         throws Throwable {
 
         if (outputStream != null) 
@@ -104,18 +121,28 @@ public class OutputStreamFromHttpResponse implements OutputStreamSource {
         boolean genericCompressed = false;  //true for generic compressed files, e.g., .zip
         boolean otherCompressed = false;    //true for app specific compressed (but not audio/ image/ video)
 
-        if (extension.equals(".7z")) {
+        if (extension.equals(".3gp")) {
+            response.setContentType("video/3gpp");  
+
+        } else if (extension.equals(".7z")) {
             response.setContentType("application/x-7z-compressed"); 
             genericCompressed = true;
 
         } else if (extension.equals(".ai")) {
             response.setContentType("application/postscript"); 
 
+        } else if (extension.equals(".aif") ||
+                   extension.equals(".aiff") ||
+                   extension.equals(".aifc")) {
+            response.setContentType("audio/x-aiff"); 
+
         } else if (extension.equals(".asc")) { 
             //There are a couple of fileNameTypes that lead to .asc.
             //If DODS, ...
             if (fileType.equals(".asc"))
-                response.setHeader("content-description", "dods_data"); //DAP 2.0, 7.1.1
+                response.setHeader("Content-Description", "dods-data"); //DAP 2.0, 7.1.1  //pre 2019-03-29 was "content-description" "dods_data" 
+            else if (fileType.equals(".timeGaps"))
+                response.setHeader("Content-Description", "time_gap_information"); //pre 2019-03-29 was "content-description" 
             response.setContentType("text/plain"); 
 
         } else if (extension.equals(".au")) {
@@ -146,11 +173,12 @@ public class OutputStreamFromHttpResponse implements OutputStreamSource {
 
         } else if (extension.equals(".das")) {
             response.setContentType("text/plain");
-            response.setHeader("content-description", "dods_das"); //DAP 2.0, 7.1.1  ???!!!DConnect has 'c' 'd', BUT spec has 'C' 'D'
+            response.setHeader("Content-Description", "dods-das"); //DAP 2.0, 7.1.1  ???!!!DConnect (that's JPL -- ignore it) has 'c' 'd', BUT spec (follow the spec) and THREDDS have 'C' 'D'-- but HTTP header names are case-insensitive
+            //until ERDDAP v1.84, was "content-description", "dods_das": c d _ !
             
         } else if (extension.equals(".dds")) {
             response.setContentType("text/plain");
-            response.setHeader("content-description", "dods_dds"); //DAP 2.0, 7.1.1
+            response.setHeader("Content-Description", "dods-dds"); //DAP 2.0, 7.1.1
 
         } else if (extension.equals(".der")) {
             response.setContentType("application/x-x509-ca-cert"); 
@@ -165,13 +193,16 @@ public class OutputStreamFromHttpResponse implements OutputStreamSource {
         } else if (extension.equals(".dods")) {
             //see dods.servlet.DODSServlet.doGetDODS for example
             response.setContentType("application/octet-stream");
-            response.setHeader("content-description", "dods_data"); //DAP 2.0, 7.1.1
+            response.setHeader("Content-Description", "dods-data"); //DAP 2.0, 7.1.1
 
         } else if (extension.equals(".dotx")) {
             response.setContentType("application/vnd.openxmlformats-officedocument.wordprocessingml.template"); 
 
         } else if (extension.equals(".f4v")) {
             response.setContentType("video/x-f4v");                                 
+
+        } else if (extension.equals(".flac")) {
+            response.setContentType("audio/flac");     
 
         } else if (extension.equals(".flv")) {
             response.setContentType("video/x-flv");                                 
@@ -203,7 +234,7 @@ public class OutputStreamFromHttpResponse implements OutputStreamSource {
         } else if (extension.equals(".hdf")) { 
             response.setContentType("application/x-hdf"); 
 
-        } else if (extension.equals(".html")) { 
+        } else if (extension.equals(".html")) { //ERDDAP always writes as String2.UTF_8
             response.setContentType(HTML_MIME_TYPE); 
 
         } else if (extension.equals(".ief")) { 
@@ -224,9 +255,18 @@ public class OutputStreamFromHttpResponse implements OutputStreamSource {
             response.setContentType("application/x-javascript"); 
 
         } else if (extension.equals(".json")) { 
-            response.setContentType(fileType.equals(".jsonText")? 
-                "text/plain" :       //ESRI Geoservices REST uses this
-                "application/json"); //http://dret.net/biblio/reference/rfc4627
+            response.setContentType(
+                fileType.equals(".jsonp")?  //pseudo fileType
+                    "application/javascript" : //see https://stackoverflow.com/questions/477816/what-is-the-correct-json-content-type
+                fileType.equals(".jsonText")? 
+                    "text/plain" : //ESRI Geoservices REST uses this
+                    "application/json"); //http://dret.net/biblio/reference/rfc4627
+
+        } else if (extension.equals(".jsonl")) { 
+            response.setContentType(
+                fileType.equals(".jsonp")?  //pseudo fileType
+                    "application/javascript" : //see https://stackoverflow.com/questions/477816/what-is-the-correct-json-content-type
+                    "application/x-jsonlines");  //no definitive answer. https://github.com/wardi/jsonlines/issues/9  I like x-jsonlines because it is descriptive.
 
         } else if (extension.equals(".kml")) {
             //see https://developers.google.com/kml/documentation/kml_tut
@@ -299,7 +339,8 @@ public class OutputStreamFromHttpResponse implements OutputStreamSource {
         } else if (extension.equals(".mpp")) {
             response.setContentType("application/vnd.ms-project"); 
 
-        } else if (extension.equals(".nc")) {
+        } else if (extension.equals(".nc") || 
+                   extension.equals(".cdf")) {
             response.setContentType("application/x-netcdf"); 
 
         } else if (extension.equals(".odb")) {
@@ -331,6 +372,9 @@ public class OutputStreamFromHttpResponse implements OutputStreamSource {
             response.setContentType("application/vnd.oasis.opendocument.text"); 
 
         } else if (extension.equals(".oga")) {
+            response.setContentType("audio/ogg"); 
+
+        } else if (extension.equals(".ogg")) {
             response.setContentType("audio/ogg"); 
 
         } else if (extension.equals(".ogv")) {
@@ -572,8 +616,9 @@ public class OutputStreamFromHttpResponse implements OutputStreamSource {
             response.setContentType("application/zip.war"); 
             genericCompressed = true;
             
-        } else if (extension.equals(".wav")) {
-            response.setContentType("audio/x-wav"); 
+        } else if (extension.equals(".wav") || 
+                   extension.equals(".wave")) {
+            response.setContentType("audio/wav"); //I've seen audio/x-wav
          
         } else if (extension.equals(".weba")) {
             response.setContentType("audio/webm"); 
@@ -610,10 +655,10 @@ public class OutputStreamFromHttpResponse implements OutputStreamSource {
             //It just shows endless series of "Save As..." dialog boxes.
             //"application/xhtml+xml" is proper mime type, 
             //  see http://keystonewebsites.com/articles/mime_type.php
-            //Lots of web sites serve xhtml successfully using this
+            //Lots of websites serve xhtml successfully using this
             //  e.g., in firefox, see Tools : Page Info for 
-            //  http://www.w3.org/MarkUp/Forms/2003/xforms-for-html-authors
-            //see http://www.w3.org/TR/xhtml1/#guidelines
+            //  https://www.w3.org/MarkUp/Forms/2003/xforms-for-html-authors
+            //see https://www.w3.org/TR/xhtml1/#guidelines
             //But they do something else.
             //
             //I did:
@@ -691,21 +736,14 @@ public class OutputStreamFromHttpResponse implements OutputStreamSource {
         if (characterEncoding != null && characterEncoding.length() > 0)
             response.setCharacterEncoding(characterEncoding);
 
-        //specify contentLength if known
-//???!!! using this causes firefox to freeze (unknown reason)
-//        if (contentLength >= 0 && contentLength < Integer.MAX_VALUE) {
-//String2.log("response.setContentLength(" + contentLength + ");");
-//            response.setContentLength((int)contentLength);
-//String2.log("response.setContentLength finished");
-//String2.log("");
-//        }
-
-        //specify the file's name  (this may force show File Save As dialog box in user's browser)
-        
+        //specify the file's name  (this may force show File Save As dialog box in user's browser)        
         if (genericCompressed ||         //include all genericCompressed types
+            extension.equals(".cdf")  || 
             extension.equals(".csv")  || 
+            extension.equals(".itx")  || 
             extension.equals(".js")   || 
              fileType.equals(".json") || //not .jsonText
+            extension.equals(".jsonl") || 
             extension.equals(".kml")  || 
             extension.equals(".mat")  || 
             extension.equals(".nc")   ||
@@ -720,23 +758,23 @@ public class OutputStreamFromHttpResponse implements OutputStreamSource {
 
         //Compress the output stream if user request says it is allowed.
         //See http://www.websiteoptimization.com/speed/tweak/compress/  (gone?!)
-        //and http://betterexplained.com/articles/how-to-optimize-your-site-with-gzip-compression/
+        //and https://betterexplained.com/articles/how-to-optimize-your-site-with-gzip-compression/
 //see similar code in Browser.java
         //This makes sending raw file (even ASCII) as efficient as sending a zipped file
         //   and user doesn't have to unzip the file.
         //Accept-Encoding should be a csv list of acceptable encodings.
         //DAP 2.0 section 6.2.1 says compress, gzip, and deflate are possible.
-        //See http://httpd.apache.org/docs/1.3/mod/mod_mime.html
+        //See https://httpd.apache.org/docs/1.3/mod/mod_mime.html
         //  which says that x-gzip=gzip and x-compress=compress
         String acceptEncoding = request.getHeader("accept-encoding"); //case-insensitive
         acceptEncoding = acceptEncoding == null? "" : acceptEncoding.toLowerCase();
         String tContentType = response.getContentType(); //as set above, or null
         if (tContentType == null)
             tContentType = "";
-        //???does out need to be in BufferedOutputStream; or just buffered if not compressed???
-        String usingEncoding = "";
 
-        if (genericCompressed || //include all genericCompressed types
+        //responses that I won't compress
+        if (hasRangeRequest ||
+            genericCompressed || //include all genericCompressed types
             otherCompressed ||   //include all otherCompressed types
             //already compressed audio, image, video files
             tContentType.indexOf("audio/") >= 0 ||
@@ -745,37 +783,50 @@ public class OutputStreamFromHttpResponse implements OutputStreamSource {
 
             //no compression  (since already compressed)
             //DODSServlet says:
-            // This should probably be set to "plain" but this works, the
-            // C++ clients don't barf as they would if I sent "plain" AND
-            // the C++ don't expect compressed data if I do this...
-            response.setHeader("Content-Encoding", "");
-            outputStream = response.getOutputStream(); //after all setHeader
-            usingEncoding = "already";
+            //  This should probably be set to "plain" but this works, the
+            //  C++ clients don't barf as they would if I sent "plain" AND
+            //  the C++ don't expect compressed data if I do this...
+            //But other sources say to use "identity"
+            //  e.g., https://en.wikipedia.org/wiki/HTTP_compression
+            usingCompression = "identity";
+            response.setHeader("Content-Encoding", usingCompression);
+            //Currently, never set Content-Length. But Erddap.doTransfer() sometimes does.
+            //if (!hasRangeRequest && tLength > 0) 
+            //    response.setContentLengthLong(tLength);
+            outputStream = new BufferedOutputStream(response.getOutputStream()); //after all setHeader
 
         //ZipOutputStream too finicky.  outputStream.closeEntry() MUST be called at end or it fails
         //} else if (acceptEncoding.indexOf("compress") >= 0) {
-        //    usingEncoding = "compress";
-        //    response.setHeader("Content-Encoding", "compress");
-        //    outputStream = new ZipOutputStream(response.getOutputStream());
+        //    usingCompression = "compress";
+        //    response.setHeader("Content-Encoding", usingCompression);
+        //    outputStream = new ZipOutputStream(new BufferedOutputStream(response.getOutputStream()));
         //    ((ZipOutputStream)outputStream).putNextEntry(new ZipEntry(fileName + extension));
+
         } else if (acceptEncoding.indexOf("gzip") >= 0) { 
-            usingEncoding = "gzip";
-            response.setHeader("Content-Encoding", "gzip");
-            outputStream = new GZIPOutputStream(response.getOutputStream());
+            usingCompression = "gzip";
+            response.setHeader("Content-Encoding", usingCompression);
+            outputStream = new GZIPOutputStream(new BufferedOutputStream(response.getOutputStream()));
+       
+        //"deflate" is troublesome. Don't support it? Apache just supports gzip. But it hasn't been trouble.
+        //see https://en.wikipedia.org/wiki/HTTP_compression
         } else if (acceptEncoding.indexOf("deflate") >= 0) {
-            usingEncoding = "deflate";
-            response.setHeader("Content-Encoding", "deflate");
-            outputStream = new DeflaterOutputStream(response.getOutputStream());
+            usingCompression = "deflate";
+            response.setHeader("Content-Encoding", usingCompression);
+            outputStream = new DeflaterOutputStream(new BufferedOutputStream(response.getOutputStream()));
+
         } else /**/ { 
             //no compression  (see DODSServlet comments above (for .gif))
-            usingEncoding = "not requested";
-            response.setHeader("Content-Encoding", "");
-            outputStream = response.getOutputStream(); //after all setHeader
+            usingCompression = "identity";
+            response.setHeader("Content-Encoding", usingCompression);
+            //Currently, never set Content-Length. But Erddap.doTransfer() sometimes does.
+            //if (tLength > 0) 
+            //    response.setContentLengthLong(tLength);
+            outputStream = new BufferedOutputStream(response.getOutputStream()); //after all setHeader
         }
 
         if (verbose) {
             String2.log("OutputStreamFromHttpResponse " + characterEncoding + 
-                ", " + usingEncoding + ", " + fileName + ", " + extension);
+                ", encoding=" + usingCompression + ", " + fileName + ", " + extension);
 
             /* //log header information
             Enumeration en = request.getHeaderNames();
@@ -786,29 +837,32 @@ public class OutputStreamFromHttpResponse implements OutputStreamSource {
             */
         }
 
+        //Buffering:
+        //HttpServletResponse.getBufferSize() returns the buffer size.
+        //HttpServletResponse.setBufferSize() sets the buffer size.
+        //HttpServletResponse.getOutputStream() returns a buffered stream/socket.
+        //In Tomcat the socketBuffer setting specifies the default buffer size (default=9000)
+        //I'm just sticking with the default.
+        return outputStream; 
+    }
+
+    /** 
+     * After ouputStream() has been called, this indicates the encoding (compression)
+     * being used for an OutputStreamFromHttpResponse (gzip, deflate) 
+     * or "identity" if no compression.
+     */
+    public String usingCompression() {
+        return usingCompression;
+    }
+
+    /**
+     * This returns the outputStream if it has already been created (else null).
+     */
+    public OutputStream existingOutputStream() {
         return outputStream;
     }
 
-    //See http://httpd.apache.org/docs/1.3/mod/mod_mime.html
-    //  which says that x-gzip=gzip and x-compress=compress
-    //This is also repeated in messages2.xml in 
-    //\"compress\", \"x-compress\" no longer supported because of difficulties with addEntry, closeEntry
-    public static String acceptEncodingHtml(String tErddapUrl) {
-        return 
-        "<b><a name=\"compression\">Requesting Compressed Files</a></b>\n" + 
-        "    <br>" + EDStatic.ProgramName + " doesn't offer results stored in compressed (e.g., .zip or .gzip) files.\n" +
-        "    <br>Instead, " + EDStatic.ProgramName + " looks for\n" +
-        "      <a href=\"http://betterexplained.com/articles/how-to-optimize-your-site-with-gzip-compression/\">accept-encoding" +
-                    EDStatic.externalLinkHtml(tErddapUrl) + "</a>\n" +
-        "      in the HTTP GET request header sent\n" +
-        "    <br>by the client.  If a supported compression type (\"gzip\", \"x-gzip\", or \"deflate\") is found" +
-        "    <br>in the accept-encoding list, " + EDStatic.ProgramName + " includes \"content-encoding\" in the HTTP response\n" +
-        "    <br>header and compresses the data as it transmits it.\n" +
-        "    <br>It is up to the client program to look for \"content-encoding\" and decompress the data.\n" +
-        "    <br>Browsers and OPeNDAP clients do this by default. They request compressed data and\n" +
-        "    <br>decompress the returned data automatically.\n" +
-        "    <br>Other clients (e.g., Java programs) have to do this explicitly.\n"; 
-    }
+
 
 
 }

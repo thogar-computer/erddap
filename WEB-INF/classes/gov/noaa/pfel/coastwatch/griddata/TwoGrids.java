@@ -39,14 +39,9 @@ import java.util.List;
 import java.util.GregorianCalendar;
 
 /**
- * Get netcdf-X.X.XX.jar from 
- * http://www.unidata.ucar.edu/software/thredds/current/netcdf-java/index.html
+ * Get netcdfAll-......jar from ftp://ftp.unidata.ucar.edu/pub
  * and copy it to <context>/WEB-INF/lib renamed as netcdf-latest.jar.
- * Get slf4j-jdk14.jar from 
- * ftp://ftp.unidata.ucar.edu/pub/netcdf-java/slf4j-jdk14.jar
- * and copy it to <context>/WEB-INF/lib.
- * 2013-02-21 new netcdfAll uses Java logging, not slf4j.
- * Put both of these .jar files in the classpath for the compiler and for Java.
+ * Put it in the classpath for the compiler and for Java.
  */
 import ucar.ma2.*;
 import ucar.nc2.*;
@@ -251,36 +246,37 @@ public class TwoGrids  {
 
         //open a dataOutputStream 
         DataOutputStream dos = DataStream.getDataOutputStream(directory + randomInt);
+        try {
+            //write the header
+            Matlab.writeMatlabHeader(dos);
 
-        //write the header
-        Matlab.writeMatlabHeader(dos);
+            //first: write the lon array 
+            Matlab.writeDoubleArray(dos, "lon", grid1.lon);
 
-        //first: write the lon array 
-        Matlab.writeDoubleArray(dos, "lon", grid1.lon);
+            //second: make the lat array
+            Matlab.writeDoubleArray(dos, "lat", grid1.lat);
 
-        //second: make the lat array
-        Matlab.writeDoubleArray(dos, "lat", grid1.lat);
+            //make an array of the data[row][col]
+            int nLat = grid1.lat.length;
+            int nLon = grid1.lon.length;
+            double ar[][] = new double[nLat][nLon];
+            for (int row = 0; row < nLat; row++)
+                for (int col = 0; col < nLon; col++) 
+                    ar[row][col] = grid1.getData(col, row);
+            Matlab.write2DDoubleArray(dos, varName1, ar);
 
-        //make an array of the data[row][col]
-        int nLat = grid1.lat.length;
-        int nLon = grid1.lon.length;
-        double ar[][] = new double[nLat][nLon];
-        for (int row = 0; row < nLat; row++)
-            for (int col = 0; col < nLon; col++) 
-                ar[row][col] = grid1.getData(col, row);
-        Matlab.write2DDoubleArray(dos, varName1, ar);
+            for (int row = 0; row < nLat; row++)
+                for (int col = 0; col < nLon; col++) 
+                    ar[row][col] = grid2.getData(col, row);
+            Matlab.write2DDoubleArray(dos, varName2, ar);
 
-        for (int row = 0; row < nLat; row++)
-            for (int col = 0; col < nLon; col++) 
-                ar[row][col] = grid2.getData(col, row);
-        Matlab.write2DDoubleArray(dos, varName2, ar);
+            //this doesn't write attributes.   should it?
+            //setStatsAttributes(true); //true = double
+            //write the attributes...
 
-        //this doesn't write attributes.   should it?
-        //setStatsAttributes(true); //true = double
-        //write the attributes...
-
-        //close dos 
-        dos.close();
+        } finally { 
+            dos.close();
+        }
 
         //rename the file to the specified name     
         File2.rename(directory, randomInt + "", name + ext);
@@ -343,6 +339,7 @@ public class TwoGrids  {
         //items determined by looking at a .nc file; items written in that order 
         String2.log("tFileName=" + directory + randomInt + ".nc");
         //createNew( , false) says: create a new file and don't fill with missing_values
+        boolean nc3Mode = true;
         NetcdfFileWriter nc = NetcdfFileWriter.createNew(
             NetcdfFileWriter.Version.netcdf3, 
             directory + randomInt + ".nc");
@@ -410,7 +407,7 @@ public class TwoGrids  {
                         NcHelper.get1DArray(matrix))); //float64[] {a, b, c, d, e, f}
                 } else {
                     rootGroup.addAttribute(
-                        NcHelper.createAttribute(names[i], grid1.globalAttributes().get(names[i])));
+                        NcHelper.createAttribute(nc3Mode, names[i], grid1.globalAttributes().get(names[i])));
                 }
             }
 
@@ -435,18 +432,18 @@ public class TwoGrids  {
             altitudeVar.addAttribute(new Attribute("_CoordinateZisPositive", "up"));
 
             //lat
-            NcHelper.setAttributes(latVar, grid1.latAttributes());
+            NcHelper.setAttributes(nc3Mode, latVar, grid1.latAttributes());
             latVar.addAttribute(new Attribute("axis", "Y"));
 
             //lon
-            NcHelper.setAttributes(lonVar, grid1.lonAttributes());
+            NcHelper.setAttributes(nc3Mode, lonVar, grid1.lonAttributes());
             lonVar.addAttribute(new Attribute("axis", "X"));
 
             //data1
-            NcHelper.setAttributes(data1Var, grid1.dataAttributes());
+            NcHelper.setAttributes(nc3Mode, data1Var, grid1.dataAttributes());
 
             //data2
-            NcHelper.setAttributes(data2Var, grid2.dataAttributes());
+            NcHelper.setAttributes(nc3Mode, data2Var, grid2.dataAttributes());
 
             //leave "define" mode
             nc.create();
@@ -478,6 +475,7 @@ public class TwoGrids  {
 
             //if close throws exception, it is trouble
             nc.close(); //it calls flush() and doesn't like flush called separately
+            nc = null;
 
             //rename the file to the specified name
             File2.rename(directory, randomInt + ".nc", name + ext);
@@ -487,12 +485,13 @@ public class TwoGrids  {
                 String2.log("TwoGrids.saveAsNetCDF done. created " + 
                     directory + name + ext + 
                     " in " + (System.currentTimeMillis() - time) + " ms.");
-            //ncDump("End of Grid.saveAsNetCDF", directory + name + ext, false);
+            //String2.log(ncdump(directory + name + ext, "-h"));
 
         } catch (Exception e) {
             //try to close the file
             try {
-                nc.close(); //it calls flush() and doesn't like flush called separately
+                if (nc != null)
+                    nc.close(); //it calls flush() and doesn't like flush called separately
             } catch (Exception e2) {
                 //don't care
             }
@@ -547,25 +546,26 @@ public class TwoGrids  {
         //open the temp file
         //(I tried with Buffer/FileOutputStream. No faster.)
         BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(directory + randomInt));
+        try {
 
-        //write the data
-        int nLat = grid1.lat.length;
-        int nLon = grid1.lon.length;
-        //write values from row to row, bottom to top 
-        for (int tLat = 0; tLat < nLat; tLat++) {
-            for (int tLon = 0; tLon < nLon; tLon++) {
-                float f1 = (float)grid1.getData(tLon, tLat);
-                float f2 = (float)grid2.getData(tLon, tLat);
-                bufferedWriter.write(
-                    String2.genEFormat10(grid1.lon[tLon]) + "\t" + 
-                    String2.genEFormat10(grid1.lat[tLat]) + "\t" + 
-                    (Float.isNaN(f1)? NaNString + '\t': f1 + "\t") +
-                    (Float.isNaN(f2)? NaNString + '\n': f2 + "\n"));
+            //write the data
+            int nLat = grid1.lat.length;
+            int nLon = grid1.lon.length;
+            //write values from row to row, bottom to top 
+            for (int tLat = 0; tLat < nLat; tLat++) {
+                for (int tLon = 0; tLon < nLon; tLon++) {
+                    float f1 = (float)grid1.getData(tLon, tLat);
+                    float f2 = (float)grid2.getData(tLon, tLat);
+                    bufferedWriter.write(
+                        String2.genEFormat10(grid1.lon[tLon]) + "\t" + 
+                        String2.genEFormat10(grid1.lat[tLat]) + "\t" + 
+                        (Float.isNaN(f1)? NaNString + '\t': f1 + "\t") +
+                        (Float.isNaN(f2)? NaNString + '\n': f2 + "\n"));
+                }
             }
+        } finally {
+            bufferedWriter.close();
         }
-
-        //close the file
-        bufferedWriter.close();
 
         //rename the file to the specified name
         File2.rename(directory, randomInt + "", name + ext);

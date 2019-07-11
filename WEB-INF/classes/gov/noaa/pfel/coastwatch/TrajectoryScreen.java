@@ -224,8 +224,8 @@ public class TrajectoryScreen extends Screen {
                     "    " + oneOf.getBeginRowTag(Math2.odd(rowNumber.i++)) + "\n" +
                     "      <td>" + String2.substitute(graphLabel, "" + (step.i++), null, null) + "</td>\n" +
                     "      <td>\n" +
-                    "        <table width=\"2%\" cellspacing=\"0\" cellpadding=\"0\">\n" +
-                    "          <tr align=\"left\">\n" +
+                    "        <table class=\"erd\" style=\"width:2%;\">\n" + //padding=0
+                    "          <tr>\n" +
                     "            <td>" + xAxis.getLabel() + "</td>\n" +
                     "            <td>" + xAxis.getControl(xAxisValue) + "</td>\n" + 
                     "            <td>&nbsp;" + yAxis.getLabel() + "</td>\n" +
@@ -337,7 +337,7 @@ public class TrajectoryScreen extends Screen {
                 "0001-01-01", "3000-01-01", //data from all time
                 new String[]{individualValue},
                 tDataVariables.toArray());
-            //String2.log(table.toString("row", 10));
+            //String2.log(table.toString(10));
 
             //make the colorMap
             Color color = null;
@@ -466,7 +466,7 @@ public class TrajectoryScreen extends Screen {
             if (yColumnNumber < 0)
                 Test.error("yVariableName=" + yVariableName + " not in table:" +
                     String2.toCSSVString(table.getColumnNames()));
-            //String2.log(table.toString("row", 10));
+            //String2.log(table.toString(10));
 
             //make colorMap 
             Color color = defaultLineColor;
@@ -554,7 +554,7 @@ public class TrajectoryScreen extends Screen {
             "      <td>" + 
                 String2.substitute(getLabel, "" + (step.i++), null, null) + 
                 "</td>\n" +
-            "      <td width=\"90%\">\n"); //force this column to expand as much as possible
+            "      <td style=\"width:90%;\">\n"); //force this column to expand as much as possible
         boolean hasNoBr = false;
         //if (!tableHasData) {
         //    htmlSB.append("        " + oneOf.noDataAvailable() + "\n");
@@ -606,7 +606,7 @@ public class TrajectoryScreen extends Screen {
 
             //file type help link
             hasNoBr = true;
-            htmlSB.append("        <span style=\"white-space: nowrap;\">\n"); 
+            htmlSB.append("        <span style=\"white-space:nowrap;\">\n"); 
             htmlSB.append(oneOf.pointFileHelpLink());  //they are point files, too
 
             //GETQuery help link

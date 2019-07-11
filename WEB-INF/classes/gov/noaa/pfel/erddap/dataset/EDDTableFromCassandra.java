@@ -10,7 +10,38 @@
  * Startup cqlsh: cqlsh          
  * For Bob, Cassandra is at localhost:9160
 
-UPDATE CASSANDRA:
+INSTALL CASSANDRA on Lenovo in 2018:
+* get Cassandra from https://cassandra.apache.org/
+  2019-05-15: got 3.11.4 (released 2019-02-11)
+    decompressed into \programs\apache-cassandra-3.11.4      
+  2018: downloaded apache-cassandra-3.11.3-bin.tar.gz
+    decompressed into \programs\apache-cassandra-3.11.3
+* Make a snapshot of Dell M4700 data: 
+  cd c:\Program Files\DataStax-DDC\apache-cassandra\bin\
+  run: cqlsh.bat
+    DESCRIBE KEYSPACE bobKeyspace          //copy and paste that into text document
+    COPY bobkeyspace.statictest TO 'c:\backup\cassandra_statictest.txt';
+    COPY bobkeyspace.bobtable TO 'c:\backup\cassandra_bobtable.txt';
+* Recreate the keyspace and data
+  cd C:\programs\apache-cassandra-3.11.4\bin
+    was cd c:\Program Files\DataStax-DDC\apache-cassandra\bin\
+  run: cqlsh.bat
+    1) copy and paste c:\backup\cassandra_bobKeyspace.txt into shell
+    2) COPY bobkeyspace.statictest FROM 'c:\backup\cassandra_statictest.txt';
+    3) COPY bobkeyspace.bobtable FROM 'c:\backup\cassandra_bobtable.txt';
+
+RUN CASSANDRA on Lenovo in 2018:
+* Start it up: cd \programs\apache-cassandra-3.11.3\bin
+  For Java version changes: change JAVA_HOME in cassandra.bat, e.g., 
+    set "JAVA_HOME=C:\Program Files\Java\jre1.8.0_211"
+  type: cassandra.bat -f
+* Shut it down: ^C
+  There is still something running in the background. Restart computer?
+* CQL Shell (3.4.0): same directory, run or double click on cqlsh.bat
+(It requires Python 2, so I installed it 
+  and changed 2 instances of "python" in cqlsh.bat to "C:\Python2710\python".)
+
+UPDATE CASSANDRA on DELL M4700:
 2016:
 * http://cassandra.apache.org/download/
   2016 update: I got apache-cassandra-3.3-bin.tar.gz 
@@ -22,12 +53,13 @@ UPDATE CASSANDRA:
   So it isn't a Windows installed program with registry keys. It's just a bunch of files.
 * http://wiki.apache.org/cassandra/GettingStarted
 
-RUN CASSANDRA:
+RUN CASSANDRA on DELL M4700:
 2016:
 * Start it up: cd /Program Files/DataStax-DDC/apache-cassandra/bin
   type: cassandra.bat -f
   For Java version changes: change JAVA_HOME in cassandra.bat
 * Shut it down: ^C
+  There is still something running in the background. Restart computer?
 * CQL Shell (3.4.0): same directory, run or double click on cqlsh.bat
 (It requires Python 2, so I installed it 
   and changed "python" in cqlsh.bat to "C:\Python2710\python".)
@@ -227,6 +259,7 @@ import java.util.BitSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Date;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 //import java.util.Properties;
 
@@ -261,6 +294,8 @@ public class EDDTableFromCassandra extends EDDTable{
     protected HashSet indexColumnSourceNames;
     protected double maxRequestFraction = 1; //>0..1; 1 until subsetVarTable has been made
     protected String partitionKeyRelatedVariables; //CSSV for error message
+    protected EDV rvToResultsEDV[]; //needed in expandPartitionKeyCSV
+    protected String partitionKeyCSV; //null or csv before expansion
 
     //Double quotes, see 
     //http://www.datastax.com/documentation/cql/3.1/cql/cql_reference/escape_char_r.html
@@ -319,6 +354,7 @@ public class EDDTableFromCassandra extends EDDTable{
         boolean tSourceNeedsExpandedFP_EQ = true;
         String tDefaultDataQuery = null;
         String tDefaultGraphQuery = null;
+        String tPartitionKeyCSV = null;
 
         //process the tags
         String startOfTags = xmlReader.allTags();
@@ -362,6 +398,8 @@ public class EDDTableFromCassandra extends EDDTable{
             else if (localTags.equals("</maxRequestFraction>")) tMaxRequestFraction = String2.parseDouble(content); 
             else if (localTags.equals( "<columnNameQuotes>")) {}
             else if (localTags.equals("</columnNameQuotes>")) tColumnNameQuotes = content; 
+            else if (localTags.equals( "<partitionKeyCSV>")) {}
+            else if (localTags.equals("</partitionKeyCSV>")) tPartitionKeyCSV = content; 
             else if (localTags.equals( "<sourceNeedsExpandedFP_EQ>")) {}
             else if (localTags.equals("</sourceNeedsExpandedFP_EQ>")) tSourceNeedsExpandedFP_EQ = String2.parseBoolean(content); 
             else if (localTags.equals( "<onChange>")) {}
@@ -396,6 +434,7 @@ public class EDDTableFromCassandra extends EDDTable{
                 tKeyspace, tTableName, 
                 tPartitionKeySourceNames, tClusterColumnSourceNames, 
                 tIndexColumnSourceNames,
+                tPartitionKeyCSV,
                 tMaxRequestFraction, tColumnNameQuotes,
                 tSourceNeedsExpandedFP_EQ);
     }
@@ -420,6 +459,7 @@ public class EDDTableFromCassandra extends EDDTable{
         String tKeyspace, String tTableName, 
         String tPartitionKeySourceNames, String tClusterColumnSourceNames,
         String tIndexColumnSourceNames,
+        String tPartitionKeyCSV,
         double tMaxRequestFraction, String tColumnNameQuotes,
         boolean tSourceNeedsExpandedFP_EQ
         ) throws Throwable {
@@ -449,6 +489,7 @@ public class EDDTableFromCassandra extends EDDTable{
         localSourceUrl = tLocalSourceUrl;
         publicSourceUrl = "(Cassandra)"; //not tLocalSourceUrl; keep it private
         addGlobalAttributes.set("sourceUrl", publicSourceUrl);  
+        partitionKeyCSV = String2.isSomething(tPartitionKeyCSV)? tPartitionKeyCSV : null;
 
         //connectionProperties may have secret (username and password)!
         //So use then throw away.
@@ -534,7 +575,7 @@ public class EDDTableFromCassandra extends EDDTable{
         if (tLicense != null)
             combinedGlobalAttributes.set("license", 
                 String2.replaceAll(tLicense, "[standard]", EDStatic.standardLicense));
-        combinedGlobalAttributes.removeValue("null");
+        combinedGlobalAttributes.removeValue("\"null\"");
 
         //create dataVariables[]
         int ndv = tDataVariables.length;
@@ -551,6 +592,10 @@ public class EDDTableFromCassandra extends EDDTable{
             if (tSourceType.endsWith("List")) {
                 isListDV[dv] = true;
                 tSourceType = tSourceType.substring(0, tSourceType.length() - 4);
+                if (tSourceType.equals("unsignedShort")) //the xml name
+                    tSourceType = "char"; //the PrimitiveArray name
+                else if (tSourceType.equals("string")) //the xml name
+                    tSourceType = "String"; //the PrimitiveArray name
             }
             Attributes tSourceAtt = new Attributes();
             //if (reallyVerbose) String2.log("  dv=" + dv + " sourceName=" + tSourceName + " sourceType=" + tSourceType);
@@ -602,10 +647,8 @@ public class EDDTableFromCassandra extends EDDTable{
         StringBuilder dapConstraints = new StringBuilder();
         StringBuilder cassConstraints = new StringBuilder();
         int resultsDVI[] = new int[nPartitionKeys];
-        EDV rvToResultsEDV[] = new EDV[nPartitionKeys];
+        rvToResultsEDV = new EDV[nPartitionKeys]; //make and keep this
         File2.makeDirectory(datasetDir()); 
-        TableWriterAll twa = new TableWriterAll(null, null, //metadata not relevant
-            datasetDir(), "tPKDistinct");
         partitionKeyEDV = new EDV[nPartitionKeys];
         StringArray pkRelated = new StringArray();
         for (int pki = 0; pki < nPartitionKeys; pki++) {
@@ -634,35 +677,49 @@ public class EDDTableFromCassandra extends EDDTable{
                 pkRelated.add(dataVariables[dvi].destinationName());
         }
         partitionKeyRelatedVariables = pkRelated.toString();
-        Table table = makeEmptySourceTable(rvToResultsEDV, 1024); 
         String dapQuery = dapVars.toString() + dapConstraints.toString() + "&distinct()";
         String cassQuery = cassVars.toString() + 
             " FROM " + keyspace + "." + tableName + cassConstraints.toString();
         if (verbose) String2.log(
             "* PrimaryKeys DAP  query=" + dapQuery + "\n" +
             "* PrimaryKeys Cass query=" + cassQuery);
-        SimpleStatement statement = new SimpleStatement(cassQuery);
-        table = getDataForCassandraQuery(
-            EDStatic.loggedInAsSuperuser, "irrelevant", dapQuery, 
-            resultsDVI, rvToResultsEDV, session, statement, 
-            table, twa, new int[4]);
-        if (twa.noMoreDataPlease) 
-            throw new RuntimeException(
-                "Too many primary keys?! TableWriterAll said NoMoreDataPlease.");
-        preStandardizeResultsTable(EDStatic.loggedInAsSuperuser, table); 
-        if (table.nRows() > 0) {
-            standardizeResultsTable("irrelevant", dapQuery, table);
-            twa.writeSome(table);
+        Table cumTable;
+        if (String2.isSomething(partitionKeyCSV)) {
+            //do this here just to ensure expansion doesn't throw exception
+            cumTable = expandPartitionKeyCSV();
+
+        } else {
+            //ask Cassandra
+            TableWriterAll twa = new TableWriterAll(null, null, //metadata not relevant
+                datasetDir(), "tPKDistinct");
+            SimpleStatement statement = new SimpleStatement(cassQuery);
+            Table table = makeEmptySourceTable(rvToResultsEDV, 1024); 
+            table = getDataForCassandraQuery(
+                EDStatic.loggedInAsSuperuser, "irrelevant", dapQuery, 
+                resultsDVI, rvToResultsEDV, session, statement, 
+                table, twa, new int[4]);
+            if (twa.noMoreDataPlease) 
+                throw new RuntimeException(
+                    "Too many primary keys?! TableWriterAll said NoMoreDataPlease.");
+            preStandardizeResultsTable(EDStatic.loggedInAsSuperuser, table); 
+            if (table.nRows() > 0) {
+                standardizeResultsTable("irrelevant", dapQuery, table);
+                twa.writeSome(table);
+            }
+            twa.finish();
+            cumTable = twa.cumulativeTable();
+            twa.releaseResources();        
+            cumTable.leftToRightSortIgnoreCase(nPartitionKeys); //useful: now in sorted order
+
+            //save in flatNc file
+            cumTable.saveAsFlatNc(datasetDir() + PartitionKeysDistinctTableName, 
+                "row", false); //convertToFakeMissingValues
         }
-        twa.finish();
-        Table cumTable = twa.cumulativeTable();
-        cumTable.leftToRightSortIgnoreCase(nPartitionKeys); //useful: now in sorted order
+        //cumTable is sorted and distinct
         String2.log(PartitionKeysDistinctTableName + " nRows=" + cumTable.nRows());
-        //String2.log(cumTable.dataToCSVString());
-        cumTable.saveAsFlatNc(datasetDir() + PartitionKeysDistinctTableName, 
-            "row", false); //convertToFakeMissingValues
+        if (verbose) String2.log("first few rows of partitionKeysTable ('rows' is for info only)\n" + 
+            cumTable.dataToString(10));
         cumTable = null;
-        twa.releaseResources();        
 
         //gather ERDDAP sos information?
         //assume time column is indexed? so C* can return min/max efficiently
@@ -675,9 +732,87 @@ public class EDDTableFromCassandra extends EDDTable{
 
         if (verbose) 
             String2.log(
-                (reallyVerbose? "\n" + toString() : "") +
+                (debugMode? "\n" + toString() : "") +
                 "\n*** EDDTableFromCassandra " + datasetID + " constructor finished. TIME=" + 
-                (System.currentTimeMillis() - constructionStartMillis) + "\n"); 
+                (System.currentTimeMillis() - constructionStartMillis) + "ms\n"); 
+    }
+
+
+    /** 
+     * Expand partitionKeyCSV.
+     * This uses class variables: partitionKeyCSV and rvToResultsEDV.
+     *
+     * @return the expanded primaryKey table
+     */
+    protected Table expandPartitionKeyCSV() {
+
+        Test.ensureNotNull(partitionKeyCSV, "partitionKeyCSV is null. Shouldn't get here.");
+        Test.ensureNotNull(rvToResultsEDV,   "rvToResultsEDV is null. Shouldn't get here.");
+        
+        //partitionKeyCSV specified in datasets.xml
+        //  deviceid,date
+        //  1001,times(2016-01-05T07:00:00Z,60,now-1minute)
+        //  1007,2014-11-07T00:00:00Z           //1.4153184E9
+        Table table = new Table();
+        table.readASCII("<partitionKeyCSV>", 
+            String2.split(partitionKeyCSV, '\n'),
+            0, 1, ",", null, null, null, null, false); //simplify
+        if (debugMode) { String2.log(">> <partitionKeyCSV> as initially parsed:");
+            String2.log(table.dataToString());
+        }
+
+        //make cumTable
+        Table cumTable = makeEmptySourceTable(rvToResultsEDV, 1024);
+        //ensure correct/expected columns
+        Test.ensureEqual(table.getColumnNamesCSVString(),
+                      cumTable.getColumnNamesCSVString(),
+            "The <partitionKeyCSV> column names must match the required column names."); 
+
+        //transfer data to cumTable, expanding as needed
+        String errMsg = "In <partitionKeyCSV>: Invalid times(startTimeString, strideSeconds, stopTimeString) data: "; 
+        int tnRows = table.nRows();
+        int tnCols = table.nColumns();
+        for (int row = 0; row < tnRows; row++) {
+            for (int col = 0; col < tnCols; col++) {
+                PrimitiveArray pa = cumTable.getColumn(col);
+                String s = table.getStringData(col, row);
+                if (s.startsWith("times(") && s.endsWith(")")) {
+                    String parts[] = String2.split(s.substring(6, s.length() - 1), ',');
+                    if (parts.length != 3)
+                        throw new RuntimeException(errMsg + s);
+                    double epSecStart = Calendar2.safeIsoStringToEpochSeconds(parts[0]); 
+                    double strideSec  = String2.parseDouble(parts[1]);
+                    double epSecStop  = parts[2].toLowerCase().startsWith("now")?
+                            Calendar2.safeNowStringToEpochSeconds(parts[2], Double.NaN) :
+                            Calendar2.safeIsoStringToEpochSeconds(parts[2]); 
+                    if (!Double.isFinite(epSecStart) ||
+                        !Double.isFinite(epSecStop)  ||
+                        !Double.isFinite(strideSec)     ||
+                        epSecStart > epSecStop      ||
+                        strideSec <= 0)
+                        throw new RuntimeException(errMsg + s);
+                    for (int ti = 0; ti < 10000000; ti++) {
+                        //do it this way to minimize rounding errors 
+                        double d = epSecStart + ti * strideSec;
+                        if (d > epSecStop)
+                            break;
+                        pa.addDouble(d);
+                    }
+                } else if (s.startsWith("time(") && s.endsWith(")")) {
+                    double d = Calendar2.safeIsoStringToEpochSeconds(
+                        s.substring(5, s.length() - 1)); 
+                    if (!Double.isFinite(d))
+                        throw new RuntimeException(errMsg + s);
+                    pa.addDouble(d);
+                } else {
+                    pa.addString(s); //converts to correct type
+                }
+            }
+
+            //expand non-expanded columns
+            cumTable.ensureColumnsAreSameSize_LastValue();
+        }
+        return cumTable;
     }
 
     /**
@@ -872,7 +1007,7 @@ public class EDDTableFromCassandra extends EDDTable{
         session = cluster.connect();
         sessionsMap.put(url, session);
         if (verbose) String2.log("  Success! time=" + 
-            (System.currentTimeMillis() - tTime)); 
+            (System.currentTimeMillis() - tTime) + "ms"); 
         return session;
     }
 
@@ -939,9 +1074,14 @@ public class EDDTableFromCassandra extends EDDTable{
             constraintVariables, constraintOps, constraintValues); 
 
         //apply constraints to PartitionKeysDistinctTable
-        Table pkdTable = new Table();
-        pkdTable.readFlatNc(datasetDir() + PartitionKeysDistinctTableName,
-            partitionKeyNames, 0);
+        Table pkdTable;
+        if (partitionKeyCSV == null) {
+            pkdTable = new Table();
+            pkdTable.readFlatNc(datasetDir() + PartitionKeysDistinctTableName,
+                partitionKeyNames, 0); //standardizeWhat=0
+        } else {
+            pkdTable = expandPartitionKeyCSV();
+        }
         int oPkdTableNRows = pkdTable.nRows();
         BitSet pkdKeep = new BitSet(); 
         pkdKeep.set(0, oPkdTableNRows); //all true
@@ -963,10 +1103,10 @@ public class EDDTableFromCassandra extends EDDTable{
                 (clusterColumnSourceNames.contains(cVar) &&
                   !cOp.equals("!=") && 
                   !cOp.equals(PrimitiveArray.REGEX_OP) &&
-                  !(isNumericEDV && !Math2.isFinite(cValD))) || //don't constrain numeric cols with NaN 
+                  !(isNumericEDV && !Double.isFinite(cValD))) || //don't constrain numeric cols with NaN 
                 (indexColumnSourceNames.contains(cVar) &&
                   cOp.equals("=") && //secondary index column only allow '=' constraints
-                  !(isNumericEDV && !Math2.isFinite(cValD)))); //don't constrain numeric cols with NaN 
+                  !(isNumericEDV && !Double.isFinite(cValD)))); //don't constrain numeric cols with NaN 
 
             //Is this a constraint directly on a partitionKey?
             int pkin = String2.indexOf(partitionKeyNames, cVar); //Names!
@@ -978,7 +1118,7 @@ public class EDDTableFromCassandra extends EDDTable{
             //  creation of partitionKeyDistinctTable)
             int pkif = String2.indexOf(partitionKeyFrom, cVar); //From!
             if (pkif >= 0 && !cOp.equals(PrimitiveArray.REGEX_OP) && 
-                Math2.isFinite(cValD)) {
+                Double.isFinite(cValD)) {
                 //cVal is epoch seconds
                 String origCon = cVar + cOp + cVal;
                 cVar = partitionKeyNames[pkif];
@@ -1097,7 +1237,7 @@ public class EDDTableFromCassandra extends EDDTable{
         //  Some documentation says this limits the number of rows.
         //  I think it is the number of columns in a column family (e.g., 1 partition key)
         //    which are like rows in a database.
-        //  http://stackoverflow.com/questions/25567518/cassandra-cql3-select-statement-without-limit
+        //  https://stackoverflow.com/questions/25567518/cassandra-cql3-select-statement-without-limit
         //  Asks ~ Do I have to use a huge LIMIT to get all the rows?
         //  Answers: This is a common misconception. There is only a default 10000
         //    row limit in cqlsh the interactive shell. The server and protocol 
@@ -1154,6 +1294,10 @@ public class EDDTableFromCassandra extends EDDTable{
         int stats[] = new int[4]; //all 0's
         for (int pkdRow = 0; pkdRow < pkdTableNRows; pkdRow++) { //chunks will be in sorted order, yea!
 
+            if (Thread.currentThread().isInterrupted())
+                throw new SimpleException("EDDTableFromCassandra.getDataForDapQuery" + 
+                    EDStatic.caughtInterrupted);
+        
             //Make the BoundStatement
             //***!!! This method avoids CQL/SQL Injection Vulnerability !!!***
             //(see https://en.wikipedia.org/wiki/SQL_injection) by using
@@ -1163,6 +1307,9 @@ public class EDDTableFromCassandra extends EDDTable{
             BoundStatement boundStatement = new BoundStatement(preparedStatement);
 
             //assign values to nPartitionKeys constraints then nCon constraints
+            StringBuilder requestSB = reallyVerbose? 
+                new StringBuilder(">> statement: pkdRow=" + pkdRow + ", ") : 
+                null;
             for (int i = 0; i < nPartitionKeys + nCon; i++) { 
                 boolean usePK = i < nPartitionKeys;
                 int coni = i - nPartitionKeys; //which con to use: only used if not !usePK
@@ -1171,6 +1318,9 @@ public class EDDTableFromCassandra extends EDDTable{
                 PrimitiveArray pa = usePK? pkdPA[i] : null;
                 Class tClass = edv.sourceDataTypeClass();
                 String conVal = usePK? null : constraintValues.get(coni);
+                if (requestSB != null)
+                    requestSB.append(edv.sourceName() + " is " + 
+                        (usePK? pa.getDouble(pkdRow) : conVal) + ", ");
 
                 //handle special cases first
                 if (edv instanceof EDVTimeStamp) {
@@ -1178,6 +1328,7 @@ public class EDDTableFromCassandra extends EDDTable{
                         new Date(Math.round(
                             (usePK? pa.getDouble(pkdRow) : String2.parseDouble(conVal)) 
                             * 1000))); //round to nearest milli
+
                 } else if (edv.isBoolean()) {
                     boundStatement.setBool(i, 
                         (usePK? pa.getInt(pkdRow) == 1 : String2.parseBoolean(conVal)));
@@ -1207,8 +1358,11 @@ public class EDDTableFromCassandra extends EDDTable{
                 }
             }
             //boundStatement.toString() is useless
+            if (requestSB != null)
+                String2.log(requestSB.toString());
 
             //get the data
+            //FUTURE: I think this could be parallelized. See EDDTableFromFiles.
             table = getDataForCassandraQuery(loggedInAs, requestUrl, userDapQuery,
                 resultsDVI, rvToResultsEDV, session, boundStatement, 
                 table, tableWriter, stats);
@@ -1216,15 +1370,17 @@ public class EDDTableFromCassandra extends EDDTable{
                 break;
         }
 
-        //write any data in table
+        //write any data remaining in table
         //C* doesn't seem to have resultSet.close, statement.close(), ...
         //(In any case, gc should close them.)
-        preStandardizeResultsTable(loggedInAs, table); 
-        if (table.nRows() > 0) {
-            //String2.log("preStandardize=\n" + table.dataToCSVString());
-            standardizeResultsTable(requestUrl, userDapQuery, table);
-            stats[3] += table.nRows();
-            tableWriter.writeSome(table); //ok if 0 rows
+        if (!tableWriter.noMoreDataPlease) {
+            preStandardizeResultsTable(loggedInAs, table); 
+            if (table.nRows() > 0) {
+                //String2.log("preStandardize=\n" + table.dataToString());
+                standardizeResultsTable(requestUrl, userDapQuery, table);
+                stats[3] += table.nRows();
+                tableWriter.writeSome(table); //ok if 0 rows
+            }
         }
         if (verbose) String2.log("* Cassandra stats: partitionKeyTable: " +
             pkdTableNRows + "/" + oPkdTableNRows + "=" + fraction + " <= " + 
@@ -1240,6 +1396,8 @@ public class EDDTableFromCassandra extends EDDTable{
      * This doesn't call tableWriter.finish();
      *
      * @param resultsDVI dataVariables[i] (DVI) for each resultsVariable
+     * @param table May have some not-yet-tableWritten data when coming in.
+     *   May have some not-yet-tableWritten data when returning.
      * @param stats is int[4]. stats[0]++; stats[1]+=nRows; stats[2]+=nExpandedRows; 
      *    stats[3]+=nRowsAfterStandardize
      * @return the same or a different table (usually with some results rows)
@@ -1265,7 +1423,7 @@ public class EDDTableFromCassandra extends EDDTable{
         TypeCodec rvToTypeCodec[] = new TypeCodec[nRv];
         for (int rv = 0; rv < nRv; rv++) {
             //find corresponding resultSet column (may not be 1:1) and other info
-            ////stored as 0..   -1 if not found
+            //stored as 0..   -1 if not found
             String sn = rvToResultsEDV[rv].sourceName();
             rvToRsCol[rv] = columnDef.getIndexOf(sn); 
             if (rvToRsCol[rv] < 0) {
@@ -1287,10 +1445,18 @@ public class EDDTableFromCassandra extends EDDTable{
             paArray[rv] = table.getColumn(rv);
 
         //process the resultSet rows of data
-        Row row;
         int maxNRows = -1;
         boolean toStringErrorShown = false;
-        while ((row = rs.one()) != null) {
+        //while ((row = rs.one()) != null) {   //2016-06-20 not working. returns last row repeatedly
+        //So use their code from fetchMoreResults() to the solve problem 
+        //  and improve performance by prefetching results.
+        //see https://docs.datastax.com/en/drivers/java/3.0/com/datastax/driver/core/ResultSet.html#one--
+        Iterator<Row> iter = rs.iterator();
+        while (iter.hasNext()) {
+            if (rs.getAvailableWithoutFetching() == 100 && !rs.isFullyFetched())
+                rs.fetchMoreResults();
+            Row row = iter.next();
+
             stats[1]++;
             int listSizeDVI = -1;
             int listSize = -1; //initially unknown 
@@ -1428,7 +1594,8 @@ public class EDDTableFromCassandra extends EDDTable{
                     tableWriter.writeSome(table); //okay if 0 rows
                 }
 
-                //triggerNRows + 1000 since lists expand, so hard to catch exactly
+                //triggerNRows + 1000 since lists expand, so hard to know exactly
+                maxNRows = -1;
                 table = makeEmptySourceTable(rvToResultsEDV, triggerNRows + 1000);
                 for (int rv = 0; rv < nRv; rv++) 
                     paArray[rv] = table.getColumn(rv);
@@ -1481,7 +1648,17 @@ public class EDDTableFromCassandra extends EDDTable{
         Attributes externalAddGlobalAttributes)
         throws Throwable {
 
-        String2.log("EDDTableFromCassandra.generateDatasetsXml keyspace=" + keyspace);         
+        String2.log("\n*** EDDTableFromCassandra.generateDatasetsXml" +
+            "\nurl=" + url +
+            "\nconnectionProperties=" + String2.toCSVString(tConnectionProperties) +
+            "\nkeyspace=" + keyspace + " tableName=" + tableName +
+            " reloadEveryNMinutes=" + tReloadEveryNMinutes +
+            "\ninfoUrl=" + tInfoUrl + 
+            "\ninstitution=" + tInstitution +
+            "\nsummary=" + tSummary +
+            "\ntitle=" + tTitle +
+            "\nexternalAddGlobalAttributes=" + externalAddGlobalAttributes);
+
         if (tReloadEveryNMinutes < suggestReloadEveryNMinutesMin ||
             tReloadEveryNMinutes > suggestReloadEveryNMinutesMax)
             tReloadEveryNMinutes = 1440; //not the usual DEFAULT_RELOAD_EVERY_N_MINUTES;
@@ -1576,16 +1753,44 @@ public class EDDTableFromCassandra extends EDDTable{
             if (sourceName.equals("lat")) destName = EDV.LAT_NAME;
             if (sourceName.equals("lon")) destName = EDV.LON_NAME;
 
-            PrimitiveArray pa = null;
+            PrimitiveArray sourcePA = null;
+            //https://stackoverflow.com/questions/34160748/upgrading-calls-to-datastax-java-apis-that-are-gone-in-3
+            isList[col] = cassType.getName() == DataType.Name.LIST;
+            //String2.log(sourceName + " isList=" + isList[col] + " javaClass=" + cassType.asJavaClass());
+            if (isList[col])
+                cassType = cassType.getTypeArguments().get(0); //the element type
+
             Attributes sourceAtts = new Attributes();
+            Attributes addAtts = new Attributes();
+            boolean isTimestamp = false;
+            if      (cassType == DataType.cboolean())   sourcePA = new ByteArray();
+            else if (cassType == DataType.cint())       sourcePA = new IntArray();
+            else if (cassType == DataType.bigint() ||
+                     cassType == DataType.counter() ||
+                     cassType == DataType.varint())     sourcePA = new LongArray();
+            else if (cassType == DataType.cfloat())     sourcePA = new FloatArray();
+            else if (cassType == DataType.cdouble() ||
+                     cassType == DataType.decimal())    sourcePA = new DoubleArray();
+            else if (cassType == DataType.timestamp()) {sourcePA = new DoubleArray();
+                isTimestamp = true;
+                addAtts.add("ioos_category", "Time");
+                addAtts.add("units", "seconds since 1970-01-01T00:00:00Z");
+            } else                                      sourcePA = new StringArray(); //everything else
+
+            PrimitiveArray destPA = makeDestPAForGDX(sourcePA, sourceAtts);
+
             //lie, to trigger catching LLAT
             if (     destName.equals(EDV.LON_NAME))   sourceAtts.add("units", EDV.LON_UNITS);
             else if (destName.equals(EDV.LAT_NAME))   sourceAtts.add("units", EDV.LAT_UNITS);
             else if (destName.equals(EDV.ALT_NAME))   sourceAtts.add("units", EDV.ALT_UNITS);
             else if (destName.equals(EDV.DEPTH_NAME)) sourceAtts.add("units", EDV.DEPTH_UNITS);
-            Attributes addAtts = makeReadyToUseAddVariableAttributesForDatasetsXml(
+            addAtts = makeReadyToUseAddVariableAttributesForDatasetsXml(
                 null, //no source global attributes
-                sourceAtts, sourceName, true, true); //addColorBarMinMax, tryToFindLLAT
+                sourceAtts, addAtts, sourceName,
+                destPA.elementClass() != String.class, //tryToAddStandardName
+                destPA.elementClass() != String.class, //addColorBarMinMax
+                true); //tryToFindLLAT
+
             //but make it real here, and undo the lie
             if (     destName.equals(EDV.LON_NAME))   {
                 addAtts.add("units", EDV.LON_UNITS);
@@ -1602,29 +1807,17 @@ public class EDDTableFromCassandra extends EDDTable{
             }
             //time units already done above for all timestamp vars
 
-            //http://stackoverflow.com/questions/34160748/upgrading-calls-to-datastax-java-apis-that-are-gone-in-3
-            isList[col] = cassType.getName() == DataType.Name.LIST;
-            //String2.log(sourceName + " isList=" + isList[col] + " javaClass=" + cassType.asJavaClass());
-            if (isList[col])
-                cassType = cassType.getTypeArguments().get(0); //the element type
+            dataSourceTable.addColumn(col, sourceName, sourcePA, sourceAtts);
+            dataAddTable.addColumn(   col, destName,   destPA,   addAtts);
 
-            if      (cassType == DataType.cboolean())   pa = new ByteArray();
-            else if (cassType == DataType.cint())       pa = new IntArray();
-            else if (cassType == DataType.bigint() ||
-                     cassType == DataType.counter() ||
-                     cassType == DataType.varint())     pa = new LongArray();
-            else if (cassType == DataType.cfloat())     pa = new FloatArray();
-            else if (cassType == DataType.cdouble() ||
-                     cassType == DataType.decimal())    pa = new DoubleArray();
-            else if (cassType == DataType.timestamp()) {pa = new DoubleArray();
-                addAtts.add("ioos_category", "Time");
-                addAtts.add("units", "seconds since 1970-01-01T00:00:00Z");
-            } else                                      pa = new StringArray(); //everything else
+            //add missing_value and/or _FillValue if needed
+            //but for Cassandra, I think no data, so no way to see mv's
+            addMvFvAttsIfNeeded(destName, destPA, sourceAtts, addAtts);
 
-            dataSourceTable.addColumn(col, sourceName, pa, sourceAtts);
-
-            dataAddTable.addColumn(col, destName, pa, addAtts);
         }
+
+        //tryToFindLLAT
+        tryToFindLLAT(dataSourceTable, dataAddTable);
 
         //subsetVariables source->dest name
         StringArray subsetVariablesDestNameSA = new StringArray(
@@ -1657,18 +1850,18 @@ public class EDDTableFromCassandra extends EDDTable{
             makeReadyToUseAddGlobalAttributesForDatasetsXml(
                 dataSourceTable.globalAttributes(), 
                 //another cdm_data_type could be better; this is ok
-                probablyHasLonLatTime(dataSourceTable, dataAddTable)? "Point" : "Other",
+                hasLonLatTime(dataAddTable)? "Point" : "Other",
                 "cassandra/" + keyspace + "/" + tableName, //fake file dir.  Cass identifiers are [a-zA-Z0-9_]*
                 externalAddGlobalAttributes, 
                 suggestKeywords(dataSourceTable, dataAddTable)));
-        
+
+        //don't suggestSubsetVariables() since no real sourceTable data
+ 
         //write the information
         StringBuilder sb = new StringBuilder();
         sb.append(
-            directionsForGenerateDatasetsXml() +
-            " *** Since Cassandra tables don't have any metadata, you must add metadata\n" +
-            "   below, notably 'units' for each of the dataVariables.\n" +
-            "-->\n\n" +
+            "<!-- NOTE! Since Cassandra tables don't have any metadata, you must add metadata\n" +
+            "  below, notably 'units' for each of the dataVariables. -->\n" +
             "<dataset type=\"EDDTableFromCassandra\" datasetID=\"cass" + 
                 //Cass identifiers are [a-zA-Z0-9_]*
                 ( keyspace.startsWith("_")? "" : "_") + XML.encodeAsXML(keyspace) + 
@@ -1692,9 +1885,9 @@ public class EDDTableFromCassandra extends EDDTable{
         sb.append(cdmSuggestion());
         sb.append(writeAttsForDatasetsXml(true,     dataAddTable.globalAttributes(), "    "));
 
-        //last 3 params: includeDataType, tryToFindLLAT, questionDestinationName
+        //last 2 params: includeDataType, questionDestinationName
         sb.append(writeVariablesForDatasetsXml(dataSourceTable, dataAddTable, 
-            "dataVariable", true, false, false)); 
+            "dataVariable", true, false)); 
         sb.append(
             "</dataset>\n" +
             "\n");
@@ -1746,6 +1939,7 @@ public class EDDTableFromCassandra extends EDDTable{
         //addGlobalAtts.
         String results, expected;
 
+        try {
         //get the list of keyspaces
 //Cassandra not running?
 //As of 2016-04-06, I start Cassandra manually and leave it running in foreground:
@@ -1792,20 +1986,24 @@ expected =
 "    u list<float>,\n" +
 "    v list<float>,\n" +
 "    w list<float>,\n" +
-"    PRIMARY KEY ((deviceid, date), sampletime)\n" +
-") WITH read_repair_chance = 0.0\n" +
-"   AND dclocal_read_repair_chance = 0.1\n" +
-"   AND gc_grace_seconds = 864000\n" +
-"   AND bloom_filter_fp_chance = 0.01\n" +
-"   AND caching = { 'keys' : 'ALL', 'rows_per_partition' : 'NONE' }\n" +
-"   AND comment = ''\n" +
-"   AND compaction = { 'class' : 'org.apache.cassandra.db.compaction.SizeTieredCompactionStrategy', 'max_threshold' : 32, 'min_threshold' : 4 }\n" +
-"   AND compression = { 'chunk_length_in_kb' : 64, 'class' : 'org.apache.cassandra.io.compress.LZ4Compressor' }\n" +
-"   AND default_time_to_live = 0\n" +
-"   AND speculative_retry = '99PERCENTILE'\n" +
-"   AND min_index_interval = 128\n" +
-"   AND max_index_interval = 2048\n" +
-"   AND crc_check_chance = 1.0;\n" +
+"    PRIMARY KEY ((deviceid, date), sampletime)\n" + 
+") WITH CLUSTERING ORDER BY (sampletime ASC)\n" +
+"    AND read_repair_chance = 0.0\n" +
+"    AND dclocal_read_repair_chance = 0.1\n" +
+"    AND gc_grace_seconds = 864000\n" + 
+"    AND bloom_filter_fp_chance = 0.01\n" +
+"    AND caching = { 'keys' : 'ALL', 'rows_per_partition' : 'NONE' }\n" +
+"    AND comment = ''\n" +
+"    AND compaction = { 'class' : 'org.apache.cassandra.db.compaction.SizeTieredCompactionStrategy', 'max_threshold' : 32, 'min_threshold' : 4 }\n" +
+"    AND compression = { 'chunk_length_in_kb' : 64, 'class' : 'org.apache.cassandra.io.compress.LZ4Compressor' }\n" +
+"    AND default_time_to_live = 0\n" +
+"    AND speculative_retry = '99PERCENTILE'\n" +
+"    AND min_index_interval = 128\n" +
+"    AND max_index_interval = 2048\n" +
+"    AND crc_check_chance = 1.0\n" + 
+"    AND cdc = false\n" +                      //added this 2018-08-10 with move to Lenovo
+"    AND memtable_flush_period_in_ms = 0;\n" + //added this 2018-08-30 with move to Lenovo
+"\n" +
 "CREATE INDEX ctext_index ON bobkeyspace.bobtable (ctext);\n" +
 "\n" +
 "CREATE TABLE bobkeyspace.statictest (\n" +
@@ -1818,19 +2016,22 @@ expected =
 "    u list<float>,\n" +
 "    v list<float>,\n" +
 "    PRIMARY KEY ((deviceid, date), sampletime)\n" +
-") WITH read_repair_chance = 0.0\n" +
-"   AND dclocal_read_repair_chance = 0.1\n" +
-"   AND gc_grace_seconds = 864000\n" +
-"   AND bloom_filter_fp_chance = 0.01\n" +
-"   AND caching = { 'keys' : 'ALL', 'rows_per_partition' : 'NONE' }\n" +
-"   AND comment = ''\n" +
-"   AND compaction = { 'class' : 'org.apache.cassandra.db.compaction.SizeTieredCompactionStrategy', 'max_threshold' : 32, 'min_threshold' : 4 }\n" +
-"   AND compression = { 'chunk_length_in_kb' : 64, 'class' : 'org.apache.cassandra.io.compress.LZ4Compressor' }\n" +
-"   AND default_time_to_live = 0\n" +
-"   AND speculative_retry = '99PERCENTILE'\n" +
-"   AND min_index_interval = 128\n" +
-"   AND max_index_interval = 2048\n" +
-"   AND crc_check_chance = 1.0;\n";
+") WITH CLUSTERING ORDER BY (sampletime ASC)\n" +
+"    AND read_repair_chance = 0.0\n" +
+"    AND dclocal_read_repair_chance = 0.1\n" +
+"    AND gc_grace_seconds = 864000\n" +
+"    AND bloom_filter_fp_chance = 0.01\n" +
+"    AND caching = { 'keys' : 'ALL', 'rows_per_partition' : 'NONE' }\n" +
+"    AND comment = ''\n" +
+"    AND compaction = { 'class' : 'org.apache.cassandra.db.compaction.SizeTieredCompactionStrategy', 'max_threshold' : 32, 'min_threshold' : 4 }\n" +
+"    AND compression = { 'chunk_length_in_kb' : 64, 'class' : 'org.apache.cassandra.io.compress.LZ4Compressor' }\n" +
+"    AND default_time_to_live = 0\n" +
+"    AND speculative_retry = '99PERCENTILE'\n" +
+"    AND min_index_interval = 128\n" +
+"    AND max_index_interval = 2048\n" +
+"    AND crc_check_chance = 1.0\n" +
+"    AND cdc = false\n" +                     //added this 2018-08-10 with move to Lenovo 
+"    AND memtable_flush_period_in_ms = 0;\n"; //added this 2018-08-30 with move to Lenovo 
         Test.ensureEqual(results, expected, "results=\n" + results);
 
         //generate the datasets.xml for one table
@@ -1838,38 +2039,8 @@ expected =
             tReloadEveryNMinutes, tInfoUrl, tInstitution, 
             tSummary, tTitle, new Attributes());
 expected = 
-"<!--\n" +
-" DISCLAIMER:\n" +
-"   The chunk of datasets.xml made by GenerageDatasetsXml isn't perfect.\n" +
-"   YOU MUST READ AND EDIT THE XML BEFORE USING IT IN A PUBLIC ERDDAP.\n" +
-"   GenerateDatasetsXml relies on a lot of rules-of-thumb which aren't always\n" +
-"   correct.  *YOU* ARE RESPONSIBLE FOR ENSURING THE CORRECTNESS OF THE XML\n" +
-"   THAT YOU ADD TO ERDDAP'S datasets.xml FILE.\n" +
-"\n" +
-" DIRECTIONS:\n" +
-" * Read about this type of dataset in\n" +
-"   http://coastwatch.pfeg.noaa.gov/erddap/download/setupDatasetsXml.html .\n" +
-" * Read http://coastwatch.pfeg.noaa.gov/erddap/download/setupDatasetsXml.html#addAttributes\n" +
-"   so that you understand about sourceAttributes and addAttributes.\n" +
-" * Note: Global sourceAttributes and variable sourceAttributes are listed\n" +
-"   below as comments, for informational purposes only.\n" +
-"   ERDDAP combines sourceAttributes and addAttributes (which have\n" +
-"   precedence) to make the combinedAttributes that are shown to the user.\n" +
-"   (And other attributes are automatically added to longitude, latitude,\n" +
-"   altitude, depth, and time variables).\n" +
-" * If you don't like a sourceAttribute, override it by adding an\n" +
-"   addAttribute with the same name but a different value\n" +
-"   (or no value, if you want to remove it).\n" +
-" * All of the addAttributes are computer-generated suggestions. Edit them!\n" +
-"   If you don't like an addAttribute, change it.\n" +
-" * If you want to add other addAttributes, add them.\n" +
-" * If you want to change a destinationName, change it.\n" +
-"   But don't change sourceNames.\n" +
-" * You can change the order of the dataVariables or remove any of them.\n" +
-" *** Since Cassandra tables don't have any metadata, you must add metadata\n" +
-"   below, notably 'units' for each of the dataVariables.\n" +
-"-->\n" +
-"\n" +
+"<!-- NOTE! Since Cassandra tables don't have any metadata, you must add metadata\n" +
+"  below, notably 'units' for each of the dataVariables. -->\n" +
 "<dataset type=\"EDDTableFromCassandra\" datasetID=\"cass_bobKeyspace_bobTable\" active=\"true\">\n" +
 "    <sourceUrl>127.0.0.1</sourceUrl>\n" +
 "    <keyspace>bobKeyspace</keyspace>\n" +
@@ -1883,8 +2054,8 @@ expected =
 "    <!-- sourceAttributes>\n" +
 "    </sourceAttributes -->\n" +
 "    <!-- Please specify the actual cdm_data_type (TimeSeries?) and related info below, for example...\n" +
-"        <att name=\"cdm_timeseries_variables\">station, longitude, latitude</att>\n" +
-"        <att name=\"subsetVariables\">station, longitude, latitude</att>\n" +
+"        <att name=\"cdm_timeseries_variables\">station_id, longitude, latitude</att>\n" +
+"        <att name=\"subsetVariables\">station_id, longitude, latitude</att>\n" +
 "    -->\n" +
 "    <addAttributes>\n" +
 "        <att name=\"cdm_data_type\">Other</att>\n" +
@@ -1896,8 +2067,8 @@ expected =
 "        <att name=\"keywords\">bob, bobtable, canada, cascii, cassandra, cboolean, cbyte, cdecimal, cdouble, cfloat, cint, clong, cmap, cset, cshort, ctext, currents, cvarchar, data, date, depth, deviceid, networks, ocean, sampletime, test, time, title, u, v, velocity, vertical, w</att>\n" +
 "        <att name=\"license\">[standard]</att>\n" +
 "        <att name=\"sourceUrl\">(local Cassandra)</att>\n" +
-"        <att name=\"standard_name_vocabulary\">CF Standard Name Table v29</att>\n" +
-"        <att name=\"subsetVariables\">deviceid, date</att>\n" +
+"        <att name=\"standard_name_vocabulary\">CF Standard Name Table v55</att>\n" +
+"        <att name=\"subsetVariables\">deviceid, time</att>\n" +
 "        <att name=\"summary\">The summary for Bob&#39;s great Cassandra test data.</att>\n" +
 "        <att name=\"title\">The Title for Bob&#39;s Cassandra Test Data (bobTable)</att>\n" +
 "    </addAttributes>\n" +
@@ -1914,13 +2085,15 @@ expected =
 "    </dataVariable>\n" +
 "    <dataVariable>\n" +
 "        <sourceName>date</sourceName>\n" +
-"        <destinationName>date</destinationName>\n" +
+"        <destinationName>time</destinationName>\n" +//this is not the best time var, but no way for ERDDAP to know
 "        <dataType>double</dataType>\n" +
 "        <!-- sourceAttributes>\n" +
 "        </sourceAttributes -->\n" +
 "        <addAttributes>\n" +
 "            <att name=\"ioos_category\">Time</att>\n" +
 "            <att name=\"long_name\">Date</att>\n" +
+"            <att name=\"source_name\">date</att>\n" +
+"            <att name=\"standard_name\">time</att>\n" +
 "            <att name=\"units\">seconds since 1970-01-01T00:00:00Z</att>\n" +
 "        </addAttributes>\n" +
 "    </dataVariable>\n" +
@@ -1933,6 +2106,7 @@ expected =
 "        <addAttributes>\n" +
 "            <att name=\"ioos_category\">Time</att>\n" +
 "            <att name=\"long_name\">Sampletime</att>\n" +
+"            <att name=\"standard_name\">time</att>\n" +
 "            <att name=\"units\">seconds since 1970-01-01T00:00:00Z</att>\n" +
 "        </addAttributes>\n" +
 "    </dataVariable>\n" +
@@ -2087,8 +2261,8 @@ expected =
 "        </sourceAttributes -->\n" +
 "        <addAttributes>\n" +
 "            <att name=\"colorBarMaximum\" type=\"double\">8000.0</att>\n" +
-"            <att name=\"colorBarMinimum\" type=\"double\">0.0</att>\n" +
-"            <att name=\"colorBarPalette\">OceanDepth</att>\n" +
+"            <att name=\"colorBarMinimum\" type=\"double\">-8000.0</att>\n" +
+"            <att name=\"colorBarPalette\">TopographyDepth</att>\n" +
 "            <att name=\"ioos_category\">Location</att>\n" +
 "            <att name=\"long_name\">Depth</att>\n" +
 "            <att name=\"standard_name\">depth</att>\n" +
@@ -2140,38 +2314,8 @@ expected =
             tReloadEveryNMinutes, tInfoUrl, tInstitution, 
             tSummary, "Cassandra Static Test", new Attributes());
         expected = 
-"<!--\n" +
-" DISCLAIMER:\n" +
-"   The chunk of datasets.xml made by GenerageDatasetsXml isn't perfect.\n" +
-"   YOU MUST READ AND EDIT THE XML BEFORE USING IT IN A PUBLIC ERDDAP.\n" +
-"   GenerateDatasetsXml relies on a lot of rules-of-thumb which aren't always\n" +
-"   correct.  *YOU* ARE RESPONSIBLE FOR ENSURING THE CORRECTNESS OF THE XML\n" +
-"   THAT YOU ADD TO ERDDAP'S datasets.xml FILE.\n" +
-"\n" +
-" DIRECTIONS:\n" +
-" * Read about this type of dataset in\n" +
-"   http://coastwatch.pfeg.noaa.gov/erddap/download/setupDatasetsXml.html .\n" +
-" * Read http://coastwatch.pfeg.noaa.gov/erddap/download/setupDatasetsXml.html#addAttributes\n" +
-"   so that you understand about sourceAttributes and addAttributes.\n" +
-" * Note: Global sourceAttributes and variable sourceAttributes are listed\n" +
-"   below as comments, for informational purposes only.\n" +
-"   ERDDAP combines sourceAttributes and addAttributes (which have\n" +
-"   precedence) to make the combinedAttributes that are shown to the user.\n" +
-"   (And other attributes are automatically added to longitude, latitude,\n" +
-"   altitude, depth, and time variables).\n" +
-" * If you don't like a sourceAttribute, override it by adding an\n" +
-"   addAttribute with the same name but a different value\n" +
-"   (or no value, if you want to remove it).\n" +
-" * All of the addAttributes are computer-generated suggestions. Edit them!\n" +
-"   If you don't like an addAttribute, change it.\n" +
-" * If you want to add other addAttributes, add them.\n" +
-" * If you want to change a destinationName, change it.\n" +
-"   But don't change sourceNames.\n" +
-" * You can change the order of the dataVariables or remove any of them.\n" +
-" *** Since Cassandra tables don't have any metadata, you must add metadata\n" +
-"   below, notably 'units' for each of the dataVariables.\n" +
-"-->\n" +
-"\n" +
+"<!-- NOTE! Since Cassandra tables don't have any metadata, you must add metadata\n" +
+"  below, notably 'units' for each of the dataVariables. -->\n" +
 "<dataset type=\"EDDTableFromCassandra\" datasetID=\"cass_bobKeyspace_staticTest\" active=\"true\">\n" +
 "    <sourceUrl>127.0.0.1</sourceUrl>\n" +
 "    <keyspace>bobKeyspace</keyspace>\n" +
@@ -2185,8 +2329,8 @@ expected =
 "    <!-- sourceAttributes>\n" +
 "    </sourceAttributes -->\n" +
 "    <!-- Please specify the actual cdm_data_type (TimeSeries?) and related info below, for example...\n" +
-"        <att name=\"cdm_timeseries_variables\">station, longitude, latitude</att>\n" +
-"        <att name=\"subsetVariables\">station, longitude, latitude</att>\n" +
+"        <att name=\"cdm_timeseries_variables\">station_id, longitude, latitude</att>\n" +
+"        <att name=\"subsetVariables\">station_id, longitude, latitude</att>\n" +
 "    -->\n" +
 "    <addAttributes>\n" +
 "        <att name=\"cdm_data_type\">Point</att>\n" +
@@ -2198,8 +2342,8 @@ expected =
 "        <att name=\"keywords\">canada, cassandra, data, date, depth, deviceid, latitude, longitude, networks, ocean, sampletime, static, test, time, u, v</att>\n" +
 "        <att name=\"license\">[standard]</att>\n" +
 "        <att name=\"sourceUrl\">(local Cassandra)</att>\n" +
-"        <att name=\"standard_name_vocabulary\">CF Standard Name Table v29</att>\n" +
-"        <att name=\"subsetVariables\">deviceid, date, latitude, longitude</att>\n" +
+"        <att name=\"standard_name_vocabulary\">CF Standard Name Table v55</att>\n" +
+"        <att name=\"subsetVariables\">deviceid, time, latitude, longitude</att>\n" +
 "        <att name=\"summary\">The summary for Bob&#39;s great Cassandra test data.</att>\n" +
 "        <att name=\"title\">Cassandra Static Test</att>\n" +
 "    </addAttributes>\n" +
@@ -2216,13 +2360,15 @@ expected =
 "    </dataVariable>\n" +
 "    <dataVariable>\n" +
 "        <sourceName>date</sourceName>\n" +
-"        <destinationName>date</destinationName>\n" +
+"        <destinationName>time</destinationName>\n" + //not the best choice, but no way for ERDDAP to know
 "        <dataType>double</dataType>\n" +
 "        <!-- sourceAttributes>\n" +
 "        </sourceAttributes -->\n" +
 "        <addAttributes>\n" +
 "            <att name=\"ioos_category\">Time</att>\n" +
 "            <att name=\"long_name\">Date</att>\n" +
+"            <att name=\"source_name\">date</att>\n" +
+"            <att name=\"standard_name\">time</att>\n" +
 "            <att name=\"units\">seconds since 1970-01-01T00:00:00Z</att>\n" +
 "        </addAttributes>\n" +
 "    </dataVariable>\n" +
@@ -2235,6 +2381,7 @@ expected =
 "        <addAttributes>\n" +
 "            <att name=\"ioos_category\">Time</att>\n" +
 "            <att name=\"long_name\">Sampletime</att>\n" +
+"            <att name=\"standard_name\">time</att>\n" +
 "            <att name=\"units\">seconds since 1970-01-01T00:00:00Z</att>\n" +
 "        </addAttributes>\n" +
 "    </dataVariable>\n" +
@@ -2246,8 +2393,8 @@ expected =
 "        </sourceAttributes -->\n" +
 "        <addAttributes>\n" +
 "            <att name=\"colorBarMaximum\" type=\"double\">8000.0</att>\n" +
-"            <att name=\"colorBarMinimum\" type=\"double\">0.0</att>\n" +
-"            <att name=\"colorBarPalette\">OceanDepth</att>\n" +
+"            <att name=\"colorBarMinimum\" type=\"double\">-8000.0</att>\n" +
+"            <att name=\"colorBarPalette\">TopographyDepth</att>\n" +
 "            <att name=\"ioos_category\">Location</att>\n" +
 "            <att name=\"long_name\">Depth</att>\n" +
 "            <att name=\"standard_name\">depth</att>\n" +
@@ -2310,6 +2457,11 @@ expected =
             //String2.log(results);
             Test.ensureEqual(results, expected, "results=\n" + results);
 
+            } catch (Throwable t) {
+                String2.pressEnterToContinue(MustBe.throwableToString(t) + 
+                    "\nThis test requires Cassandra running on Bob's laptop."); 
+            }
+
     }
 
     /**
@@ -2338,7 +2490,7 @@ expected =
 /* */
             tName = tedd.makeNewFileForDapQuery(null, null, "", 
                 dir, tedd.className() + "_Basic", ".dds"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected = 
 "Dataset {\n" +
 "  Sequence {\n" +
@@ -2371,7 +2523,7 @@ expected =
             tName = tedd.makeNewFileForDapQuery(null, null, "", 
                 dir, 
                 tedd.className() + "_Basic", ".das"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected = 
 "Attributes {\n" +
 " s {\n" +
@@ -2381,7 +2533,7 @@ expected =
 "    String long_name \"Deviceid\";\n" +
 "  }\n" +
 "  date {\n" +
-"    Float64 actual_range 1.4148e+9, 1.4154912e+9;\n" +
+"    Float64 actual_range 1.4148e+9, 1.4155776e+9;\n" +
 "    String ioos_category \"Time\";\n" +
 "    String long_name \"Date\";\n" +
 "    String time_origin \"01-JAN-1970 00:00:00\";\n" +
@@ -2450,8 +2602,8 @@ expected =
 "    String _CoordinateZisPositive \"down\";\n" +
 "    String axis \"Z\";\n" +
 "    Float64 colorBarMaximum 8000.0;\n" +
-"    Float64 colorBarMinimum 0.0;\n" +
-"    String colorBarPalette \"OceanDepth\";\n" +
+"    Float64 colorBarMinimum -8000.0;\n" +
+"    String colorBarPalette \"TopographyDepth\";\n" +
 "    String ioos_category \"Location\";\n" +
 "    String long_name \"Depth\";\n" +
 "    String positive \"down\";\n" +
@@ -2496,7 +2648,7 @@ expected =
 "particular purpose, or assumes any legal liability for the accuracy,\n" +
 "completeness, or usefulness, of this information.\";\n" +
 "    String sourceUrl \"(Cassandra)\";\n" +
-"    String standard_name_vocabulary \"CF Standard Name Table v29\";\n" +
+"    String standard_name_vocabulary \"CF Standard Name Table v55\";\n" +
 "    String subsetVariables \"deviceid, date\";\n" +
 "    String summary \"The summary for Bob's Cassandra test data.\";\n" +
 "    String title \"Bob's Cassandra Test Data\";\n" +
@@ -2510,7 +2662,7 @@ expected =
             query = "";
             tName = tedd.makeNewFileForDapQuery(null, null, query, dir, 
                 tedd.className() + "_all", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 "deviceid,date,sampletime,cascii,cboolean,cbyte,cdecimal,cdouble,cfloat,cint,clong,cmap,cset,cshort,ctext,cvarchar,depth,u,v,w\n" +
 ",UTC,UTC,,,,,,,,,,,,,,m,,,\n" +
@@ -2526,9 +2678,10 @@ expected =
 "1001,2014-11-02T00:00:00Z,2014-11-02T01:02:03Z,ascii1,0,1,1.00001,1.001,1.1,1000000,1000000000000,\"{map11=1.1, map12=1.2, map13=1.3, map14=1.4}\",\"[set11, set12, set13, set14, set15]\",1000,text1,cvarchar1,10.1,-0.11,-0.12,-0.13\n" +
 "1001,2014-11-02T00:00:00Z,2014-11-02T01:02:03Z,ascii1,0,1,1.00001,1.001,1.1,1000000,1000000000000,\"{map11=1.1, map12=1.2, map13=1.3, map14=1.4}\",\"[set11, set12, set13, set14, set15]\",1000,text1,cvarchar1,20.1,0.0,0.0,0.0\n" +
 "1001,2014-11-02T00:00:00Z,2014-11-02T01:02:03Z,ascii1,0,1,1.00001,1.001,1.1,1000000,1000000000000,\"{map11=1.1, map12=1.2, map13=1.3, map14=1.4}\",\"[set11, set12, set13, set14, set15]\",1000,text1,cvarchar1,30.1,0.11,0.12,0.13\n" +
-"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,10.2,-99.0,-0.12,-0.13\n" +
-"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,20.2,0.0,0.0,0.0\n" +
-"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,-99.0,0.11,0.12,-99.0\n" +
+//2018-08-10 disappeared with move to Lenovo:
+//"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,10.2,-99.0,-0.12,-0.13\n" +
+//"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,20.2,0.0,0.0,0.0\n" +
+//"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,-99.0,0.11,0.12,-99.0\n" +
 "1007,2014-11-07T00:00:00Z,2014-11-07T01:02:03Z,ascii7,0,7,7.00001,7.001,7.1,7000000,7000000000000,\"{map71=7.1, map72=7.2, map73=7.3, map74=7.4}\",\"[set71, set72, set73, set74, set75]\",7000,text7,cvarchar7,10.7,-7.11,-7.12,-7.13\n" +
 "1007,2014-11-07T00:00:00Z,2014-11-07T01:02:03Z,ascii7,0,7,7.00001,7.001,7.1,7000000,7000000000000,\"{map71=7.1, map72=7.2, map73=7.3, map74=7.4}\",\"[set71, set72, set73, set74, set75]\",7000,text7,cvarchar7,20.7,0.0,NaN,0.0\n" +
 "1007,2014-11-07T00:00:00Z,2014-11-07T01:02:03Z,ascii7,0,7,7.00001,7.001,7.1,7000000,7000000000000,\"{map71=7.1, map72=7.2, map73=7.3, map74=7.4}\",\"[set71, set72, set73, set74, set75]\",7000,text7,cvarchar7,30.7,7.11,7.12,7.13\n" +
@@ -2548,13 +2701,14 @@ expected =
             query = "deviceid,sampletime,cmap&deviceid=1001&sampletime>=2014-11-01T03:02:03Z";
             tName = tedd.makeNewFileForDapQuery(null, null, query, 
                 dir, tedd.className() + "_subset1", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 "deviceid,sampletime,cmap\n" +
 ",UTC,\n" +
 "1001,2014-11-01T03:02:03Z,\"{map31=3.1, map32=3.2, map33=3.3, map34=3.4}\"\n" +
-"1001,2014-11-02T01:02:03Z,\"{map11=1.1, map12=1.2, map13=1.3, map14=1.4}\"\n" +
-"1001,2014-11-02T02:02:03Z,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\"\n"; 
+"1001,2014-11-02T01:02:03Z,\"{map11=1.1, map12=1.2, map13=1.3, map14=1.4}\"\n"; 
+//2018-08-10 disappeared with move to Lenovo
+//"1001,2014-11-02T02:02:03Z,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\"\n"; 
             Test.ensureEqual(results, expected, "\nresults=\n" + results);
             if (pauseBetweenTests)
                 String2.pressEnterToContinue(
@@ -2566,12 +2720,13 @@ expected =
             query = "deviceid,sampletime,cmap&deviceid=1001&sampletime>2014-11-01T03:02:03Z";
             tName = tedd.makeNewFileForDapQuery(null, null, query,
                 dir, tedd.className() + "_subset2", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 "deviceid,sampletime,cmap\n" +
 ",UTC,\n" +
-"1001,2014-11-02T01:02:03Z,\"{map11=1.1, map12=1.2, map13=1.3, map14=1.4}\"\n" +
-"1001,2014-11-02T02:02:03Z,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\"\n"; 
+"1001,2014-11-02T01:02:03Z,\"{map11=1.1, map12=1.2, map13=1.3, map14=1.4}\"\n";
+//2018-08-10 disappeared with move to Lenovo
+//"1001,2014-11-02T02:02:03Z,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\"\n"; 
             Test.ensureEqual(results, expected, "\nresults=\n" + results);
             if (pauseBetweenTests)
                 String2.pressEnterToContinue(
@@ -2584,7 +2739,7 @@ expected =
             query = "deviceid,sampletime,ctext&ctext=\"text1\"";
             tName = tedd.makeNewFileForDapQuery(null, null, query,
                 dir, tedd.className() + "_subset2", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 "deviceid,sampletime,ctext\n" +
 ",UTC,\n" +
@@ -2603,7 +2758,7 @@ expected =
             query = "deviceid,sampletime,ctext&ctext>=\"text3\"";
             tName = tedd.makeNewFileForDapQuery(null, null, query,
                 dir, tedd.className() + "_subset2", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 "deviceid,sampletime,ctext\n" +
 ",UTC,\n" +
@@ -2621,11 +2776,12 @@ expected =
             query = "deviceid,cascii&deviceid=1001&distinct()";
             tName = tedd.makeNewFileForDapQuery(null, null, query,
                 dir, tedd.className() + "_distinct", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 "deviceid,cascii\n" +
 ",\n" +
-"1001,\n" +
+//2018-08-10 disappeared with move to Lenovo
+//"1001,\n" +
 "1001,ascii1\n" +
 "1001,ascii2\n" +
 "1001,ascii3\n"; 
@@ -2640,11 +2796,12 @@ expected =
             query = "deviceid,sampletime,cascii&deviceid=1001&orderBy(\"cascii\")";
             tName = tedd.makeNewFileForDapQuery(null, null, query,
                 dir, tedd.className() + "_distinct", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 "deviceid,sampletime,cascii\n" +
 ",UTC,\n" +
-"1001,2014-11-02T02:02:03Z,\n" +
+//2018-08-10 disappeared with move to Lenovo
+//"1001,2014-11-02T02:02:03Z,\n" +
 "1001,2014-11-01T01:02:03Z,ascii1\n" +
 "1001,2014-11-02T01:02:03Z,ascii1\n" +
 "1001,2014-11-01T02:02:03Z,ascii2\n" +
@@ -2660,7 +2817,7 @@ expected =
             query = "deviceid,date&deviceid=1001";
             tName = tedd.makeNewFileForDapQuery(null, null, query,
                 dir, tedd.className() + "_justkeys", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 "deviceid,date\n" +
 ",UTC\n" +
@@ -2678,7 +2835,7 @@ expected =
                 query = "deviceid,sampletime&sampletime<2013-01-01";
                 tName = tedd.makeNewFileForDapQuery(null, null, query,
                     dir, tedd.className() + "_nodata1", ".csv"); 
-                results = new String((new ByteArray(dir + tName)).toArray());
+                results = String2.directReadFrom88591File(dir + tName);
                 expected = "Shouldn't get here";
                 Test.ensureEqual(results, expected, "\nresults=\n" + results);
             } catch (Throwable t) {
@@ -2698,13 +2855,14 @@ expected =
             query = "&cint=NaN";
             tName = tedd.makeNewFileForDapQuery(null, null, query, dir, 
                 tedd.className() + "_intNaN", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 "deviceid,date,sampletime,cascii,cboolean,cbyte,cdecimal,cdouble,cfloat,cint,clong,cmap,cset,cshort,ctext,cvarchar,depth,u,v,w\n" +
 ",UTC,UTC,,,,,,,,,,,,,,m,,,\n" +
-"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,10.2,-99.0,-0.12,-0.13\n" +
-"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,20.2,0.0,0.0,0.0\n" +
-"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,-99.0,0.11,0.12,-99.0\n" +
+//2018-08-10 disappeared with move to Lenovo
+//"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,10.2,-99.0,-0.12,-0.13\n" +
+//"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,20.2,0.0,0.0,0.0\n" +
+//"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,-99.0,0.11,0.12,-99.0\n" +
 "1009,2014-11-09T00:00:00Z,2014-11-09T01:02:03Z,,NaN,NaN,NaN,NaN,NaN,NaN,NaN,,,NaN,,,NaN,NaN,NaN,NaN\n"; 
             Test.ensureEqual(results, expected, "\nresults=\n" + results);
             if (pauseBetweenTests)
@@ -2716,13 +2874,14 @@ expected =
             query = "&cfloat=NaN";
             tName = tedd.makeNewFileForDapQuery(null, null, query, dir, 
                 tedd.className() + "_floatNaN", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 "deviceid,date,sampletime,cascii,cboolean,cbyte,cdecimal,cdouble,cfloat,cint,clong,cmap,cset,cshort,ctext,cvarchar,depth,u,v,w\n" +
 ",UTC,UTC,,,,,,,,,,,,,,m,,,\n" +
-"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,10.2,-99.0,-0.12,-0.13\n" +
-"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,20.2,0.0,0.0,0.0\n" +
-"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,-99.0,0.11,0.12,-99.0\n" +
+//2018-08-10 disappeared with move to Lenovo
+//"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,10.2,-99.0,-0.12,-0.13\n" +
+//"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,20.2,0.0,0.0,0.0\n" +
+//"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,-99.0,0.11,0.12,-99.0\n" +
 "1009,2014-11-09T00:00:00Z,2014-11-09T01:02:03Z,,NaN,NaN,NaN,NaN,NaN,NaN,NaN,,,NaN,,,NaN,NaN,NaN,NaN\n"; 
             Test.ensureEqual(results, expected, "\nresults=\n" + results);
             if (pauseBetweenTests)
@@ -2734,7 +2893,7 @@ expected =
             query = "&cboolean=NaN";
             tName = tedd.makeNewFileForDapQuery(null, null, query, dir, 
                 tedd.className() + "_booleanNaN", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 "deviceid,date,sampletime,cascii,cboolean,cbyte,cdecimal,cdouble,cfloat,cint,clong,cmap,cset,cshort,ctext,cvarchar,depth,u,v,w\n" +
 ",UTC,UTC,,,,,,,,,,,,,,m,,,\n" +
@@ -2747,26 +2906,27 @@ expected =
 
             //subset cboolean=1     
             query = "&cboolean=1";
-            tName = tedd.makeNewFileForDapQuery(null, null, query, dir, 
-                tedd.className() + "_boolean1", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
-            expected =  
-"deviceid,date,sampletime,cascii,cboolean,cbyte,cdecimal,cdouble,cfloat,cint,clong,cmap,cset,cshort,ctext,cvarchar,depth,u,v,w\n" +
-",UTC,UTC,,,,,,,,,,,,,,m,,,\n" +
-"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,10.2,-99.0,-0.12,-0.13\n" +
-"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,20.2,0.0,0.0,0.0\n" +
-"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,-99.0,0.11,0.12,-99.0\n";
-            Test.ensureEqual(results, expected, "\nresults=\n" + results);
-            if (pauseBetweenTests)
-                String2.pressEnterToContinue(
-                    "\nTest query=" + query + "\n" +
-                    "Paused to allow you to check the stats."); 
+//            tName = tedd.makeNewFileForDapQuery(null, null, query, dir, 
+//                tedd.className() + "_boolean1", ".csv"); 
+//            results = String2.directReadFrom88591File(dir + tName);
+//            expected =  
+//2018-08-10 disappeared with move to Lenovo
+//"deviceid,date,sampletime,cascii,cboolean,cbyte,cdecimal,cdouble,cfloat,cint,clong,cmap,cset,cshort,ctext,cvarchar,depth,u,v,w\n" +
+//",UTC,UTC,,,,,,,,,,,,,,m,,,\n" +
+//"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,10.2,-99.0,-0.12,-0.13\n" +
+//"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,20.2,0.0,0.0,0.0\n" +
+//"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,-99.0,0.11,0.12,-99.0\n";
+//            Test.ensureEqual(results, expected, "\nresults=\n" + results);
+//            if (pauseBetweenTests)
+//                String2.pressEnterToContinue(
+//                    "\nTest query=" + query + "\n" +
+//                    "Paused to allow you to check the stats."); 
 
             //subset regex on set
             query = "&cset=~\".*set73.*\"";
             tName = tedd.makeNewFileForDapQuery(null, null, query, dir, 
                 tedd.className() + "_set73", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 "deviceid,date,sampletime,cascii,cboolean,cbyte,cdecimal,cdouble,cfloat,cint,clong,cmap,cset,cshort,ctext,cvarchar,depth,u,v,w\n" +
 ",UTC,UTC,,,,,,,,,,,,,,m,,,\n" +
@@ -2784,7 +2944,7 @@ expected =
                 query = "&deviceid=1001&sampletime<2014-01-01";
                 tName = tedd.makeNewFileForDapQuery(null, null, query,
                     dir, tedd.className() + "_nodata2", ".csv"); 
-                results = new String((new ByteArray(dir + tName)).toArray());
+                results = String2.directReadFrom88591File(dir + tName);
                 expected = "Shouldn't get here";
                 Test.ensureEqual(results, expected, "\nresults=\n" + results);
             } catch (Throwable t) {
@@ -2809,7 +2969,7 @@ expected =
             "&deviceid=1001&sampletime>=2014-11-01&sampletime<=2014-11-01T03";
             tName = tedd.makeNewFileForDapQuery(null, null, query,
                 dir, tedd.className() + "_dup", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 "sampletime,depth,u\n" +
 "UTC,m,\n" +
@@ -2831,7 +2991,7 @@ expected =
                 query = "&deviceid>1001&cascii=\"zztop\"";
                 tName = tedd.makeNewFileForDapQuery(null, null, query,
                     dir, tedd.className() + "nodata3", ".csv"); 
-                results = new String((new ByteArray(dir + tName)).toArray());
+                results = String2.directReadFrom88591File(dir + tName);
                 expected = "Shouldn't get here";
                 Test.ensureEqual(results, expected, "\nresults=\n" + results);
             } catch (Throwable t) {
@@ -2850,7 +3010,7 @@ expected =
             //cum time ~313, impressive: ~30 subqueries and a lot of time spent
             //  logging to screen.
             String2.log("\n* EDDTableFromCassandra.testBasic finished successfully. time=" + 
-                (System.currentTimeMillis() - cumTime));
+                (System.currentTimeMillis() - cumTime) + "ms");
 
             /* */
         } catch (Throwable t) {
@@ -2887,7 +3047,7 @@ expected =
                 query = "&deviceid>1000&cascii=\"zztop\"";
                 tName = tedd.makeNewFileForDapQuery(null, null, query,
                     dir, tedd.className() + "frac", ".csv"); 
-                results = new String((new ByteArray(dir + tName)).toArray());
+                results = String2.directReadFrom88591File(dir + tName);
                 expected = "Shouldn't get here";
                 Test.ensureEqual(results, expected, "\nresults=\n" + results);
             } catch (Throwable t) {
@@ -2909,7 +3069,7 @@ expected =
                 query = "&deviceid>1001&cascii=\"zztop\"";
                 tName = tedd.makeNewFileForDapQuery(null, null, query,
                     dir, tedd.className() + "frac2", ".csv"); 
-                results = new String((new ByteArray(dir + tName)).toArray());
+                results = String2.directReadFrom88591File(dir + tName);
                 expected = "Shouldn't get here";
                 Test.ensureEqual(results, expected, "\nresults=\n" + results);
             } catch (Throwable t) {
@@ -2930,13 +3090,14 @@ expected =
             query = "deviceid,sampletime,cascii&deviceid=1001&sampletime>=2014-11-01T03:02:03Z";
             tName = tedd.makeNewFileForDapQuery(null, null, query, 
                 dir, tedd.className() + "_frac3", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 "deviceid,sampletime,cascii\n" +
 ",UTC,\n" +
 "1001,2014-11-01T03:02:03Z,ascii3\n" +
-"1001,2014-11-02T01:02:03Z,ascii1\n" +
-"1001,2014-11-02T02:02:03Z,\n"; 
+"1001,2014-11-02T01:02:03Z,ascii1\n";
+//2018-08-10 disappeared with move to Lenovo
+//"1001,2014-11-02T02:02:03Z,\n"; 
             Test.ensureEqual(results, expected, "\nresults=\n" + results);
             if (pauseBetweenTests)
                 String2.pressEnterToContinue(
@@ -2946,7 +3107,7 @@ expected =
 
             //finished 
             String2.log("\n* EDDTableFromCassandra.testMaxRequestFraction finished successfully. time=" + 
-                (System.currentTimeMillis() - cumTime));
+                (System.currentTimeMillis() - cumTime) + "ms");
 
             /* */
         } catch (Throwable t) {
@@ -2981,7 +3142,7 @@ expected =
 
             tName = tedd.makeNewFileForDapQuery(null, null, "", 
                 dir, tedd.className() + "_Basic", ".dds"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected = 
 "Dataset {\n" +
 "  Sequence {\n" +
@@ -3014,7 +3175,7 @@ expected =
             tName = tedd.makeNewFileForDapQuery(null, null, "", 
                 dir, 
                 tedd.className() + "_Basic", ".das"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected = 
 "Attributes {\n" +
 " s {\n" +
@@ -3093,8 +3254,8 @@ expected =
 "    String _CoordinateZisPositive \"down\";\n" +
 "    String axis \"Z\";\n" +
 "    Float64 colorBarMaximum 8000.0;\n" +
-"    Float64 colorBarMinimum 0.0;\n" +
-"    String colorBarPalette \"OceanDepth\";\n" +
+"    Float64 colorBarMinimum -8000.0;\n" +
+"    String colorBarPalette \"TopographyDepth\";\n" +
 "    String ioos_category \"Location\";\n" +
 "    String long_name \"Depth\";\n" +
 "    String positive \"down\";\n" +
@@ -3139,7 +3300,7 @@ expected =
 "particular purpose, or assumes any legal liability for the accuracy,\n" +
 "completeness, or usefulness, of this information.\";\n" +
 "    String sourceUrl \"(Cassandra)\";\n" +
-"    String standard_name_vocabulary \"CF Standard Name Table v29\";\n" +
+"    String standard_name_vocabulary \"CF Standard Name Table v55\";\n" +
 "    String subsetVariables \"deviceid, date\";\n" +
 "    String summary \"The summary for Bob's Cassandra test data.\";\n" +
 "    String title \"Bob's Cassandra Test Data\";\n" +
@@ -3153,7 +3314,7 @@ expected =
             query = "";
             tName = tedd.makeNewFileForDapQuery(null, null, query, dir, 
                 tedd.className() + "_all", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 "deviceid,date,sampletime,cascii,cboolean,cbyte,cdecimal,cdouble,cfloat,cint,clong,cmap,cset,cshort,ctext,cvarchar,depth,u,v,w\n" +
 ",UTC,UTC,,,,,,,,,,,,,,m,,,\n" +
@@ -3168,10 +3329,11 @@ expected =
 "1001,2014-11-01T00:00:00Z,2014-11-01T03:02:03Z,ascii3,0,3,3.00001,3.001,3.1,3000000,3000000000000,\"{map31=3.1, map32=3.2, map33=3.3, map34=3.4}\",\"[set31, set32, set33, set34, set35]\",3000,text3,cvarchar3,30.3,3.11,3.12,3.13\n" +
 "1001,2014-11-02T00:00:00Z,2014-11-02T01:02:03Z,ascii1,0,1,1.00001,1.001,1.1,1000000,1000000000000,\"{map11=1.1, map12=1.2, map13=1.3, map14=1.4}\",\"[set11, set12, set13, set14, set15]\",1000,text1,cvarchar1,10.1,-0.11,-0.12,-0.13\n" +
 "1001,2014-11-02T00:00:00Z,2014-11-02T01:02:03Z,ascii1,0,1,1.00001,1.001,1.1,1000000,1000000000000,\"{map11=1.1, map12=1.2, map13=1.3, map14=1.4}\",\"[set11, set12, set13, set14, set15]\",1000,text1,cvarchar1,20.1,0.0,0.0,0.0\n" +
-"1001,2014-11-02T00:00:00Z,2014-11-02T01:02:03Z,ascii1,0,1,1.00001,1.001,1.1,1000000,1000000000000,\"{map11=1.1, map12=1.2, map13=1.3, map14=1.4}\",\"[set11, set12, set13, set14, set15]\",1000,text1,cvarchar1,30.1,0.11,0.12,0.13\n" +
-"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,10.2,-99.0,-0.12,-0.13\n" +
-"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,20.2,0.0,0.0,0.0\n" +
-"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,-99.0,0.11,0.12,-99.0\n";
+"1001,2014-11-02T00:00:00Z,2014-11-02T01:02:03Z,ascii1,0,1,1.00001,1.001,1.1,1000000,1000000000000,\"{map11=1.1, map12=1.2, map13=1.3, map14=1.4}\",\"[set11, set12, set13, set14, set15]\",1000,text1,cvarchar1,30.1,0.11,0.12,0.13\n";
+//2018-08-10 disappeared with move to Lenovo
+//"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,10.2,-99.0,-0.12,-0.13\n" +
+//"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,20.2,0.0,0.0,0.0\n" +
+//"1001,2014-11-02T00:00:00Z,2014-11-02T02:02:03Z,,1,NaN,NaN,NaN,NaN,NaN,NaN,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\",\"[, set11, set13, set14, set15]\",NaN,,,-99.0,0.11,0.12,-99.0\n";
             Test.ensureEqual(results, expected, "\nresults=\n" + results);
             if (pauseBetweenTests)
                 String2.pressEnterToContinue(
@@ -3183,13 +3345,14 @@ expected =
             query = "deviceid,sampletime,cmap&sampletime>=2014-11-01T03:02:03Z";
             tName = tedd.makeNewFileForDapQuery(null, null, query, 
                 dir, tedd.className() + "_subset1", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 "deviceid,sampletime,cmap\n" +
 ",UTC,\n" +
 "1001,2014-11-01T03:02:03Z,\"{map31=3.1, map32=3.2, map33=3.3, map34=3.4}\"\n" +
-"1001,2014-11-02T01:02:03Z,\"{map11=1.1, map12=1.2, map13=1.3, map14=1.4}\"\n" +
-"1001,2014-11-02T02:02:03Z,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\"\n"; 
+"1001,2014-11-02T01:02:03Z,\"{map11=1.1, map12=1.2, map13=1.3, map14=1.4}\"\n";
+//2018-08-10 disappeared with move to Lenovo
+//"1001,2014-11-02T02:02:03Z,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\"\n"; 
             Test.ensureEqual(results, expected, "\nresults=\n" + results);
             if (pauseBetweenTests)
                 String2.pressEnterToContinue(
@@ -3201,12 +3364,13 @@ expected =
             query = "deviceid,sampletime,cmap&sampletime>2014-11-01T03:02:03Z";
             tName = tedd.makeNewFileForDapQuery(null, null, query,
                 dir, tedd.className() + "_subset2", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 "deviceid,sampletime,cmap\n" +
 ",UTC,\n" +
-"1001,2014-11-02T01:02:03Z,\"{map11=1.1, map12=1.2, map13=1.3, map14=1.4}\"\n" +
-"1001,2014-11-02T02:02:03Z,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\"\n"; 
+"1001,2014-11-02T01:02:03Z,\"{map11=1.1, map12=1.2, map13=1.3, map14=1.4}\"\n";
+//2018-08-10 disappeared with move to Lenovo
+//"1001,2014-11-02T02:02:03Z,\"{=1.2, map11=-99.0, map13=1.3, map14=1.4}\"\n"; 
             Test.ensureEqual(results, expected, "\nresults=\n" + results);
             if (pauseBetweenTests)
                 String2.pressEnterToContinue(
@@ -3218,11 +3382,12 @@ expected =
             query = "deviceid,cascii&distinct()";
             tName = tedd.makeNewFileForDapQuery(null, null, query,
                 dir, tedd.className() + "_distinct", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 "deviceid,cascii\n" +
 ",\n" +
-"1001,\n" +
+//2018-08-10 disappeared with move to Lenovo
+//"1001,\n" +
 "1001,ascii1\n" +
 "1001,ascii2\n" +
 "1001,ascii3\n"; 
@@ -3237,11 +3402,12 @@ expected =
             query = "deviceid,sampletime,cascii&orderBy(\"cascii\")";
             tName = tedd.makeNewFileForDapQuery(null, null, query,
                 dir, tedd.className() + "_distinct", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 "deviceid,sampletime,cascii\n" +
 ",UTC,\n" +
-"1001,2014-11-02T02:02:03Z,\n" +
+//2018-08-10 disappeared with move to Lenovo
+//"1001,2014-11-02T02:02:03Z,\n" +
 "1001,2014-11-01T01:02:03Z,ascii1\n" +
 "1001,2014-11-02T01:02:03Z,ascii1\n" +
 "1001,2014-11-01T02:02:03Z,ascii2\n" +
@@ -3257,7 +3423,7 @@ expected =
             query = "deviceid,date";
             tName = tedd.makeNewFileForDapQuery(null, null, query,
                 dir, tedd.className() + "_justkeys", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 "deviceid,date\n" +
 ",UTC\n" +
@@ -3275,7 +3441,7 @@ expected =
                 query = "deviceid,sampletime&sampletime<2013-01-01";
                 tName = tedd.makeNewFileForDapQuery(null, null, query,
                     dir, tedd.className() + "_nodata1", ".csv"); 
-                results = new String((new ByteArray(dir + tName)).toArray());
+                results = String2.directReadFrom88591File(dir + tName);
                 expected = "Shouldn't get here";
                 Test.ensureEqual(results, expected, "\nresults=\n" + results);
             } catch (Throwable t) {
@@ -3296,7 +3462,7 @@ expected =
                 query = "&sampletime<2014-01-01";
                 tName = tedd.makeNewFileForDapQuery(null, null, query,
                     dir, tedd.className() + "_nodata2", ".csv"); 
-                results = new String((new ByteArray(dir + tName)).toArray());
+                results = String2.directReadFrom88591File(dir + tName);
                 expected = "Shouldn't get here";
                 Test.ensureEqual(results, expected, "\nresults=\n" + results);
             } catch (Throwable t) {
@@ -3316,7 +3482,7 @@ expected =
                 query = "&cascii=\"zztop\"";
                 tName = tedd.makeNewFileForDapQuery(null, null, query,
                     dir, tedd.className() + "nodata3", ".csv"); 
-                results = new String((new ByteArray(dir + tName)).toArray());
+                results = String2.directReadFrom88591File(dir + tName);
                 expected = "Shouldn't get here";
                 Test.ensureEqual(results, expected, "\nresults=\n" + results);
             } catch (Throwable t) {
@@ -3335,7 +3501,7 @@ expected =
             //cum time ~313, impressive: ~30 subqueries and a lot of time spent
             //  logging to screen.
             String2.log("\n* EDDTableFromCassandra.testCass1Device finished successfully. time=" + 
-                (System.currentTimeMillis() - cumTime));
+                (System.currentTimeMillis() - cumTime) + "ms");
 
             /* */
         } catch (Throwable t) {
@@ -3373,7 +3539,7 @@ expected =
             //.dds
             tName = tedd.makeNewFileForDapQuery(null, null, "", 
                 dir, tedd.className() + "_Basic", ".dds"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected = 
 "Dataset {\n" +
 "  Sequence {\n" +
@@ -3394,7 +3560,7 @@ expected =
             tName = tedd.makeNewFileForDapQuery(null, null, "", 
                 dir, 
                 tedd.className() + "_Basic", ".das"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected = 
 "Attributes {\n" +
 " s {\n" +
@@ -3424,8 +3590,8 @@ expected =
 "    String _CoordinateZisPositive \"down\";\n" +
 "    String axis \"Z\";\n" +
 "    Float64 colorBarMaximum 8000.0;\n" +
-"    Float64 colorBarMinimum 0.0;\n" +
-"    String colorBarPalette \"OceanDepth\";\n" +
+"    Float64 colorBarMinimum -8000.0;\n" +
+"    String colorBarPalette \"TopographyDepth\";\n" +
 "    String ioos_category \"Location\";\n" +
 "    String long_name \"Depth\";\n" +
 "    String positive \"down\";\n" +
@@ -3498,7 +3664,7 @@ expected =
 "    Float64 Northernmost_Northing 34.0;\n" +
 "    String sourceUrl \"(Cassandra)\";\n" +
 "    Float64 Southernmost_Northing 33.0;\n" +
-"    String standard_name_vocabulary \"CF Standard Name Table v29\";\n" +
+"    String standard_name_vocabulary \"CF Standard Name Table v55\";\n" +
 "    String subsetVariables \"deviceid, date, latitude, longitude\";\n" +
 "    String summary \"The summary for Bob's Cassandra test data.\";\n" +
 "    String title \"Cassandra Static Test\";\n" +
@@ -3513,7 +3679,7 @@ expected =
             query = "";
             tName = tedd.makeNewFileForDapQuery(null, null, query, dir, 
                 tedd.className() + "_staticAll", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 //This shows that lat and lon just have different values for each combination of the
 //partition key (deviceid+date).
@@ -3542,7 +3708,7 @@ expected =
             query = "deviceid,date,latitude,longitude&distinct()";
             tName = tedd.makeNewFileForDapQuery(null, null, query,
                 dir, tedd.className() + "_staticDistinct", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 //diagnostic messages show that ERDDAP got this data from the subset file.
 "deviceid,date,latitude,longitude\n" +
@@ -3561,7 +3727,7 @@ expected =
             query = "&latitude=34";
             tName = tedd.makeNewFileForDapQuery(null, null, query, 
                 dir, tedd.className() + "_staticCon1", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 "deviceid,date,time,depth,latitude,longitude,u,v\n" +
 ",UTC,UTC,m,degrees_north,degrees_east,,\n" +
@@ -3580,7 +3746,7 @@ expected =
             query = "&latitude>33.5";
             tName = tedd.makeNewFileForDapQuery(null, null, query, 
                 dir, tedd.className() + "_staticCon2", ".csv"); 
-            results = new String((new ByteArray(dir + tName)).toArray());
+            results = String2.directReadFrom88591File(dir + tName);
             expected =  
 "deviceid,date,time,depth,latitude,longitude,u,v\n" +
 ",UTC,UTC,m,degrees_north,degrees_east,,\n" +
@@ -3597,7 +3763,7 @@ expected =
 
             //finished 
             String2.log("\n* EDDTableFromCassandra.testStatic finished successfully. time=" + 
-                (System.currentTimeMillis() - cumTime));
+                (System.currentTimeMillis() - cumTime) + "ms");
 
             /* */
         } catch (Throwable t) {
@@ -3616,10 +3782,15 @@ expected =
         String2.log("\n****************** EDDTableFromCassandra.test() *****************\n");
 
         //tests usually run       
-        /* */
+/* for releases, this line should have open/close comment */
+        String s = String2.getStringFromSystemIn(
+            "\nThe tests of Cassandra require that Cassandra be running.\n" +
+            "Continue (y or Enter) or skip (s)? ");
+        if (s.startsWith("s"))
+            return;
         testGenerateDatasetsXml();
         testBasic(false); //pauseBetweenTests
-        testMaxRequestFraction(false);
+        testMaxRequestFraction(false);  //pauseBetweenTests
         testCass1Device(false); //pauseBetweenTests
         testStatic(false); //pauseBetweenTests
         /* */

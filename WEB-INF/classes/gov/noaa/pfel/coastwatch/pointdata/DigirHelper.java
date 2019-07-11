@@ -243,10 +243,10 @@ public class DigirHelper  {
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
         "<request \n" +
         "  xmlns=\"http://digir.net/schema/protocol/2003/1.0\" \n" + //default namespace
-        "  xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" \n" +
+        "  xmlns:xsd=\"https://www.w3.org/2001/XMLSchema\" \n" +
         "  xmlns:darwin=\"http://digir.net/schema/conceptual/darwin/2003/1.0\" \n" +
         "  xmlns:obis=\"http://www.iobis.org/obis\" \n" +
-        "  xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" \n" +
+        "  xmlns:xsi=\"https://www.w3.org/2001/XMLSchema-instance\" \n" +
         "  xsi:schemaLocation=\"http://digir.net/schema/protocol/2003/1.0 \n" + //if not provided, waits, then returns provider info
         "    http://digir.sourceforge.net/schema/protocol/2003/1.0/digir.xsd \n" +  //these are pars of xmlns+xsd
         "    http://digir.net/schema/conceptual/darwin/2003/1.0 \n" +
@@ -265,8 +265,8 @@ public class DigirHelper  {
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
             "<request \n" +
             "  xmlns=\"" + xmlnsNS[0] + "\" \n" + //default namespace
-            "  xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" \n" +
-            "  xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" \n");
+            "  xmlns:xsd=\"https://www.w3.org/2001/XMLSchema\" \n" +
+            "  xmlns:xsi=\"https://www.w3.org/2001/XMLSchema-instance\" \n");
         for (int i = 1; i < xmlnsNS.length; i++)  //1 because 0=default handled above
             request.append(
                 "  xmlns:" + xmlnsPrefix[i] + "=\"" + xmlnsNS[i] + "\" \n");
@@ -368,7 +368,7 @@ public class DigirHelper  {
         /* example from diveintodigir
         <?xml version="1.0" encoding="UTF-8"?>
         <request xmlns="http://digir.net/schema/protocol/2003/1.0"
-                xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                xmlns:xsi="https://www.w3.org/2001/XMLSchema-instance"
                 xsi:schemaLocation="http://digir.net/schema/protocol/2003/1.0
                   http://digir.sourceforge.net/schema/protocol/2003/1.0/digir.xsd">
           <header>
@@ -405,10 +405,10 @@ public class DigirHelper  {
         request = String2.toSVString(String2.split(request, '\n'),  //split trims each string
             " ", true); //(white)space is necessary to separate schemalocation names and locations
         //        if (reallyVerbose) String2.log("\ncompactRequest=" + request + "\n");
-        String response = SSR.getUrlResponseString(url + "?request=" + 
+        String response = SSR.getUrlResponseStringUnchanged(url + "?request=" + 
             SSR.percentEncode(request));
         if (verbose) String2.log("DigirHelper.getMetadataXml done. TIME=" +
-            (System.currentTimeMillis() - time));
+            (System.currentTimeMillis() - time) + "ms");
         if (reallyVerbose) String2.log(
             "start of response=\n" + response.substring(0, Math.min(response.length(), 3000)));
         return response;
@@ -441,22 +441,26 @@ public class DigirHelper  {
 
         //get the metadata xml and StringReader
         String xml = getMetadataXml(url, version);
-        StringReader reader = new StringReader(xml);
+        BufferedReader reader = new BufferedReader(new StringReader(xml));
         //for testing:
         //Test.ensureTrue(String2.writeToFile("c:/temp/ObisMetadata.xml", xml).equals(""), 
         //    "Unable to save c:/temp/Obis.Metadata.xml.");
-        //FileReader reader = new FileReader("c:/programs/digir/ObisMetadata.xml");
+        //Reader reader = new BufferedReader(new FileReader("c:/programs/digir/ObisMetadata.xml"));
+        try {
 
-        //read the resource data
-        Table table = new Table();
-        boolean validate = false; //since no .dtd specified by DOCTYPE in the file
-        table.readXml(new BufferedReader(reader), 
-            validate, "/response/content/metadata/provider/resource", null,
-            true); //simplify
-        if (reallyVerbose) String2.log("DigirHelper.getMetadataTable, first 3 rows:\n" + 
-            table.toString("row", 3));
+            //read the resource data
+            Table table = new Table();
+            boolean validate = false; //since no .dtd specified by DOCTYPE in the file
+            table.readXml(reader, 
+                validate, "/response/content/metadata/provider/resource", null,
+                true); //simplify
+            if (reallyVerbose) String2.log("DigirHelper.getMetadataTable, first 3 rows:\n" + 
+                table.toString(3));
+            return table;
+        } finally {
+            reader.close();
+        }
 
-        return table;
 
     }
 
@@ -477,7 +481,7 @@ public class DigirHelper  {
         if (false) {
             //this used to work and probably still does; but I have stopped testing rutgers because it is often down.
             table = getMetadataTable(RUTGERS_OBIS_URL, OBIS_VERSION);
-            String2.log("metadata table=" + table.toString("row", 10));
+            String2.log("metadata table=" + table.toString(10));
             Test.ensureTrue(table.nRows() >= 142, "nRows=" + table.nRows());
             Test.ensureEqual(table.getColumnName(0), "name", "");
             Test.ensureEqual(table.getColumnName(1), "code", "");
@@ -507,7 +511,7 @@ public class DigirHelper  {
 //      0  IndOBIS, India        indobis Vishwas Chavan      Scientist vs.chavan@ncl. 91 20 2590 248 Asavari Navlak Technical Offi ar.navlakhe@nc 91 20 2590 248 IndOBIS (India Indian Ocean,  Chavan, VIshwa http://digir.n        sciname   41880 2007-06-21T02:              3            100          10000
 //      1  Biological Col  NIOCOLLECTION Achuthankutty, Coordinator, B   achu@nio.org    http://digir.n        sciname     803     2006-11-03              3          10000          10000
             table = getMetadataTable(IND_OBIS_URL, OBIS_VERSION);
-            String2.log("metadata table=" + table.toString("row", 10));
+            String2.log("metadata table=" + table.toString(10));
             Test.ensureTrue(table.nRows() >= 2, "nRows=" + table.nRows());
             Test.ensureEqual(table.getColumnName(0), "name", "");
             Test.ensureEqual(table.getColumnName(1), "code", "");
@@ -527,7 +531,7 @@ public class DigirHelper  {
 //      1  Benthic fauna      pechorasea http://www.mar   Dahle, Salve     Data owner sd@akvaplan.ni +47-(0)77-75 0 Cochrane, Sabi Coordinator Bi sc@akvaplan.ni+47-777-50327 Quantitative s                Release with p http://www.iob http://digir.n     PechoraSea              O           1324 2004-09-02 18:  0           1000          10000 Denisenko, Sta dest@unitel.sp  Benthic fauna
 //      2  N3 data of Kie         n3data http://www.mar   Rumohr, Heye    hrumohr@ifm-ge +49-(0)431-600    Release with p http://www.iob http://digir.n         N3Data              O           8944 2005-11-22 17:  0           1000          10000                               Benthic fauna,
             table = getMetadataTable(FLANDERS_OBIS_URL, OBIS_VERSION);
-            String2.log("metadata table=" + table.toString("row", 10));
+            String2.log("metadata table=" + table.toString(10));
             Test.ensureTrue(table.nRows() >= 37, "nRows=" + table.nRows());
             Test.ensureEqual(table.getColumnName(0), "name", "");
             Test.ensureEqual(table.getColumnName(1), "code", "");
@@ -570,7 +574,7 @@ public class DigirHelper  {
         /* example from diveintodigir
         <?xml version="1.0" encoding="UTF-8"?>
         <request xmlns="http://www.namespaceTBD.org/digir"
-                 xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+                 xmlns:xsd="https://www.w3.org/2001/XMLSchema"
                  xmlns:darwin="http://digir.net/schema/conceptual/darwin/2003/1.0">
           <header>
             <version>1.0.0</version>
@@ -614,7 +618,7 @@ public class DigirHelper  {
         request = String2.toSVString(String2.split(request, '\n'),  //split trims each string
             " ", true); //(white)space is necessary to separate schemalocation names and locations
         //if (reallyVerbose) String2.log("\ncompactRequest=" + request + "\n");
-        String response = SSR.getUrlResponseString(url + "?request=" + 
+        String response = SSR.getUrlResponseStringUnchanged(url + "?request=" + 
             SSR.percentEncode(request));
 
         //look for error message
@@ -907,8 +911,8 @@ String2.log("inventoryTable:\n" + table.toString());
      *    e.g., {"", "darwin", "obis"} .  
      *    The array length must be at least 1.
      *    0th entry is ignored (it is default namespace).
-     *    xsd (http://www.w3.org/2001/XMLSchema) and 
-     *    xsi (http://www.w3.org/2001/XMLSchema-instance) are automatically added.        
+     *    xsd (https://www.w3.org/2001/XMLSchema) and 
+     *    xsi (https://www.w3.org/2001/XMLSchema-instance) are automatically added.        
      * @param xmlnsNS the xmlns values (pseudo URLs, not actual documents)
      *    e.g., {DIGIR_XMLNS, DARWIN_XMLNS, OBIS_XMLNS}
      *    These must correspond to the xmlnsPrefix values.
@@ -982,10 +986,10 @@ String2.log("inventoryTable:\n" + table.toString());
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
         "<request \n" +
         "  xmlns=\"http://digir.net/schema/protocol/2003/1.0\" \n" + //default namespace
-        "  xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" \n" +
+        "  xmlns:xsd=\"https://www.w3.org/2001/XMLSchema\" \n" +
         "  xmlns:darwin=\"http://digir.net/schema/conceptual/darwin/2003/1.0\" \n" +
         "  xmlns:obis=\"http://www.iobis.org/obis\" \n" +
-        "  xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" \n" +
+        "  xmlns:xsi=\"https://www.w3.org/2001/XMLSchema-instance\" \n" +
         "  xsi:schemaLocation=\"http://digir.net/schema/protocol/2003/1.0 \n" + //if not provided, waits, then returns provider info
         "    http://digir.sourceforge.net/schema/protocol/2003/1.0/digir.xsd \n" +  //these are pars of xmlns+xsd
         "    http://digir.net/schema/conceptual/darwin/2003/1.0 \n" +
@@ -1113,7 +1117,7 @@ String2.log("inventoryTable:\n" + table.toString());
                 request = String2.toSVString(String2.split(request, '\n'),  //split trims each string
                     " ", true); //(white)space is necessary to separate schemalocation names and locations
                 //if (reallyVerbose) String2.log("\ncompactRequest=" + request + "\n");
-                String response = SSR.getUrlResponseString(url + "?request=" + 
+                String response = SSR.getUrlResponseStringUnchanged(url + "?request=" + 
                     SSR.percentEncode(request));
                 //for testing:
                 //String2.writeToFile("c:/temp/SearchDigirResponse" + resource + ".xml", response);
@@ -1202,7 +1206,7 @@ String2.log("inventoryTable:\n" + table.toString());
 
         //done
         if (verbose) String2.log("  DigirHelper.searchDigir done. nColumns=" + resultsTable.nColumns() +
-            " nRows=" + resultsTable.nRows() + " TIME=" + (System.currentTimeMillis() - time) + "\n");
+            " nRows=" + resultsTable.nRows() + " TIME=" + (System.currentTimeMillis() - time) + "ms\n");
 
     }
 
@@ -1276,7 +1280,7 @@ String2.log("inventoryTable:\n" + table.toString());
         //tTable.saveAsFlatNc("c:/temp/searchObis" + includeXYZT + ".nc", "row");
         /* */
         //Table tTable = new Table();
-        //tTable.readFlatNc("c:/temp/searchObis" + includeXYZT + ".nc", null, 1);
+        //tTable.readFlatNc("c:/temp/searchObis" + includeXYZT + ".nc", null, 1); //standardizeWhat=1
 
         int nRows = tTable.nRows();
         if (includeXYZT) {
@@ -1876,7 +1880,7 @@ String2.log("inventoryTable:\n" + table.toString());
 //  2            VLIZ          Tisbe         415428 Abietinaria ab           1.95          51.23            NaN
 //  3            VLIZ          Tisbe         562956 Abietinaria ab           1.62          50.77            NaN
 
-                String results = table.dataToCSVString();
+                String results = table.dataToString();
                 String expected =
 "darwin:InstitutionCode,darwin:CollectionCode,darwin:CatalogNumber,darwin:ScientificName,darwin:Longitude,darwin:Latitude,obis:Temperature\n" +
 "VLIZ,Tisbe,405183,Abietinaria abietina,-20.0,46.0,\n" +
@@ -2186,8 +2190,8 @@ String2.log("inventoryTable:\n" + table.toString());
 
             }
         } catch (Exception e) {
-            String2.pressEnterToContinue(
-                "UNEXPECTED ERROR: " + MustBe.throwableToString(e)); 
+            String2.pressEnterToContinue(MustBe.throwableToString(e) + 
+                "\nUnexpected error."); 
         }
     }
 
@@ -2204,7 +2208,7 @@ String2.log("inventoryTable:\n" + table.toString());
             "darwin:ScientificName, obis:Temperature", 
             "");
 
-        String results = table.dataToCSVString();
+        String results = table.dataToString();
         String expected =
 //pre 2010-07-27 was 7 rows
 "LON,LAT,DEPTH,TIME,ID,darwin:InstitutionCode,darwin:CollectionCode,darwin:ScientificName,obis:Temperature\n" +

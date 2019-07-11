@@ -48,7 +48,7 @@ public class MakeErdJavaZip  {
 
         //make the JavaDocs
         String coastWatchClass = "gov.noaa.pfel.coastwatch.";
-        String commandLine0 = "C:\\Progra~1\\Java\\jdk1.8.0_51\\bin\\javadoc" +
+        String commandLine0 = "C:\\programs\\jdk8u212-b03\\bin\\javadoc" +
             //" -source 1.4" + //use 1.4 for the DODS classes that use "enum" //2011-02-22 Bob Simons changed enum to en.
             " -sourcepath " + classPath +      //root directory of the classes
             " -d "; //+ baseDir + "ConvertTableDoc" + //dir to hold results
@@ -66,13 +66,12 @@ public class MakeErdJavaZip  {
             "-classpath " +  //';' separated;  //external packages are important here
                 //baseDir + "lib/activation.jar;" +
                 baseDir + "lib/commons-compress.jar;" + 
-                baseDir + "lib/commons-discovery.jar;" + 
+                //baseDir + "lib/commons-discovery.jar;" + 
                 //baseDir + "lib/commons-codec-1.3.jar;" +     //these 3 now in netcdfAll-latest
                 //baseDir + "lib/commons-httpclient-3.0.1.jar;" + 
                 //baseDir + "lib/commons-logging-1.1.jar;" + 
                 baseDir + "lib/mail.jar;" +  
-// 2013-02-21 new netcdfAll uses Java logging, not slf4j.
-//                baseDir + "lib/slf4j-jdk14.jar;" + //space after last one
+                baseDir + "lib/slf4j.jar;" + 
                 baseDir + "lib/netcdfAll-latest.jar " + //space after last one
             "-subpackages " +  //the packages to be doc'd   // ':' separated
                 //adding a package? add it to dirName below, too
@@ -170,14 +169,13 @@ public class MakeErdJavaZip  {
         dirNames.add(baseDir + "ValidateDataSetProperties.bat");
         //dirNames.add(baseDir + "lib/activation.jar");
         dirNames.add(baseDir + "lib/commons-compress.jar"); 
-        dirNames.add(baseDir + "lib/commons-discovery.jar"); 
+        //dirNames.add(baseDir + "lib/commons-discovery.jar"); 
         //dirNames.add(baseDir + "lib/commons-codec-1.3.jar"); //these 3 are now in netcdfAll-latest
         //dirNames.add(baseDir + "lib/commons-httpclient-3.0.1.jar"); 
         //dirNames.add(baseDir + "lib/commons-logging-1.1.jar"); 
         dirNames.add(baseDir + "lib/mail.jar");
         dirNames.add(baseDir + "lib/netcdfAll-latest.jar");
-        //2013-02-21 new netcdfAll uses Java logging, not slf4j.
-        //dirNames.add(baseDir + "lib/slf4j-jdk14.jar");
+        dirNames.add(baseDir + "lib/slf4j.jar");
         String2.add(dirNames, RegexFilenameFilter.recursiveFullNameList(baseDir + "docs/ErdJavaDoc/",         ".+", false)); //javadocs
         String2.add(dirNames, RegexFilenameFilter.recursiveFullNameList(baseDir + "classes/dods/",            ".+", false));
         String2.add(dirNames, RegexFilenameFilter.recursiveFullNameList(baseDir + "classes/com/sshtools/",    ".+", false));
@@ -237,7 +235,7 @@ public class MakeErdJavaZip  {
         //accumulate the file names to be zipped
         String ctName = destinationDir + "converttable.jar";
         StringBuilder cmdLine = new StringBuilder();
-        cmdLine.append("\\Progra~1\\Java\\jdk1.8.0_51\\bin\\jar cvf " + ctName);
+        cmdLine.append("C:\\programs\\jdk8u212-b03\\bin\\jar cvf " + ctName);
         //I thought I could use -C once and have lots of files after it. 
         //But no. I need to use -C for each file.   (maybe just if 'file' is a directory)
         //And can't use *. List files separately.

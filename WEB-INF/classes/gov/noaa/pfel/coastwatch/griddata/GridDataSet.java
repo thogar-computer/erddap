@@ -71,7 +71,7 @@ public abstract class GridDataSet {
     public int[]    activeTimePeriodNHours;
 
     /** The active time period opendapUrl (or array of nulls if none available).
-     * E.g., http://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/MO/k490/hday
+     * E.g., https://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/MO/k490/hday
      * which just needs .html suffix to make link for user to click on.
      */
     public String[] activeTimePeriodOpendapUrls; //set by the constructor
@@ -120,7 +120,7 @@ public abstract class GridDataSet {
 
     /** 
      * altUdUnits is the alternate units for this data 
-     * set (e.g., degrees_F). 
+     * set (e.g., degree_F). 
      * Set by the constructor.
      * Set this to "" if not used.
      */
@@ -244,7 +244,7 @@ public abstract class GridDataSet {
 
     /** 
      * The udUnits for the legend,
-     * e.g., degrees_C. 
+     * e.g., degree_C. 
      * Set by the constructor.
      */
     public String udUnits = null; 
@@ -613,7 +613,7 @@ public abstract class GridDataSet {
             gridGlobalAttributes.set("keywords",              keywords);
             gridGlobalAttributes.set("keywords_vocabulary",   keywordsVocabulary);
         }
-        gridGlobalAttributes.set("id",                        FileNameUtility.getUniqueID(fileName));
+        gridGlobalAttributes.set("id",                        FileNameUtility.getID(fileName));
         gridGlobalAttributes.set("naming_authority",          FileNameUtility.getNamingAuthority());
         gridGlobalAttributes.set("summary",                   summary);  //summary was cleaned up in constructor
         gridGlobalAttributes.set("date_created",              FileNameUtility.getDateCreated());
@@ -646,8 +646,8 @@ public abstract class GridDataSet {
         gridGlobalAttributes.set("geospatial_vertical_max",   0.0); //0.0 (not 0, which is int)
         gridGlobalAttributes.set("geospatial_vertical_units", "m");
         gridGlobalAttributes.set("geospatial_vertical_positive","up");
-        gridGlobalAttributes.set("time_coverage_start",       Calendar2.formatAsISODateTimeT(FileNameUtility.getStartCalendar(fileName)) + "Z");
-        gridGlobalAttributes.set("time_coverage_end",         Calendar2.formatAsISODateTimeT(FileNameUtility.getEndCalendar(fileName)) + "Z");
+        gridGlobalAttributes.set("time_coverage_start",       Calendar2.formatAsISODateTimeTZ(FileNameUtility.getStartCalendar(fileName)));
+        gridGlobalAttributes.set("time_coverage_end",         Calendar2.formatAsISODateTimeTZ(FileNameUtility.getEndCalendar(fileName)));
         //gridGlobalAttributes.set("time_coverage_resolution", "P12H"));
         //if (gridGlobalAttributes.get("standard_name") == null && standardName != null) //if standardName is null, I will set below  INACTIVE
         //    gridGlobalAttributes.set("standard_name_vocabulary",  FileNameUtility.getStandardNameVocabulary());
@@ -1038,9 +1038,9 @@ public abstract class GridDataSet {
         double endSeconds = Calendar2.gcToEpochSeconds(endCalendar);
         double newSeconds = Calendar2.isoStringToEpochSeconds(newTime);  //throws exception if trouble
         //String2.log(
-        //    "findAppropriateClimatologyTime start=" + Calendar2.epochSecondsToIsoStringT(startSeconds) +
-        //    "\n  new=" + Calendar2.epochSecondsToIsoStringT(newSeconds) +
-        //                             "        end=" + Calendar2.epochSecondsToIsoStringT(endSeconds));
+        //    "findAppropriateClimatologyTime start=" + Calendar2.epochSecondsToIsoStringTZ(startSeconds) +
+        //    "\n  new=" + Calendar2.epochSecondsToIsoStringTZ(newSeconds) +
+        //    "        end=" + Calendar2.epochSecondsToIsoStringTZ(endSeconds));
         if (startSeconds == endSeconds) {
             return newSeconds == startSeconds? closest : -1;
         } else {

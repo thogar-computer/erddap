@@ -36,7 +36,7 @@ public class IntArray extends PrimitiveArray {
     public int[] array;
 
     /** This indicates if this class' type (e.g., short.class) can be contained in a long. 
-     * The integer type classes override this.
+     * The integer type classes overwrite this.
      */
     public boolean isIntegerType() {
         return true;
@@ -106,6 +106,13 @@ public class IntArray extends PrimitiveArray {
         size = anArray.length;
     }
 
+    /** The minimum value that can be held by this class. */
+    public String MINEST_VALUE() {return "" + Integer.MIN_VALUE;}
+
+    /** The maximum value that can be held by this class 
+        (not including the cohort missing value). */
+    public String MAXEST_VALUE() {return "" + (Integer.MAX_VALUE - 1);}
+
     /**
      * This returns the current capacity (number of elements) of the internal data array.
      * 
@@ -125,7 +132,7 @@ public class IntArray extends PrimitiveArray {
      */
     public int hashCode() {
         //see https://docs.oracle.com/javase/8/docs/api/java/util/List.html#hashCode()
-        //and http://stackoverflow.com/questions/299304/why-does-javas-hashcode-in-string-use-31-as-a-multiplier
+        //and https://stackoverflow.com/questions/299304/why-does-javas-hashcode-in-string-use-31-as-a-multiplier
         int code = 0;
         for (int i = 0; i < size; i++)
             code = 31*code + array[i];
@@ -136,14 +143,17 @@ public class IntArray extends PrimitiveArray {
      * This makes a new subset of this PrimitiveArray based on startIndex, stride,
      * and stopIndex.
      *
+     * @param pa the pa to be filled (may be null). If not null, must be of same type as this class. 
      * @param startIndex must be a valid index
      * @param stride   must be at least 1
      * @param stopIndex (inclusive) If &gt;= size, it will be changed to size-1.
-     * @return a new PrimitiveArray with the desired subset.
-     *    It will have a new backing array with a capacity equal to its size.
+     * @return The same pa (or a new PrimitiveArray if it was null) with the desired subset.
+     *    If new, it will have a backing array with a capacity equal to its size.
      *    If stopIndex &lt; startIndex, this returns PrimitiveArray with size=0;
      */
-    public PrimitiveArray subset(int startIndex, int stride, int stopIndex) {
+    public PrimitiveArray subset(PrimitiveArray pa, int startIndex, int stride, int stopIndex) {
+        if (pa != null)
+            pa.clear();
         if (startIndex < 0)
             throw new IndexOutOfBoundsException(MessageFormat.format(
                 ArraySubsetStart, getClass().getSimpleName(), "" + startIndex));
@@ -153,11 +163,18 @@ public class IntArray extends PrimitiveArray {
         if (stopIndex >= size)
             stopIndex = size - 1;
         if (stopIndex < startIndex)
-            return new IntArray(new int[0]);
+            return pa == null? new IntArray(new int[0]) : pa;
 
         int willFind = strideWillFind(stopIndex - startIndex + 1, stride);
-        Math2.ensureMemoryAvailable(4L * willFind, "IntArray"); 
-        int tar[] = new int[willFind];
+        IntArray ia = null;
+        if (pa == null) {
+            ia = new IntArray(willFind, true);
+        } else {
+            ia = (IntArray)pa;
+            ia.ensureCapacity(willFind);
+            ia.size = willFind;
+        }
+        int tar[] = ia.array;
         if (stride == 1) {
             System.arraycopy(array, startIndex, tar, 0, willFind);
         } else {
@@ -165,7 +182,7 @@ public class IntArray extends PrimitiveArray {
             for (int i = startIndex; i <= stopIndex; i+=stride) 
                 tar[po++] = array[i];
         }
-        return new IntArray(tar);
+        return ia;
     }
 
     /**
@@ -259,7 +276,8 @@ public class IntArray extends PrimitiveArray {
     /**
      * This adds n Strings to the array.
      *
-     * @param n the number of times 'value' should be added
+     * @param n the number of times 'value' should be added.
+     *    If less than 0, this throws Exception.
      * @param value the value, as a String.
      */
     public void addNStrings(int n, String value) {
@@ -296,7 +314,8 @@ public class IntArray extends PrimitiveArray {
     /**
      * This adds n doubles to the array.
      *
-     * @param n the number of times 'value' should be added
+     * @param n the number of times 'value' should be added.
+     *    If less than 0, this throws Exception.
      * @param value the value, as a double.
      */
     public void addNDoubles(int n, double value) {
@@ -704,7 +723,7 @@ public class IntArray extends PrimitiveArray {
      * This "raw" variant leaves missingValue from integer data types 
      * (e.g., ByteArray missingValue=127) AS IS.
      *
-     * <p>All integerTypes override this.
+     * <p>All integerTypes overwrite this.
      * 
      * @param index the index number 0 ... size-1
      * @return the value as a double. String values are parsed
@@ -737,12 +756,25 @@ public class IntArray extends PrimitiveArray {
     }
 
     /**
+     * Return a value from the array as a String suitable for a JSON file. 
+     * char returns a String with 1 character.
+     * String returns a json String with chars above 127 encoded as \\udddd.
+     * 
+     * @param index the index number 0 ... size-1 
+     * @return For numeric types, this returns ("" + ar[index]), or null for NaN or infinity.
+     */
+    public String getJsonString(int index) {
+        int b = get(index);
+        return b == Integer.MAX_VALUE? "null" : String.valueOf(b);
+    }
+
+    /**
      * Return a value from the array as a String.
      * This "raw" variant leaves missingValue from integer data types 
      * (e.g., ByteArray missingValue=127) AS IS.
      * FloatArray and DoubleArray return "" if the stored value is NaN. 
      *
-     * <p>All integerTypes override this.
+     * <p>All integerTypes overwrite this.
      * 
      * @param index the index number 0 ... size-1
      * @return the value as a double. String values are parsed
@@ -796,6 +828,8 @@ public class IntArray extends PrimitiveArray {
      * @return the index where 'lookFor' is found, or -1 if not found.
      */
     public int indexOf(String lookFor, int startIndex) {
+        if (startIndex >= size)
+            return -1;
         return indexOf(String2.parseInt(lookFor), startIndex);
     }
 
@@ -885,6 +919,18 @@ public class IntArray extends PrimitiveArray {
     }
 
     /** 
+     * This converts the elements into an NCCSV attribute String, e.g.,: -128b, 127b
+     *
+     * @return an NCCSV attribute String
+     */
+    public String toNccsvAttString() {
+        StringBuilder sb = new StringBuilder(size * 10);
+        for (int i = 0; i < size; i++) 
+            sb.append((i == 0? "" : ",") + array[i] + "i");
+        return sb.toString();
+    }
+
+    /** 
      * This sorts the elements in ascending order.
      * To get the elements in reverse order, just read from the end of the list
      * to the beginning.
@@ -944,6 +990,31 @@ public class IntArray extends PrimitiveArray {
     }
 
     /**
+     * This reverses the order of the bytes in each value,
+     * e.g., if the data was read from a little-endian source.
+     */
+    public void reverseBytes() {
+        for (int i = 0; i < size; i++)
+            array[i] = Integer.reverseBytes(array[i]);
+    }
+
+    /**
+     * This writes 'size' elements to a DataOutputStream.
+     *
+     * @param dos the DataOutputStream
+     * @return the number of bytes used per element (for Strings, this is
+     *    the size of one of the strings, not others, and so is useless;
+     *    for other types the value is consistent).
+     *    But if size=0, this returns 0.
+     * @throws Exception if trouble
+     */
+    public int writeDos(DataOutputStream dos) throws Exception {
+        for (int i = 0; i < size; i++)
+            dos.writeInt(array[i]);
+        return size == 0? 0 : 4;
+    }
+
+    /**
      * This writes one element to a DataOutputStream.
      *
      * @param dos the DataOutputStream
@@ -968,6 +1039,42 @@ public class IntArray extends PrimitiveArray {
         ensureCapacity(size + (long)n);
         for (int i = 0; i < n; i++)
             array[size++] = dis.readInt();
+    }
+
+    /**
+     * This reads/adds n 24-bit elements from a DataInputStream.
+     *
+     * @param dis the DataInputStream
+     * @param n the number of elements to be read/added
+     * @throws Exception if trouble
+     */
+    public void read24BitDis(DataInputStream dis, int n, boolean bigEndian) throws Exception {
+        ensureCapacity(size + (long)n);
+        byte bar[] = new byte[3];
+        for (int i = 0; i < n; i++) {
+            dis.readFully(bar);
+            array[size++] = bigEndian?
+                ((((bar[0] & 0xFF) << 24) | ((bar[1] & 0xFF) << 16) | ((bar[2] & 0xFF) << 8)) >> 8) :  
+                ((((bar[2] & 0xFF) << 24) | ((bar[1] & 0xFF) << 16) | ((bar[0] & 0xFF) << 8)) >> 8);
+        }
+    }
+
+    /**
+     * This is like read24BitDis, but doesn't do &gt;&gt;8.
+     *
+     * @param dis the DataInputStream
+     * @param n the number of elements to be read/added
+     * @throws Exception if trouble
+     */
+    public void read24BitDisAudio(DataInputStream dis, int n, boolean bigEndian) throws Exception {
+        ensureCapacity(size + (long)n);
+        byte bar[] = new byte[3];
+        for (int i = 0; i < n; i++) {
+            dis.readFully(bar);
+            array[size++] = bigEndian?
+                (((bar[0] & 0xFF) << 24) | ((bar[1] & 0xFF) << 16) | ((bar[2] & 0xFF) << 8)) :  
+                (((bar[2] & 0xFF) << 24) | ((bar[1] & 0xFF) << 16) | ((bar[0] & 0xFF) << 8));
+        }
     }
 
     /**
@@ -1268,12 +1375,6 @@ public class IntArray extends PrimitiveArray {
         return -1;
     }
 
-    /** This returns the minimum value that can be held by this class. */
-    public String minValue() {return "" + Integer.MIN_VALUE;}
-
-    /** This returns the maximum value that can be held by this class. */
-    public String maxValue() {return "" + (Integer.MAX_VALUE - 1);}
-
     /**
      * This finds the number of non-missing values, and the index of the min and
      *    max value.
@@ -1298,12 +1399,28 @@ public class IntArray extends PrimitiveArray {
     }
 
     /**
+     * For integer types, this fixes unsigned bytes that were incorrectly read as signed
+     * so that they have the correct ordering of values (0 to 255 becomes -128 to 127).
+     * <br>What were read as signed:    0  127 -128  -1
+     * <br>should become   unsigned: -128   -1    0 255
+     * <br>This also does the reverse.
+     * <br>For non-integer types, this does nothing.
+     */
+    public void changeSignedToFromUnsigned() {
+        for (int i = 0; i < size; i++) {
+            int i2 = array[i];
+            array[i] = i2 < 0? i2 + Integer.MAX_VALUE : i2 - Integer.MAX_VALUE;
+        }
+    }
+
+    /**
      * This tests the methods of this class.
      *
      * @throws Throwable if trouble.
      */
     public static void test() throws Throwable{
         String2.log("*** Testing IntArray");
+/* for releases, this line should have open/close comment */
 
         //** test default constructor and many of the methods
         IntArray anArray = new IntArray();
@@ -1646,6 +1763,16 @@ public class IntArray extends PrimitiveArray {
         ss = anArray.subset(1, 1, 0);
         Test.ensureEqual(ss.toString(), "", "");
 
+        ss.trimToSize();
+        anArray.subset(ss, 1, 3, 4);
+        Test.ensureEqual(ss.toString(), "5, 19", "");
+        anArray.subset(ss, 0, 1, 0);
+        Test.ensureEqual(ss.toString(), "25", "");
+        anArray.subset(ss, 0, 1, -1);
+        Test.ensureEqual(ss.toString(), "", "");
+        anArray.subset(ss, 1, 1, 0);
+        Test.ensureEqual(ss.toString(), "", "");
+
         //evenlySpaced
         anArray = new IntArray(new int[] {10,20,30});
         Test.ensureEqual(anArray.isEvenlySpaced(), "", "");
@@ -1702,11 +1829,18 @@ public class IntArray extends PrimitiveArray {
 
         //min max
         anArray = new IntArray();
-        anArray.addString(anArray.minValue());
-        anArray.addString(anArray.maxValue());
-        Test.ensureEqual(anArray.getString(0), anArray.minValue(), "");
+        anArray.addString(anArray.MINEST_VALUE());
+        anArray.addString(anArray.MAXEST_VALUE());
+        Test.ensureEqual(anArray.getString(0), anArray.MINEST_VALUE(), "");
         Test.ensureEqual(anArray.getString(0), "-2147483648", "");
-        Test.ensureEqual(anArray.getString(1), anArray.maxValue(), "");
+        Test.ensureEqual(anArray.getString(1), anArray.MAXEST_VALUE(), "");
+
+        //tryToFindNumericMissingValue() 
+        Test.ensureEqual((new IntArray(new int[] {       })).tryToFindNumericMissingValue(), Double.NaN, "");
+        Test.ensureEqual((new IntArray(new int[] {1, 2   })).tryToFindNumericMissingValue(), Double.NaN, "");
+        Test.ensureEqual((new IntArray(new int[] {Integer.MIN_VALUE})).tryToFindNumericMissingValue(), Integer.MIN_VALUE, "");
+        Test.ensureEqual((new IntArray(new int[] {Integer.MAX_VALUE})).tryToFindNumericMissingValue(), Integer.MAX_VALUE, "");
+        Test.ensureEqual((new IntArray(new int[] {1, 99  })).tryToFindNumericMissingValue(),   99, "");
     }
 
 }

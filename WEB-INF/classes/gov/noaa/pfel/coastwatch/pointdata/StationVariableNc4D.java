@@ -27,18 +27,13 @@ import java.util.List;
 //import java.util.Vector;
 
 /**
- * Get netcdf-X.X.XX.jar from
- * http://www.unidata.ucar.edu/software/thredds/current/netcdf-java/index.html
+ * Get netcdfAll-......jar from ftp://ftp.unidata.ucar.edu/pub
  * and copy it to <context>/WEB-INF/lib renamed as netcdf-latest.jar.
- * Get slf4j-jdk14.jar from 
- * ftp://ftp.unidata.ucar.edu/pub/netcdf-java/slf4j-jdk14.jar
- * and copy it to <context>/WEB-INF/lib.
- * 2013-02-21 new netcdfAll uses Java logging, not slf4j.
- * Put both of these .jar files in the classpath for the compiler and for Java.
+ * Put it in the classpath for the compiler and for Java.
  */
 import ucar.nc2.*;
 import ucar.nc2.dataset.NetcdfDataset;
-import ucar.nc2.dods.*;
+//import ucar.nc2.dods.*;
 import ucar.nc2.util.*;
 import ucar.ma2.*;
 
@@ -271,7 +266,7 @@ public class StationVariableNc4D extends GroupVariableWithDepthLevels {
                     lastTimeRow  = NcHelper.binaryFindClosest(timeVariable, 0, timeDimensionLength - 1, maxT);
                 }
                 //String2.log("  binarySearch to find first,lastTimeRow, time=" + 
-                //    (System.currentTimeMillis() - tTime));  // ~4 ms
+                //    (System.currentTimeMillis() - tTime) + "ms");  // ~4 ms
             } else {
                 //evenly spaced data
                 firstTimeRow = Math2.roundToInt((minT - this.minT) / timeIncrementInSeconds);
@@ -330,17 +325,8 @@ public class StationVariableNc4D extends GroupVariableWithDepthLevels {
                 column = table.getColumn(4); column.append(PrimitiveArray.factory(column.elementClass(), n, groupName));
                 column = table.getColumn(5); column.append(data);
             }
-
-            //I care about this exception
+        } finally {
             ncFile.close();
-
-        } catch (Exception e) {
-            try {
-                ncFile.close(); //make sure it is explicitly closed
-            } catch (Exception e2) {
-                //don't care
-            }
-            throw e;
         }
     }
 

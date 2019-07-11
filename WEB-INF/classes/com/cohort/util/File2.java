@@ -5,12 +5,25 @@
 package com.cohort.util;
 
 import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+
+
+import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;
+import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
+import org.apache.commons.compress.compressors.z.ZCompressorInputStream;
+import org.apache.commons.compress.archivers.sevenz.SevenZArchiveEntry;
+import org.apache.commons.compress.archivers.sevenz.SevenZFile;
+import org.apache.commons.compress.archivers.sevenz.SevenZOutputFile;
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 
 /**
  * File2 has useful static methods for working with files.
@@ -18,11 +31,95 @@ import java.io.OutputStream;
  */
 public class File2 {
 
+    public static final String UNABLE_TO_DELETE = "unable to delete"; //so consistent in log.txt
+
+    //define the file types for the purpose of assigning icon in Table.directoryListing
+    //compressed and image ext from wikipedia
+    //many ext from http://www.fileinfo.com/filetypes/common
+    public static final String BINARY_EXT[] = {
+        ".accdb", ".bin", ".bufr", ".cab", ".cdf", ".cer", ".class", ".cpi", ".csr",
+        ".db", ".dbf", ".dll", ".dmp", ".drv", ".dwg", ".dxf", ".fnt", ".fon", 
+        ".grb", ".grib", ".grib2", ".ini", ".keychain", 
+        ".lnk", ".mat", ".mdb", ".mim", ".nc", 
+        ".otf", ".pdb", ".prf", ".sys", ".ttf"};
+    public static final String COMPRESSED_EXT[] = {
+        ".7z", ".a", ".ace", ".afa", ".alz", ".apk", 
+        ".ar", ".arc", ".arj", ".ba", ".bh", ".bz2", 
+        ".cab", ".cfs", ".cpio", ".dar", ".dd", ".deb", ".dgc", ".dmg", ".f",
+        ".gca", ".gho", ".gz", 
+        ".gzip", ".ha", ".hki", ".hqx", ".infl", ".iso", 
+        ".j", ".jar", ".kgb", ".kmz", 
+        ".lbr", ".lha", ".lz", ".lzh", ".lzma", ".lzo", ".lzx", 
+        ".mar", ".msi", ".partimg", ".paq6", ".paq7", ".paq8", ".pea", ".pim", ".pit",
+        ".pkg", ".qda", ".rar", ".rk", ".rpm", ".rz", 
+        ".s7z", ".sda", ".sea", ".sen", ".sfark", ".sfx", ".shar", ".sit", ".sitx", ".sqx",
+        ".tar", ".tbz2", ".tgz", ".tlz", ".toast", ".torrent",
+        ".uca", ".uha", ".uue", ".vcd", ".war", ".wim", ".xar", ".xp3", ".xz", ".yz1", 
+        ".z", ".zip", ".zipx", ".zoo"};
+    public static final String IMAGE_EXT[] = {
+        ".ai", ".bmp", ".cgm", ".draw", ".drw", ".gif", 
+        ".ico", ".jfif", ".jpeg", ".jpg", 
+        ".pbm", ".pgm", ".png", ".pnm", ".ppm", ".pspimage", 
+        ".raw", ".svg", ".thm", ".tif", ".tiff", ".webp", ".yuv"};
+    public static final String COMPRESSED_IMAGE_EXT[] = { //done quickly, the obvious compressed
+        ".gif", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"};
+    public static final String LAYOUT_EXT[] = {
+        ".doc", ".docx", ".indd", ".key", ".pct",
+        ".pps", ".ppt", ".pptx",
+        ".psd", ".qxd", ".qxp", ".rels", ".rtf", ".wpd", ".wps",
+        ".xlr", ".xls", ".xlsx"};  
+    public static final String MOVIE_EXT[] = {
+        ".3g2", ".3gp", ".asf", ".asx", ".avi", ".fla", ".flv", 
+        ".mov", ".mp4", ".mpg", ".ogv", ".rm", ".swf", ".vob", ".wmv", ".webm"};
+    public static final String PDF_EXT[] = {".pdf"};
+    public static final String PS_EXT[] = {".eps", ".ps"};
+    public static final String SCRIPT_EXT[] = {  //or executable  
+        ".app", ".asp", ".bat", ".cgi", ".com", ".csh", ".exe", ".gadget", ".js", ".jsp", 
+        ".ksh", ".php", ".pif", ".pl", ".py", ".sh", ".tcsh", ".vb", ".wsf"};
+    public static final String SOUND_EXT[] = {
+        ".aif", ".aiff", ".aifc", ".au",
+        ".flac", ".iff", ".m3u", ".m4a", ".mid", 
+        ".mp3", ".mpa", ".ogg", ".wav", ".wave", ".wma"};
+    public static final String COMPRESSED_SOUND_EXT[] = {  //done quickly, the obvious compressed
+        ".flac", ".iff", ".m3u", ".m4a",  
+        ".mp3", ".mpa", ".ogg", ".wma"};
+    public static final String TEXT_EXT[] = {
+        ".asc", ".c", ".cpp", ".cs", ".csv", ".das", ".dat", ".dds", 
+        ".java", ".json", ".log", ".m", 
+        ".sdf", ".sql", ".tsv", ".txt", ".vcf"};
+    public static final String WORLD_EXT[] = {".css", ".htm", ".html", ".xhtml"};
+    public static final String XML_EXT[] = {".dtd", ".gpx", ".kml", ".xml", ".rss"};
+
+    /** The image file names in ERDDAP's /images/ for the different file types.
+     * These may change periodically.
+     * These parallel ICON_ALT. */
+    public static final String ICON_FILENAME[] = {
+        "generic.gif", "index.gif", "binary.gif", "compressed.gif", "image2.gif", 
+        "layout.gif", "movie.gif", "pdf.gif", "ps.gif", "script.gif", 
+        "sound1.gif", "text.gif", "world1.gif", "xml.gif"};
+
+    /** The 3 character string used for <img alt=...> for the different file types.
+     * I hope these won't change (other than adding new types).
+     * These are from Apache directory listings.
+     * These parallel ICON_FILENAME */
+    public static final String ICON_ALT[] = {
+        "UNK", "IDX", "BIN", "ZIP", "IMG", 
+        "DOC", "MOV", "PDF", "PS", "EXE", 
+        "SND", "TXT", "WWW", "XML"};
+
+    /** These are the extensions of file types that netcdf-java makes 
+     * additional index files for. This is not a perfect list.
+     * I think GRIB and BUFR files can have other or no extension. */
+    public static final String NETCDF_INDEX_EXT[] = {
+        ".grb", ".grib", ".grib2", ".bufr"};
+
+
     /**
      * Set this to true (by calling verbose=true in your program, not by changing the code here)
      * if you want lots of diagnostic messages sent to String2.log.
      */
     public static boolean verbose = false;
+    public static boolean reallyVerbose = false;
 
     private static String tempDirectory; //lazy creation by getSystemTempDirectory
 
@@ -43,6 +140,47 @@ public class File2 {
             return false;
         }
     }
+
+    /**
+     * This returns an index into ICON_FILENAME and ICON_ALT suitable for the fileName. 
+     * The fallback is "UNK".
+     *
+     * @param fileName
+     * @return an index into ICON_FILENAME and ICON_ALT suitable for the fileName. 
+     */
+    public static int whichIcon(String fileName) {
+        String fileNameLC = fileName.toLowerCase();
+        String extLC = getExtension(fileNameLC);
+
+        if (fileNameLC.equals("index.html") ||
+            fileNameLC.equals("index.htm"))              return String2.indexOf(ICON_ALT, "IDX");
+        if (String2.indexOf(BINARY_EXT,     extLC) >= 0) return String2.indexOf(ICON_ALT, "BIN");
+        if (String2.indexOf(COMPRESSED_EXT, extLC) >= 0) return String2.indexOf(ICON_ALT, "ZIP");
+        if (String2.indexOf(IMAGE_EXT,      extLC) >= 0) return String2.indexOf(ICON_ALT, "IMG");
+        if (String2.indexOf(LAYOUT_EXT,     extLC) >= 0) return String2.indexOf(ICON_ALT, "DOC");
+        if (String2.indexOf(MOVIE_EXT,      extLC) >= 0) return String2.indexOf(ICON_ALT, "MOV");
+        if (String2.indexOf(PDF_EXT,        extLC) >= 0) return String2.indexOf(ICON_ALT, "PDF");
+        if (String2.indexOf(PS_EXT,         extLC) >= 0) return String2.indexOf(ICON_ALT, "PS ");
+        if (String2.indexOf(SCRIPT_EXT,     extLC) >= 0) return String2.indexOf(ICON_ALT, "EXE");
+        if (String2.indexOf(SOUND_EXT,      extLC) >= 0) return String2.indexOf(ICON_ALT, "SND");
+        if (String2.indexOf(TEXT_EXT,       extLC) >= 0) return String2.indexOf(ICON_ALT, "TXT");
+        if (String2.indexOf(WORLD_EXT,      extLC) >= 0) return String2.indexOf(ICON_ALT, "WWW");
+        if (String2.indexOf(XML_EXT,        extLC) >= 0) return String2.indexOf(ICON_ALT, "XML");
+        
+        return String2.indexOf(ICON_ALT, "UNK");
+    }
+
+    public static boolean isCompressedExtension(String ext) {
+        if (!String2.isSomething(ext))
+            return false;
+        ext = ext.toLowerCase();
+        return String2.indexOf(File2.COMPRESSED_EXT, ext) >= 0 || 
+               String2.indexOf(File2.COMPRESSED_IMAGE_EXT, ext) >= 0 ||
+               String2.indexOf(File2.MOVIE_EXT, ext) >= 0 ||
+               String2.indexOf(File2.COMPRESSED_SOUND_EXT, ext) >= 0;
+    }
+
+
 
     /**
      * For newly created files, this tries a few times to wait for the file
@@ -126,7 +264,8 @@ public class File2 {
                     //  But I think the files I'm working with have been closed.
                     //Solution? call Math2.gc instead of Math2.sleep
                     if (attempt == maxAttempts) {
-                        String2.log(String2.ERROR + ": File2.delete was unable to delete " + fullName +
+                        String2.log(String2.ERROR + ": File2.delete was " + 
+                            UNABLE_TO_DELETE + " " + fullName +
                             "\n" + MustBe.getStackTrace());
                         return result;
                     }
@@ -160,8 +299,6 @@ public class File2 {
             File file = new File(fullName);
             if (!file.exists())
                 return false; //it didn't exist
-            //I think Linux deletes no matter what.
-            //I think Windows won't delete file if in use by another thread or pending action(?).
             return file.delete();  
         } catch (Exception e) {
             if (verbose) String2.log(MustBe.throwable("File2.simpleDelete(" + fullName + ")", e));
@@ -174,9 +311,10 @@ public class File2 {
      * If the dir isn't a directory, nothing happens.
      *
      * @param dir the full name of the directory
+     * @return the return value from the underlying deleteIfOld
      */
-    public static void deleteAllFiles(String dir) {
-        deleteIfOld(dir, Long.MAX_VALUE, false, false);
+    public static int deleteAllFiles(String dir) {
+        return deleteIfOld(dir, Long.MAX_VALUE, false, false);
     }
 
     /**
@@ -187,10 +325,11 @@ public class File2 {
      * @param dir the full name of the directory
      * @param recursive if true, subdirectories are searched, too
      * @param deleteEmptySubdirectories  this is only used if recursive is true
+     * @return the return value from the underlying deleteIfOld
      */
-    public static void deleteAllFiles(String dir, 
+    public static int deleteAllFiles(String dir, 
             boolean recursive, boolean deleteEmptySubdirectories) {
-        deleteIfOld(dir, Long.MAX_VALUE, recursive, deleteEmptySubdirectories);
+        return deleteIfOld(dir, Long.MAX_VALUE, recursive, deleteEmptySubdirectories);
     }
 
     /**
@@ -202,53 +341,76 @@ public class File2 {
      *     Files will a smaller lastModified will be deleted.
      * @param recursive if true, subdirectories are searched, too
      * @param deleteEmptySubdirectories  this is only used if recursive is true
-     * @return number of files that remain (or -1 if trouble)
+     * @return number of files that remain (or -1 if trouble). 
+     *     This won't throw an exception if trouble.
      */
     public static int deleteIfOld(String dir, long time, 
             boolean recursive, boolean deleteEmptySubdirectories) {
         try {
+            String msg = String2.ERROR + ": File2.deleteIfOld is " + UNABLE_TO_DELETE + " ";
             File file = new File(dir);
 
             //make sure it is an existing directory
-            if (!file.isDirectory())
+            if (!file.isDirectory()) {
+                String2.log(String2.ERROR + " in File2.deleteIfOld: dir=" + 
+                    dir + " isn't a directory.");
                 return -1;
+            }
 
             //go through the files and delete old ones
             File files[] = file.listFiles();
+            //String2.log(">> File2.deleteIfOld dir=" + dir + " nFiles=" + files.length);
             int nRemain = 0;
             int nDir = 0;
             for (int i = 0; i < files.length; i++) {
-                if (files[i].isFile()) {
-                    if (files[i].lastModified() < time) 
-                        files[i].delete();
-                    else if (nRemain != -1)   //once nRemain is -1, it isn't changed
-                        nRemain++;
-                } else if (recursive && files[i].isDirectory()) {
-                    nDir++;
-                    int tnRemain = deleteIfOld(files[i].getAbsolutePath(), time, 
-                        recursive, deleteEmptySubdirectories);
-                    if (tnRemain == -1)
-                        nRemain = -1;
-                    else {
-                        if (nRemain != -1)  //once nRemain is -1, it isn't changed
-                            nRemain += tnRemain;
-                        if (tnRemain == 0 && deleteEmptySubdirectories) {
-                            //String2.log("File2.deleteIfOld is deleting dir=" + files[i].getAbsolutePath() + 
-                            //"\n" + MustBe.stackTrace());
-                            files[i].delete();
+                //String2.log(">> File2.deleteIfOld files[" + i + "]=" + files[i].getAbsolutePath());
+                try {
+                    if (files[i].isFile()) {
+                        if (files[i].lastModified() < time) {
+                            if (!files[i].delete()) {
+                                //unable to delete
+                                String2.log(msg + files[i].getCanonicalPath());
+                                nRemain = -1;                            
+                            }
+                        } else if (nRemain != -1) {   //once nRemain is -1, it isn't changed
+                            nRemain++;
                         }
+                    } else if (recursive && files[i].isDirectory()) {
+                        nDir++;
+                        int tnRemain = deleteIfOld(files[i].getAbsolutePath(), time, 
+                            recursive, deleteEmptySubdirectories);
+                        //String2.log(">> File2.deleteIfOld might delete this dir. tnRemain=" + tnRemain);
+                        if (tnRemain == -1)
+                            nRemain = -1;
+                        else {
+                            if (nRemain != -1)  //once nRemain is -1, it isn't changed
+                                nRemain += tnRemain;
+                            if (tnRemain == 0 && deleteEmptySubdirectories) {
+                                files[i].delete();
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    try {
+                        nRemain = -1;
+                        String2.log(msg + files[i].getCanonicalPath());
+                    } catch (Exception e2) {
                     }
                 }
             }
-            if (nRemain > 0) String2.log("File2.deleteIfOld(" + dir + 
-                (time == Long.MAX_VALUE? "" : 
-                    ", " + Calendar2.safeEpochSecondsToIsoStringTZ(time / 1000.0, "" + time)) +
-                ") nDir=" + nDir + 
-                " nDeleted=" + (files.length - nDir + nRemain) + 
-                " nRemain=" + nRemain);
+            int nDeleted = files.length - nDir + nRemain;
+            if (nDir != 0 || nDeleted != 0 || nRemain != 0) 
+                String2.log("File2.deleteIfOld(" + 
+                    String2.left(dir + 
+                        (time == Long.MAX_VALUE? "" : 
+                            ", " + Calendar2.safeEpochSecondsToIsoStringTZ(time / 1000.0, "" + time)), 50) +
+                    ") nDir=" +    String2.right("" + nDir, 2) + 
+                    " nDeleted=" + String2.right("" + nDeleted, 4) + 
+                    " nRemain=" +  String2.right(nRemain < 0? String2.ERROR : "" + nRemain, 2));
             return nRemain;
-        } catch (Exception e) {
-            String2.log(MustBe.throwable("File2.deleteIfOld(" + dir + ", " + time + ")", e));
+        } catch (Exception e3) {
+            String2.log(MustBe.throwable(String2.ERROR + " in File2.deleteIfOld(" + 
+                dir + ", " + time + ")", e3));
             return -1;
         }
     }
@@ -292,11 +454,11 @@ public class File2 {
             if (!delete(fullNewName))  
                 throw new RuntimeException(
                     "Unable to rename\n" + fullOldName + " to\n" + fullNewName +
-                    "\nbecause unable to delete an existing file with destinationName.");
+                    "\nbecause " + UNABLE_TO_DELETE + " an existing file with destinationName.");
 
             //In Windows, file may be isFile() for a short time. Give it time to delete.
             if (String2.OSIsWindows)
-                Math2.gcAndWait();  //if Windows: encourage successful file deletion
+                Math2.sleep(Math2.shortSleep);  //if Windows: encourage successful file deletion
         }
 
         //rename
@@ -358,6 +520,8 @@ public class File2 {
         return touch(fullName, 0);
     }
 
+
+
     /**
      * If the directory or file exists, 
      * this changes its lastModification date/time to the current
@@ -387,7 +551,6 @@ public class File2 {
     /**
      * If the directory or file exists, 
      * this changes its lastModification date/time to millis  
-     * (The name comes from the Unix "touch" program.)
      *
      * @param fullName the full name of the file
      * @param millis
@@ -579,6 +742,19 @@ public class File2 {
     }
 
     /**
+     * This removes the extension (if there is one) from the file's name
+     * (the last "." and anything after, e.g., ".asc").
+     *
+     * @param fullName the full name or just name of the file.
+     *   It can have forward or backslashes.
+     * @return the extension of the file (perhaps "")
+     */
+    public static String removeExtension(String fullName) {
+        String ext = getExtension(fullName);
+        return fullName.substring(0, fullName.length() - ext.length());
+    }
+
+    /**
      * This replaces the existing extension (if any) with ext.
      *
      * @param fullName the full name or just name of the file.
@@ -605,6 +781,139 @@ public class File2 {
         return name.substring(0, name.length() - extension.length());
     }
 
+
+    /**
+     * This returns true if the file is compressed and decompressible via
+     * getDecompressedInputStream.
+     *
+     * @param fileName The file's name (with or without dir).
+     */
+    public static boolean isDecompressible(String fileName) {
+        String ext = getExtension(fileName); //if e.g., .tar.gz, this returns .gz
+
+        //this exactly parallels getDecompressedInputStream
+
+        //handle .Z (capital Z) specially first
+        if (ext.equals(".Z")) 
+            return true;
+
+        //everything caught below has a z in ext
+        if (ext.indexOf('z') < 0) 
+            return false;
+
+        if (ext.equals(".tgz") || 
+            fileName.endsWith(".tar.gz") || 
+            fileName.endsWith(".tar.gzip")) 
+            return true;
+
+        if (ext.equals(".gz") || ext.equals(".gzip")) 
+            return true;
+
+        if (ext.equals(".zip")) 
+            return true;
+
+        if (ext.equals(".bz2")) 
+            return true;
+
+        //.7z is possible but different and harder
+
+        return false;
+    }
+
+
+
+    /**
+     * This gets a decompressed, buffered InputStream from a file. 
+     * If the file is compressed, it is assumed to be the only file (entry) in the archive.
+     * 
+     * @param fullFileName The full file name. If it ends in
+     *   .tgz, .tar.gz, .tar.gzip, .gz, .gzip, .zip, or .bz2,
+     *   this returns a decompressed, buffered InputStream.
+     * @return a decompressed, buffered InputStream from a file. 
+     */
+    public static InputStream getDecompressedBufferedInputStream(String fullFileName) throws Exception {
+        String ext = getExtension(fullFileName); //if e.g., .tar.gz, this returns .gz
+
+        InputStream is = new BufferedInputStream( //recommended by https://commons.apache.org/proper/commons-compress/examples.html
+            new FileInputStream(fullFileName));
+
+
+        //handle .Z (capital Z) specially first
+        if (ext.equals(".Z")) {
+            try {
+                return new ZCompressorInputStream(is);
+            } catch (Exception e) {
+                is.close();
+                throw e;
+            }
+        }
+
+        //everything caught below has a z in ext
+        if (ext.indexOf('z') < 0) 
+            return is;
+
+        if (ext.equals(".tgz") || 
+            fullFileName.endsWith(".tar.gz") || 
+            fullFileName.endsWith(".tar.gzip")) {
+            //modified from https://stackoverflow.com/questions/7128171/how-to-compress-decompress-tar-gz-files-in-java
+            GzipCompressorInputStream gzipIn = null;
+            TarArchiveInputStream tarIn = null;
+            try {
+                gzipIn = new GzipCompressorInputStream(is);
+                tarIn = new TarArchiveInputStream(gzipIn);
+                TarArchiveEntry entry = tarIn.getNextTarEntry();
+                while (entry != null && entry.isDirectory()) 
+                    entry = tarIn.getNextTarEntry();
+                if (entry == null) 
+                    throw new IOException(String2.ERROR + " while reading " + fullFileName + 
+                        ": no file found in archive.");
+                is = tarIn;
+            } catch (Exception e) {
+                if      (tarIn  != null) tarIn.close();
+                else if (gzipIn != null) gzipIn.close();
+                else is.close();
+                throw e;
+            }
+
+        } else if (ext.equals(".gz") || ext.equals(".gzip")) {
+            try {
+                is = new GzipCompressorInputStream(is);
+            } catch (Exception e) {
+                is.close();
+                throw e;
+            }
+
+        } else if (ext.equals(".zip")) {
+            ZipInputStream zis = null;
+            try {
+                zis = new ZipInputStream(is);
+                ZipEntry entry = zis.getNextEntry();
+                while (entry != null && entry.isDirectory()) 
+                    entry = zis.getNextEntry();
+                if (entry == null) 
+                    throw new IOException(String2.ERROR + " while reading " + fullFileName + 
+                        ": no file found in archive.");
+                is = zis;
+            } catch (Exception e) {
+                if (zis != null) zis.close();
+                else is.close();
+                throw e;
+            }
+
+        } else if (ext.equals(".bz2")) {
+            try {
+                is = new BZip2CompressorInputStream(is);
+            } catch (Exception e) {
+                is.close();
+                throw e;
+            }
+        }
+        //.7z is possible but different and harder
+
+        return is;
+    }
+
+
     /**
      * This generates a hex dump of the first nBytes of the file.
      * 
@@ -614,14 +923,17 @@ public class File2 {
      * @throws Exception if trouble
      */
     public static String hexDump(String fullFileName, int nBytes) throws Exception {
-        FileInputStream fis = new FileInputStream(fullFileName);
-        nBytes = Math.min(nBytes, fis.available());
-        byte ba[] = new byte[nBytes];
-        int bytesRead = 0;
-        while (bytesRead < nBytes)
-            bytesRead += fis.read(ba, bytesRead, nBytes - bytesRead);
-        fis.close();
-        return String2.hexDump(ba);
+        InputStream fis = File2.getDecompressedBufferedInputStream(fullFileName);
+        try {
+            nBytes = Math.min(nBytes, fis.available());
+            byte ba[] = new byte[nBytes];
+            int bytesRead = 0;
+            while (bytesRead < nBytes)
+                bytesRead += fis.read(ba, bytesRead, nBytes - bytesRead);
+            return String2.hexDump(ba);
+        } finally {
+            fis.close();
+        }
     }
 
     /**
@@ -637,22 +949,22 @@ public class File2 {
         long length1 = length(fullFileName1);
         long length2 = length(fullFileName2);
         long length = Math.min(length1, length2);
-        BufferedInputStream bis1 = null, bis2 = null;
+        InputStream bis1 = null, bis2 = null;
         long po = 0; 
         try {
-            bis1 = new BufferedInputStream(new FileInputStream(fullFileName1));
-            bis2 = new BufferedInputStream(new FileInputStream(fullFileName2));
+            bis1 = File2.getDecompressedBufferedInputStream(fullFileName1);
+            bis2 = File2.getDecompressedBufferedInputStream(fullFileName2);
             for (po = 0; po < length; po++) {
                 if (bis1.read() != bis2.read())
                     break;
             }
-        } catch (Exception e) {}
-        try { 
-            if (bis1 != null) bis1.close();
-        } catch (Exception e) {}
-        try { 
-            if (bis2 != null) bis2.close();
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            String2.log(String2.ERROR + " in whereDifferent(\n1:" + fullFileName1 + 
+                "\n2:" + fullFileName2 + 
+                "\n" + MustBe.throwableToString(e));
+        }
+        try {if (bis1 != null) bis1.close(); } catch (Exception e) {}
+        try {if (bis2 != null) bis2.close(); } catch (Exception e) {}
 
         if (po < length) return po;
         if (length1 != length2) return length;
@@ -675,27 +987,37 @@ public class File2 {
         }
     }
     
+    /** A variant that copies the entire source. */
+    public static boolean copy(String source, String destination) {
+        return copy(source, destination, 0, -1);
+    }
+
     /**
      * This makes a copy of a file.
      * !!!If the source might be remote, use SSR.downloadFile(source, dest, false) instead.
      *
-     * @param source the full file name of the source file
+     * @param source the full file name of the source file.
+     *   If compressed, this doesn't decompress!
      * @param destination the full file name of the destination file.
      *   If the directory doesn't exist, it will be created.
+     *   It is closed at the end.
+     * @param first the first byte to be transferred (0..)
+     * @param last  the last byte to be transferred (inclusive),
+     *    or -1 to transfer to the end.
      * @return true if successful. If not successful, the destination file
      *   won't exist.
      */
-    public static boolean copy(String source, String destination) {
+    public static boolean copy(String source, String destination, long first, long last) {
 
         if (source.equals(destination)) return false;
-        FileOutputStream out = null;
+        OutputStream out = null;
         boolean success = false;
         try {
             File dir = new File(getDirectory(destination));
             if (!dir.isDirectory())
                  dir.mkdirs();
-            out = new FileOutputStream(destination);
-            success = copy(source, out);
+            out = new BufferedOutputStream(new FileOutputStream(destination));
+            success = copy(source, out, first, last);
         } catch (Exception e) {
             String2.log(String2.ERROR + " in File2.copy source=" + source + "\n" + 
                 e.toString());
@@ -710,68 +1032,128 @@ public class File2 {
         return success;
     }
 
+    /** A variant that copies the entire source. */
+    public static boolean copy(String source, OutputStream out) {
+        return copy(source, out, 0, -1);
+    }
+
     /**
      * This makes a copy of a file to an outputStream.
      *
-     * @param source the full file name of the source file
-     * @param out  which is flushed, but not closed, at the end
-     * @return true if successful. If not successful, the destination file
-     *   won't exist.
+     * @param source the full file name of the source. 
+     *   If compressed, this doesn't decompress!
+     * @param out Best if buffered. It is flushed, but not closed, at the end
+     * @param first the first byte to be transferred (0..)
+     * @param last  the last byte to be transferred (inclusive),
+     *    or -1 to transfer to the end.
+     * @return true if successful. 
      */
-    public static boolean copy(String source, OutputStream out) {
+    public static boolean copy(String source, OutputStream out, long first, long last) {
 
+        InputStream in = null;
         try {
-            File file = new File(source);
-            if (!file.isFile())
+            File file = new File(source);            
+            if (!file.isFile()) {
+                String2.log(String2.ERROR + " in File2.copy: source=" + source +
+                    " doesn't exist.");
                 return false;
-            FileInputStream in  = new FileInputStream(file);
-            return copy(in, out);
+            }
+            if (last < 0) {
+                last = file.length() - 1;
+                if (reallyVerbose)
+                    String2.log("  File2.copy(first=" + first + ", last was=-1 now=" + last + ")");
+            }
+            in = new BufferedInputStream(new FileInputStream(file)); //File2.getDecompressedBufferedInputStream(). Read file as is.
+            return copy(in, out, first, last);
         } catch (Exception e) {
-            String2.log(MustBe.throwable(String2.ERROR + " in File2.copy: ", e));
+            String2.log(MustBe.throwable(String2.ERROR + " in File2.copy.", e));
+            return false;
+        } finally {
+            try {
+                if (in != null) 
+                    in.close(); 
+            } catch (Exception e2) {}
+        }
+    }
+
+
+    /** A variant that copies the entire source. */
+    public static boolean copy(InputStream in, OutputStream out) {
+        return copy(in, out, 0, -1);
+    }
+
+    /**
+     * This copies a range from an inputStream to an outputStream.
+     *
+     * @param in   Best if buffered. At the end, this is NOT closed.
+     * @param out  Best if buffered. It is flushed, but not closed, at the end
+     * @param first the first byte to be transferred (0..)
+     * @param last  the last byte to be transferred (inclusive),
+     *    or -1 to transfer to the end.
+     * @return true if successful. 
+     */
+    public static boolean copy(InputStream in, OutputStream out, long first, long last) {
+
+        int bufferSize = 32768;
+        byte buffer[] = new byte[bufferSize];
+        long remain = last < 0? Long.MAX_VALUE : 1 + last - first;
+        try {
+            skipFully(in, first);
+            int nRead;
+            while ((nRead = in.read(buffer, 0, (int)Math.min(remain, bufferSize))) >= 0) {  //0 shouldn't happen. -1=end of file
+                out.write(buffer, 0, nRead);
+                remain -= nRead;
+                //String2.log(">> nRead=" + nRead + " remain=" + remain);
+                if (remain == 0) 
+                    break;
+            }
+            out.flush(); //always flush
+            if (last >= 0 && nRead == -1)
+                throw new IOException("Unexpected end-of-file.");
+            //String2.log(">> found eof");
+            return true;
+        } catch (Exception e) {
+            String2.log(MustBe.throwable(String2.ERROR + " in File2.copy at first=" + 
+                first + ", last=" + last + ", remain=" + remain + ".", e));
             return false;
         }
     }
 
     /**
-     * This copies from an inputStream to an outputStream.
+     * This fully skips the specified number of bytes from the inputstream
+     * (unlike InputStream.skip, which may not skip all of the bytes).
      *
-     * @param in   When finished, successful or not, this closes 'in'.
-     * @param out  which is flushed, but not closed, at the end
-     * @return true if successful. 
+     * @param inputStream Best if buffered.
+     * @param nToSkip the number of bytes to be read
+     * @throws IOException if trouble
      */
-    public static boolean copy(InputStream in, OutputStream out) {
+    public static void skipFully(InputStream inputStream, long nToSkip) throws IOException {
 
-        int bufferSize = 32768;
-        byte buffer[] = new byte[bufferSize];
-        boolean success = false;
-        try {
-            int nRead;
-            while ((nRead = in.read(buffer)) >= 0)  //0 shouldn't happen. -1=end of file
-                out.write(buffer, 0, nRead);
-            out.flush();
-            success = true;
-        } catch (Exception e) {
-            String2.log(MustBe.throwable(String2.ERROR + " in File2.copy: ", e));
+        long remain = nToSkip;
+        int zeroCount = 0; //consecutive 
+        while (remain > 0) {
+            long skipped = inputStream.skip(remain); //may not skip all requested
+            if (skipped == 0) {
+                if (++zeroCount == 3)
+                    throw new IOException("Unable to skip within the inputStream.");
+            } else {
+                zeroCount = 0;
+                remain -= skipped;
+            }
         }
-        try { 
-            if (in != null) in.close();
-        } catch (Exception e) {
-        }
-
-        return success;
     }
 
     /**
      * This reads the specified number of bytes from the inputstream
      * (unlike InputStream.read, which may not read all of the bytes).
      *
-     * @param inputStream 
+     * @param inputStream Best if buffered.
      * @param byteArray
      * @param offset the first position of byteArray to be written to
      * @param length the number of bytes to be read
      * @throws Exception if trouble
      */
-    public static void read(InputStream inputStream, byte[] byteArray,
+    public static void readFully(InputStream inputStream, byte[] byteArray,
         int offset, int length) throws Exception {
 
         int po = offset;
@@ -786,14 +1168,14 @@ public class File2 {
     /**
      * This creates, reads, and returns a byte array of the specified length.
      *
-     * @param inputStream 
+     * @param inputStream Best if buffered.
      * @param length the number of bytes to be read
      * @throws Exception if trouble
      */
-    public static byte[] read(InputStream inputStream, int length) throws Exception {
+    public static byte[] readFully(InputStream inputStream, int length) throws Exception {
 
         byte[] byteArray = new byte[length];
-        read(inputStream, byteArray, 0, length);
+        readFully(inputStream, byteArray, 0, length);
         return byteArray;
     }
 

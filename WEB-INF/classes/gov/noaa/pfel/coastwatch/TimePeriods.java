@@ -246,7 +246,7 @@ public class TimePeriods {
      *   the index of the option in list closest to "1 day".
      */
     public static int closestTimePeriod(int nHours, String[] list) {
-        if (!Math2.isFinite(nHours))
+        if (nHours == Integer.MAX_VALUE)
             return closestTimePeriod(OPTIONS[_1DAY_INDEX], list);
 
         //find closest
@@ -471,7 +471,7 @@ public class TimePeriods {
      * so use before calling this:
      * <pre>
          //fix old-style 25 and 33 hour end times  so 59:59
-         if (timePeriodNHours > 1 && timePeriodNHours % 24 != 0)
+         if (timePeriodNHours &gt; 1 &amp;&amp; timePeriodNHours % 24 != 0)
              cal.add(Calendar2.SECOND, -1);
      * </pre>
      *
@@ -632,13 +632,13 @@ public class TimePeriods {
 
         //end time; return as date + time string
         if (timePeriodHours < 24)
-            return Calendar2.formatAsISODateTimeT(center) + "Z";
+            return Calendar2.formatAsISODateTimeTZ(center);
 
         if (timePeriodHours == 25) //25 hours
-            return Calendar2.formatAsISODateTimeT(center) + "Z (center of 25 hours)";
+            return Calendar2.formatAsISODateTimeTZ(center) + " (center of 25 hours)";
 
         if (timePeriodHours == 33) //33 hours
-            return Calendar2.formatAsISODateTimeT(center) + "Z (center of 33 hours)";
+            return Calendar2.formatAsISODateTimeTZ(center) + " (center of 33 hours)";
 
         if (timePeriodHours == 24) //1 day
             return Calendar2.formatAsISODate(start);

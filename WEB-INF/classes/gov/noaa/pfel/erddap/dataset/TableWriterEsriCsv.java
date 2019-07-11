@@ -4,6 +4,8 @@
  */
 package gov.noaa.pfel.erddap.dataset;
 
+import com.cohort.array.CharArray;
+import com.cohort.array.PrimitiveArray;
 import com.cohort.util.Calendar2;
 import com.cohort.util.MustBe;
 import com.cohort.util.SimpleException;
@@ -25,11 +27,15 @@ import java.util.HashSet;
  * at one time.
  * This is used by EDDTable.
  * The outputStream isn't obtained until the first call to writeSome().
+ * See https://support.esri.com/technical-article/000012745
+ * which specifically refers to csv files as coming from Excel.
+ * So the output here is very much like a spreadsheet csv file (but with further
+ * restrictions).
  *
  * Column names are truncated at 9 characters.  (B, C, ... are appended to avoid duplicate names)
  * <br>"longitude" is renamed "X". "latitude" is renamed "Y".
  * <br>Missing numeric values are all written as -9999.
- * <br>Double quotes in strings are double quoted.
+ * <br>Double quotes in strings are replaced by 2 double quotes.
  * <br>Timestamp columns are separated into date and time columns.
  * <br>This doesn't yet truncate strings to 255 chars. (Hopefully ArcGIS does this.)
  * <br>This doesn't deal with non-ASCII chars (about which ArcGIS is vague).
@@ -40,7 +46,6 @@ public class TableWriterEsriCsv extends TableWriter {
 
     //set by constructor
     protected String separator = ",";
-    protected boolean quoted = true;
     //search for "default esri" in
     //http://www.stata-journal.com/sjpdf.html?articlenum=dm0014
     //or http://docs.google.com/viewer?a=v&q=cache:iwbmxvE9DvIJ:www.stata-journal.com/sjpdf.html%3Farticlenum%3Ddm0014+esri+default+missing+value&hl=en&gl=us&pid=bl&srcid=ADGEESjrRrmh7PoDFjjsViKg06rNXFvycmSNw4U_D9Y2ZpwrS_M6D1KFokTG6UFPQmi1MbkvDtwSRw4f60ui0QXp4Tf0kIL2lVD4ykiei66-N4gZPyq7Jr4FW0N4cZH85iboEUI30AEW&sig=AHIEtbTtN5tHnXlQcP_6Nu8HZXlFHzH56w
@@ -50,7 +55,7 @@ public class TableWriterEsriCsv extends TableWriter {
 
     //set by firstTime
     protected boolean isTimeStamp[];
-    protected boolean isString[];
+    protected boolean isCharOrString[];
     protected boolean isFloat[];
     protected HashSet uniqueColNames = new HashSet();
     protected BufferedWriter writer;
@@ -78,11 +83,10 @@ public class TableWriterEsriCsv extends TableWriter {
      * The number of columns, the column names, and the types of columns 
      *   must be the same each time this is called.
      *
-     * <p>The table should have missing values stored as destinationMissingValues
-     * or destinationFillValues.
-     * This implementation converts them to NaNs and then to -9999 or -9999.0.
-     *
-     * @param table with destinationValues
+     * @param table with destinationValues.
+     *   The table should have missing values stored as destinationMissingValues
+     *   or destinationFillValues.
+     *   This implementation converts them to NaNs and then to -9999 or -9999.0.
      * @throws Throwable if trouble
      */
     public void writeSome(Table table) throws Throwable {
@@ -93,21 +97,26 @@ public class TableWriterEsriCsv extends TableWriter {
         boolean firstTime = columnNames == null;
         ensureCompatible(table);
 
-        //do firstTime stuff
         int nColumns = table.nColumns();
+        PrimitiveArray pas[] = new PrimitiveArray[nColumns];
+        for (int col = 0; col < nColumns; col++) 
+            pas[col] = table.getColumn(col);
+
+        //do firstTime stuff
         if (firstTime) {
             //write the header
             writer = new BufferedWriter(new OutputStreamWriter(
-                outputStreamSource.outputStream("UTF-8"), "UTF-8"));
+                outputStreamSource.outputStream(String2.ISO_8859_1), String2.ISO_8859_1));
 
             //write the column names   
-            isFloat = new boolean[nColumns];
-            isString = new boolean[nColumns];
-            isTimeStamp = new boolean[nColumns];
+            isFloat        = new boolean[nColumns];
+            isCharOrString = new boolean[nColumns];
+            isTimeStamp    = new boolean[nColumns];
             for (int col = 0; col < nColumns; col++) {
-                Class elementClass = table.getColumn(col).elementClass();
-                isFloat[col] = (elementClass == float.class) || (elementClass == double.class);
-                isString[col] = elementClass == String.class;
+                Class elementClass = pas[col].elementClass();
+                isFloat[       col] = (elementClass == float.class) || (elementClass == double.class);
+                isCharOrString[col] = elementClass == char.class ||
+                                      elementClass == String.class;
                 String u = table.columnAttributes(col).getString("units");
                 isTimeStamp[col] = u != null && 
                     (u.equals(EDV.TIME_UNITS) || u.equals(EDV.TIME_UCUM_UNITS));
@@ -137,7 +146,7 @@ public class TableWriterEsriCsv extends TableWriter {
         }
 
         //*** do everyTime stuff
-        convertToStandardMissingValues(table);  //NaNs; not the method in Table, so metadata is unchanged
+        table.convertToStandardMissingValues();  //to NaNs
 
         //avoid writing more data than can be reasonable processed (Integer.MAX_VALUES rows)
         int nRows = table.nRows();
@@ -149,7 +158,7 @@ public class TableWriterEsriCsv extends TableWriter {
             for (int col = 0; col < nColumns; col++) {
                 if (isTimeStamp[col]) {
                     //split into date column 2010-07-20 and time column 07:45:00
-                    double d = table.getDoubleData(col, row);
+                    double d = pas[col].getDouble(row);
                     String iso = Calendar2.safeEpochSecondsToIsoStringTZ(d, "");
                     
                     if (iso.length() >= 19) {
@@ -163,12 +172,11 @@ public class TableWriterEsriCsv extends TableWriter {
                         //missing value
                         writer.write(separator); //mv on either side
                     }
-                } else if (isString[col]) {
-                    //quoteIfNeeded converts carriageReturns/newlines to (char)166; //'¦'  (#166)
-                    writer.write(String2.quoteIfNeeded(quoted, table.getStringData(col, row)));
+                } else if (isCharOrString[col]) {
+                    writer.write(String2.toNccsvDataString(pas[col].getString(row)));
                 } else {
                     //numeric
-                    String s = table.getStringData(col, row);
+                    String s = pas[col].getString(row);
                     writer.write(s.length() == 0? 
                         (isFloat[col]? nanFString : nanIString) : 
                         s); 
@@ -217,7 +225,7 @@ public class TableWriterEsriCsv extends TableWriter {
         //diagnostic
         if (verbose)
             String2.log("TableWriterEsriCsv done. TIME=" + 
-                (System.currentTimeMillis() - time) + "\n");
+                (System.currentTimeMillis() - time) + "ms\n");
 
     }
 

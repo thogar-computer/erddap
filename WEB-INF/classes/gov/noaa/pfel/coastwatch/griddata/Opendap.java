@@ -143,7 +143,7 @@ public class Opendap  {
         if (verbose) String2.log("\nOpendap constructor for " + url);
      
         if (verbose)
-            String2.log("  Opendap constructor done.  TIME=" + (System.currentTimeMillis() - time));
+            String2.log("  Opendap constructor done.  TIME=" + (System.currentTimeMillis() - time) + "ms");
     }
 
     
@@ -378,7 +378,7 @@ Dataset {
             if (verbose)
                 String2.log("  Dimension " + dad.getName() + 
                     " length=" + (dad.getStop() + 1) + 
-                    " time=" + (System.currentTimeMillis() - time1));
+                    " time=" + (System.currentTimeMillis() - time1) + "ms");
             po++;
         }
         Test.ensureEqual(numDimensions, po,  
@@ -410,7 +410,7 @@ Dataset {
                     gridDimensionData[gridLonDimension].length - 1] + "\n" +
             "  missingValue=" + gridMissingValue +
             "  gridName=" + gridName + "\n" +
-            "  Opendap.getGridInfo done. TIME=" + (System.currentTimeMillis() - time) + "\n");
+            "  Opendap.getGridInfo done. TIME=" + (System.currentTimeMillis() - time) + "ms\n");
     }
 
     /**
@@ -471,7 +471,7 @@ Dataset {
         for (int i = 0; i < nTimeValues; i++) {
             double d = timeArray[i];
             //deal with bad time values
-            if (!Math2.isFinite(d)) { 
+            if (!Double.isFinite(d)) { 
                 //important for vector common dates: just keep valid dates
                 String2.log(errorInMethod + "Bad time value.");
             //deal with nObservations = 0 
@@ -691,7 +691,7 @@ Dataset {
             }
             if (verbose) 
                 String2.log("  Opendap.makeGrid time to check/adjust timeIndex time=" + 
-                    (System.currentTimeMillis() - checkTime));
+                    (System.currentTimeMillis() - checkTime) + "ms");
         }
 
         //find the appropriate minIndex and maxIndex for lat
@@ -886,7 +886,7 @@ Dataset {
         */
         if (verbose)
             String2.log("  opendap.makeGrid done. TOTAL TIME=" + 
-                (System.currentTimeMillis() - startTime) + "\n"); 
+                (System.currentTimeMillis() - startTime) + "ms\n"); 
         return grid;
 
     }
@@ -1045,7 +1045,7 @@ Dataset {
                 " lat0=" + String2.genEFormat10(grid.lat[0]) +
                 //"\n  missingValueCount=" + missingValueCount
                 "\n  opendap.makeGrid/index done. getTime=" + getTime + " TOTAL TIME=" + 
-                (System.currentTimeMillis() - startTime) + "\n");
+                (System.currentTimeMillis() - startTime) + "ms\n");
 
         return grid;
     }  
@@ -1155,7 +1155,7 @@ Dataset {
     /**
      * This connects to the opendapUrl and gets the dataDds from the query.
      *
-     * @param opendapUrl e.g., "http://oceanwatch.pfeg.noaa.gov:8081/thredds/dodsC/satellite/AG/ssta/3day"
+     * @param opendapUrl e.g., "https://oceanwatch.pfeg.noaa.gov:8081/thredds/dodsC/satellite/AG/ssta/3day"
      * @param query e.g., "?CMusfc.CMusfc[0:1:0][0:1:0][0:1:20][0:1:20]", already percentEncoded as needed
      * @param doAsciiTestToo
      * @throws Exception if trouble
@@ -1170,15 +1170,15 @@ Dataset {
         long time = System.currentTimeMillis();
         dods.dap.DataDDS dataDds = dConnect.getData(query, null);
         System.out.println("  Opendap.simpleSpeedTest binary query TIME=" + 
-            (System.currentTimeMillis() - time));
+            (System.currentTimeMillis() - time) + "ms");
 
         //do ascii query 
         if (doAsciiTestToo) {
             time = System.currentTimeMillis();
-            String result = SSR.getUrlResponseString(opendapUrl + ".ascii" + query);
+            String result = SSR.getUrlResponseStringUnchanged(opendapUrl + ".ascii" + query);
             //String2.log(result);        
             System.out.println("  Opendap.simpleSpeedTest ascii  query TIME=" + 
-                (System.currentTimeMillis() - time));
+                (System.currentTimeMillis() - time) + "ms");
         }
     }
 
@@ -1246,7 +1246,7 @@ Dataset {
     public static void doOceanWatchSpeedTests(boolean doDotTestToo, boolean doAsciiTestToo) throws Exception {
         System.out.println("\nOpendap.doOceanWatchSpeedTests");
         try {
-            doSimpleSpeedTests("http://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/", 
+            doSimpleSpeedTests("https://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/", 
                 doDotTestToo, doAsciiTestToo);
         } catch (Exception e) {
             String2.log(MustBe.throwableToString(e));
@@ -1266,7 +1266,7 @@ Dataset {
         boolean doAsciiTestToo) throws Exception {
         System.out.println("\nOpendap.doThredds1_8081SpeedTests");
         try {
-            doSimpleSpeedTests("http://thredds1.pfeg.noaa.gov:8081/thredds/dodsC/satellite/", 
+            doSimpleSpeedTests("https://thredds1.pfeg.noaa.gov:8081/thredds/dodsC/satellite/", 
                 doDotTestToo, doAsciiTestToo);
         } catch (Exception e) {
             String2.log(MustBe.throwableToString(e));
@@ -1288,7 +1288,7 @@ Dataset {
         boolean doAsciiTestToo) throws Exception {
         System.out.println("\nOpendap.doErddapSpeedTests");
         try {
-            String baseUrl = "http://coastwatch.pfeg.noaa.gov/erddap/griddap/";
+            String baseUrl = "https://coastwatch.pfeg.noaa.gov/erddap/griddap/";
             simpleSpeedTest(  //625 ms for THREDDS 3.10; 31 ms for 3.12 2nd pass 
                 baseUrl+"erdAGssta3day", "?sst[0:1:0][0:1:0][0:1:20][0:1:20]", doAsciiTestToo);
             simpleSpeedTest(  //2656 ms for THREDDS 3.10; 203 ms for 3.12 2nd pass   
@@ -1355,7 +1355,7 @@ Dataset {
                 false);
         }
         System.out.println("\nOpendap.threddsTunnelTest done.  TIME=" + 
-            (System.currentTimeMillis() - elapsedTime) + " ms\n");
+            (System.currentTimeMillis() - elapsedTime) + "ms\n");
     }
 
 
@@ -1408,7 +1408,7 @@ Dataset {
         
 
         //test THREDDS        //was :8081
-        opendap = new Opendap("http://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/GA/ssta/3day", true, null); 
+        opendap = new Opendap("https://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/GA/ssta/3day", true, null); 
         DConnect dConnect = new DConnect(opendap.url, opendap.acceptDeflate, 1, 1);
         opendap.getGridInfo(dConnect.getDAS(OpendapHelper.DEFAULT_TIMEOUT),
             dConnect.getDDS(OpendapHelper.DEFAULT_TIMEOUT), "GAssta", "-1.0e34");
@@ -1421,7 +1421,7 @@ Dataset {
       
         //test THREDDS
         opendap = new Opendap(            //was :8081
-            "http://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/AG/ssta/3day",
+            "https://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/AG/ssta/3day",
             true, null); 
         dConnect = new DConnect(opendap.url, opendap.acceptDeflate, 1, 1);
         opendap.getGridInfo(dConnect.getDAS(60000), dConnect.getDDS(60000), "AGssta", "-1.0e34");

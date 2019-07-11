@@ -42,20 +42,11 @@ import java.util.GregorianCalendar;
 
 /**
  * NcHelper and ucar classes only used for testing netcdf-java.
- * Get netcdf-X.X.XX.jar from 
- * http://www.unidata.ucar.edu/software/thredds/current/netcdf-java/index.html
+ * Get netcdfAll-......jar from ftp://ftp.unidata.ucar.edu/pub
  * and copy it to <context>/WEB-INF/lib renamed as netcdf-latest.jar.
- * Get slf4j-jdk14.jar from 
- * ftp://ftp.unidata.ucar.edu/pub/netcdf-java/slf4j-jdk14.jar
- * and copy it to <context>/WEB-INF/lib.
- * Put both of these .jar files in the classpath for the compiler and for Java.
+ * Put it in the classpath for the compiler and for Java.
  */
 import gov.noaa.pfel.coastwatch.griddata.NcHelper;
-//import ucar.nc2.*;
-//import ucar.nc2.dataset.NetcdfDataset;
-//import ucar.nc2.dods.*;
-//import ucar.nc2.util.*;
-//import ucar.ma2.*;  
 
 /** 
  * This class represents a table of data from an opendap sequence source.
@@ -204,13 +195,13 @@ public class EDDTableFromDapSequence extends EDDTable{
      * constructor.
      *
      * @param tDatasetID is a very short string identifier 
-     *   (required: just safe characters: A-Z, a-z, 0-9, _, -, or .)
+     *  (recommended: [A-Za-z][A-Za-z0-9_]* )
      *   for this dataset. See EDD.datasetID().
      * @param tAccessibleTo is a comma separated list of 0 or more
      *    roles which will have access to this dataset.
      *    <br>If null, everyone will have access to this dataset (even if not logged in).
      *    <br>If "", no one will have access to this dataset.
-     * @param tOnChange 0 or more actions (starting with "http://" or "mailto:")
+     * @param tOnChange 0 or more actions (starting with http://, https://, or mailto: )
      *    to be done whenever the dataset changes significantly
      * @param tFgdcFile This should be the fullname of a file with the FGDC
      *    that should be used for this dataset, or "" (to cause ERDDAP not
@@ -250,10 +241,10 @@ public class EDDTableFromDapSequence extends EDDTable{
      *        describing how to interpret source time values 
      *        (which should always be numeric since they are a dimension of a grid)
      *        (e.g., "seconds since 1970-01-01T00:00:00").
-     *      <li> a org.joda.time.format.DateTimeFormat string
+     *      <li> a java.time.format.DateTimeFormatter string
      *        (which is compatible with java.text.SimpleDateFormat) describing how to interpret 
      *        string times  (e.g., the ISO8601TZ_FORMAT "yyyy-MM-dd'T'HH:mm:ssZ", see 
-     *        http://www.joda.org/joda-time/apidocs/org/joda/time/format/DateTimeFormat.html or 
+     *        https://docs.oracle.com/javase/8/docs/api/index.html?java/time/format/DateTimeFomatter.html or 
      *        https://docs.oracle.com/javase/8/docs/api/index.html?java/text/SimpleDateFormat.html)).
      *      </ul>
      * @param tReloadEveryNMinutes indicates how often the source should
@@ -376,7 +367,7 @@ public class EDDTableFromDapSequence extends EDDTable{
         if (tLicense != null)
             combinedGlobalAttributes.set("license", 
                 String2.replaceAll(tLicense, "[standard]", EDStatic.standardLicense));
-        combinedGlobalAttributes.removeValue("null");
+        combinedGlobalAttributes.removeValue("\"null\"");
 
         //create structures to hold the sourceAttributes temporarily
         int ndv = tDataVariables.length;
@@ -576,9 +567,9 @@ public class EDDTableFromDapSequence extends EDDTable{
 
         //finally
         if (verbose) String2.log(
-            (reallyVerbose? "\n" + toString() : "") +
+            (debugMode? "\n" + toString() : "") +
             "\n*** EDDTableFromDapSequence " + datasetID + " constructor finished. TIME=" + 
-            (System.currentTimeMillis() - constructionStartMillis) + "\n"); 
+            (System.currentTimeMillis() - constructionStartMillis) + "ms\n"); 
 
     }
 
@@ -704,9 +695,9 @@ public class EDDTableFromDapSequence extends EDDTable{
 
             //any other error is real trouble
             String2.log(MustBe.throwableToString(t));
-            throw new WaitThenTryAgainException(EDStatic.waitThenTryAgain + 
-                "\n(" + EDStatic.errorFromDataSource + tToString + ")", 
-                t); 
+            throw t instanceof WaitThenTryAgainException? t : 
+                new WaitThenTryAgainException(EDStatic.waitThenTryAgain + 
+                    "\n(" + EDStatic.errorFromDataSource + tToString + ")", t); 
         }
         //String2.log(table.toString());
         standardizeResultsTable(requestUrl, userDapQuery, table);
@@ -737,11 +728,16 @@ public class EDDTableFromDapSequence extends EDDTable{
         //String outerSequenceName, String innerSequenceName, boolean sortColumnsByName) 
         throws Throwable {
 
+        tLocalSourceUrl = EDStatic.updateUrls(tLocalSourceUrl); //http: to https:
         String2.log("EDDTableFromDapSequence.generateDatasetsXml" +
-            "\n  tLocalSourceUrl=" + tLocalSourceUrl);
+            "\ntLocalSourceUrl=" + tLocalSourceUrl +
+            "\nreloadEveryNMinutes=" + tReloadEveryNMinutes +
+            "\nexternalGlobalAttributes=" + externalGlobalAttributes);
         String tPublicSourceUrl = convertToPublicSourceUrl(tLocalSourceUrl);
 
         //get DConnect
+        if (tLocalSourceUrl.endsWith(".html"))
+            tLocalSourceUrl = tLocalSourceUrl.substring(0, tLocalSourceUrl.length() - 5);
         DConnect dConnect = new DConnect(tLocalSourceUrl, acceptDeflate, 1, 1);
         DAS das;
         try {
@@ -769,7 +765,6 @@ public class EDDTableFromDapSequence extends EDDTable{
         //get all of the vars
         String outerSequenceName = null;
         String innerSequenceName = null;
-        StringArray tSubsetVariables = new StringArray();
         Enumeration datasetVars = dds.getVariables();
         int nOuterVars = 0; //so outerVars are first in dataAddTable
         while (datasetVars.hasMoreElements()) {
@@ -802,13 +797,19 @@ public class EDDTableFromDapSequence extends EDDTable{
                                         OpendapHelper.getAttributes(das, 
                                             outerSequenceName + "." + innerSequenceName + "." + varName, 
                                             sourceAtts);
+                                    //just need to know String vs numeric for tryToFindLLAT
+                                    PrimitiveArray sourcePA = innerVar instanceof DString? new StringArray() : new DoubleArray();
+                                    PrimitiveArray destPA   = innerVar instanceof DString? new StringArray() : new DoubleArray();
                                     dataSourceTable.addColumn(dataSourceTable.nColumns(), 
-                                        varName, new StringArray(), sourceAtts);
+                                        varName, sourcePA, sourceAtts);
                                     dataAddTable.addColumn(dataAddTable.nColumns(), 
-                                        varName, new StringArray(), 
+                                        varName, destPA, 
                                         makeReadyToUseAddVariableAttributesForDatasetsXml(
                                             dataSourceTable.globalAttributes(),
-                                            sourceAtts, varName, true, true)); //addColorBarMinMax, tryToFindLLAT
+                                            sourceAtts, null, varName, 
+                                            destPA.elementClass() != String.class, //tryToAddStandardName
+                                            destPA.elementClass() != String.class, //addColorBarMinMax
+                                            true)); //tryToFindLLAT
                                 }
                             }
                         } else {
@@ -824,25 +825,35 @@ public class EDDTableFromDapSequence extends EDDTable{
                         if (sourceAtts.size() == 0)
                             OpendapHelper.getAttributes(das, 
                                 outerSequenceName + "." + varName, sourceAtts);
+                        //just need to know String vs numeric for tryToFindLLAT
+                        PrimitiveArray sourcePA = outerVar instanceof DString? new StringArray() : new DoubleArray(); 
+                        PrimitiveArray destPA   = outerVar instanceof DString? new StringArray() : new DoubleArray(); 
                         Attributes addAtts = makeReadyToUseAddVariableAttributesForDatasetsXml(
                             dataSourceTable.globalAttributes(),
-                            sourceAtts, varName, true, true); //addColorBarMinMax, tryToFindLLAT
-                        //just outer vars get added to subsetVariables
-                        String destName = suggestDestinationName(
-                            varName, sourceAtts, addAtts,
-                            sourceAtts.getString("units"), 
-                            sourceAtts.getString("positive"), 
-                            sourceAtts.getFloat("scale_factor"), true);
-                        tSubsetVariables.add(destName); 
-                        dataSourceTable.addColumn(nOuterVars,  varName, new StringArray(), 
-                            sourceAtts);
-                        dataAddTable.addColumn(   nOuterVars, destName, new StringArray(), 
-                            addAtts);
+                            sourceAtts, null, varName, 
+                            destPA.elementClass() != String.class, //tryToAddStandardName
+                            destPA.elementClass() != String.class, //addColorBarMinMax
+                            true); //tryToFindLLAT
+                        dataSourceTable.addColumn(nOuterVars, varName, sourcePA, sourceAtts);
+                        dataAddTable.addColumn(   nOuterVars, varName, destPA,   addAtts);
                         nOuterVars++;
                     }
                 }
             }
         }
+
+        //add missing_value and/or _FillValue if needed
+        addMvFvAttsIfNeeded(dataSourceTable, dataAddTable);
+
+        //tryToFindLLAT
+        tryToFindLLAT(dataSourceTable, dataAddTable);
+
+        //don't suggestSubsetVariables(), instead:
+        //subset vars are nOuterVars (which are the first nOuterVar columns)
+        StringArray tSubsetVariables = new StringArray();
+        for (int col = 0; col < nOuterVars; col++)
+            tSubsetVariables.add(dataAddTable.getColumnName(col));
+        dataAddTable.globalAttributes().add("subsetVariables", tSubsetVariables.toString());
 
         //get global attributes and ensure required entries are present 
         //after dataVariables known, add global attributes in the dataAddTable
@@ -850,19 +861,16 @@ public class EDDTableFromDapSequence extends EDDTable{
             makeReadyToUseAddGlobalAttributesForDatasetsXml(
                 dataSourceTable.globalAttributes(), 
                 //another cdm_data_type could be better; this is ok
-                probablyHasLonLatTime(dataSourceTable, dataAddTable)? "Point" : "Other",
+                hasLonLatTime(dataAddTable)? "Point" : "Other",
                 tLocalSourceUrl, externalGlobalAttributes, 
                 suggestKeywords(dataSourceTable, dataAddTable)));
         if (outerSequenceName == null)
             throw new SimpleException("No Sequence variable was found for " + tLocalSourceUrl + ".dds.");
-        dataAddTable.globalAttributes().add("subsetVariables", tSubsetVariables.toString());
 
         //write the information
         boolean isDapper = tLocalSourceUrl.indexOf("dapper") > 0;
         StringBuilder sb = new StringBuilder();
         sb.append(
-            directionsForGenerateDatasetsXml() +
-            "-->\n\n" +
             "<dataset type=\"EDDTableFromDapSequence\" datasetID=\"" + 
                 suggestDatasetID(tPublicSourceUrl) + 
                 "\" active=\"true\">\n" +
@@ -881,9 +889,9 @@ public class EDDTableFromDapSequence extends EDDTable{
         sb.append(cdmSuggestion());
         sb.append(writeAttsForDatasetsXml(true,     dataAddTable.globalAttributes(), "    "));
 
-        //last 3 params: includeDataType, tryToFindLLAT, questionDestinationName
+        //last 2 params: includeDataType, questionDestinationName
         sb.append(writeVariablesForDatasetsXml(dataSourceTable, dataAddTable, 
-            "dataVariable", false, true, false));
+            "dataVariable", false, false));
         sb.append(
             "</dataset>\n" +
             "\n");
@@ -898,14 +906,13 @@ public class EDDTableFromDapSequence extends EDDTable{
      * testGenerateDatasetsXml
      */
     public static void testGenerateDatasetsXml() throws Throwable {
+        String2.log("\n*** EDDTableFromDapSequence.testGenerateDatasetsXml\n" +
+            "This requires testNccsvScalar in localhost ERDDAP.\n");
         testVerboseOn();
 
         String tUrl = "http://cimt.dyndns.org:8080/dods/drds/vCTD";
 
 String expected = 
-directionsForGenerateDatasetsXml() +
-"-->\n" +
-"\n" +
 "<dataset type=\"EDDTableFromDapSequence\" datasetID=\"dyndns_cimt_8cad_5f3b_717e\" active=\"true\">\n" +
 "    <sourceUrl>http://cimt.dyndns.org:8080/dods/drds/vCTD</sourceUrl>\n" +
 "    <outerSequenceName>vCTD</outerSequenceName>\n" +
@@ -917,29 +924,28 @@ directionsForGenerateDatasetsXml() +
 "    <!-- sourceAttributes>\n" +
 "    </sourceAttributes -->\n" +
 "    <!-- Please specify the actual cdm_data_type (TimeSeries?) and related info below, for example...\n" +
-"        <att name=\"cdm_timeseries_variables\">station, longitude, latitude</att>\n" +
-"        <att name=\"subsetVariables\">station, longitude, latitude</att>\n" +
+"        <att name=\"cdm_timeseries_variables\">station_id, longitude, latitude</att>\n" +
+"        <att name=\"subsetVariables\">station_id, longitude, latitude</att>\n" +
 "    -->\n" +
 "    <addAttributes>\n" +
-"        <att name=\"cdm_data_type\">Point</att>\n" +
+"        <att name=\"cdm_data_type\">Other</att>\n" +
 "        <att name=\"Conventions\">COARDS, CF-1.6, ACDD-1.3</att>\n" +
 "        <att name=\"creator_name\">DYNDNS CIMT</att>\n" +
+"        <att name=\"creator_type\">institution</att>\n" +
 "        <att name=\"creator_url\">http://cimt.dyndns.org:8080/dods/drds/vCTD</att>\n" +
 "        <att name=\"infoUrl\">http://cimt.dyndns.org:8080/dods/drds/vCTD</att>\n" +
 "        <att name=\"institution\">DYNDNS CIMT</att>\n" +
-"        <att name=\"keywords\">acceleration, anomaly, average, avg_sound_velocity, center, cimt, cimt.dyndns.org, currents, data, density, depth, dods, drds, dyndns, fluorescence, geopotential, geopotential_anomaly, identifier, integrated, latitude, longitude, marine, ocean, oceans,\n" +
-"Oceans &gt; Salinity/Density &gt; Salinity,\n" +
-"optical, optical properties, practical, properties, salinity, sea, sea_water_practical_salinity, seawater, sigma, sigma_t, sound, station, technology, temperature, time, vctd, vctd.das, velocity, water</att>\n" +
+"        <att name=\"keywords\">acceleration, anomaly, average, avg_sound_velocity, center, cimt, cimt.dyndns.org, currents, data, density, depth, dods, drds, dyndns, earth, Earth Science &gt; Oceans &gt; Salinity/Density &gt; Salinity, fluorescence, geopotential, geopotential_anomaly, identifier, integrated, latitude, longitude, marine, ocean, oceans, optical, optical properties, practical, properties, salinity, science, sea, sea_water_practical_salinity, seawater, sigma, sigma_t, sound, station, technology, temperature, time, time2, vctd, vctd.das, velocity, water</att>\n" +
 "        <att name=\"keywords_vocabulary\">GCMD Science Keywords</att>\n" +
 "        <att name=\"license\">[standard]</att>\n" +
-"        <att name=\"standard_name_vocabulary\">CF Standard Name Table v29</att>\n" +
-"        <att name=\"subsetVariables\">time, latitude, longitude, station, depth, temperature, salinity, fluorescence, avg_sound_velocity, sigma_t, acceleration, geopotential_anomaly</att>\n" +
+"        <att name=\"standard_name_vocabulary\">CF Standard Name Table v55</att>\n" +
+"        <att name=\"subsetVariables\">time2, latitude, longitude, station, depth, temperature, salinity, fluorescence, avg_sound_velocity, sigma_t, acceleration, geopotential_anomaly</att>\n" +
 "        <att name=\"summary\">vCTD. DYNDNS Center for Integrated Marine Technology (CIMT) data from http://cimt.dyndns.org:8080/dods/drds/vCTD.das .</att>\n" +
 "        <att name=\"title\">vCTD. DYNDNS CIMT data from http://cimt.dyndns.org:8080/dods/drds/vCTD.das .</att>\n" +
 "    </addAttributes>\n" +
 "    <dataVariable>\n" +
 "        <sourceName>time</sourceName>\n" +
-"        <destinationName>time</destinationName>\n" +
+"        <destinationName>time2</destinationName>\n" +
 "        <!-- sourceAttributes>\n" +
 "            <att name=\"Description\">A date-time string</att>\n" +
 "            <att name=\"Timezone\">GMT</att>\n" +
@@ -1001,8 +1007,8 @@ directionsForGenerateDatasetsXml() +
 "        </sourceAttributes -->\n" +
 "        <addAttributes>\n" +
 "            <att name=\"colorBarMaximum\" type=\"double\">8000.0</att>\n" +
-"            <att name=\"colorBarMinimum\" type=\"double\">0.0</att>\n" +
-"            <att name=\"colorBarPalette\">OceanDepth</att>\n" +
+"            <att name=\"colorBarMinimum\" type=\"double\">-8000.0</att>\n" +
+"            <att name=\"colorBarPalette\">TopographyDepth</att>\n" +
 "            <att name=\"ioos_category\">Location</att>\n" +
 "            <att name=\"long_name\">Depth</att>\n" +
 "            <att name=\"standard_name\">depth</att>\n" +
@@ -1021,6 +1027,7 @@ directionsForGenerateDatasetsXml() +
 "            <att name=\"colorBarMinimum\" type=\"double\">-10.0</att>\n" +
 "            <att name=\"ioos_category\">Temperature</att>\n" +
 "            <att name=\"long_name\">Temperature</att>\n" +
+"            <att name=\"units\">degree_C</att>\n" +
 "        </addAttributes>\n" +
 "    </dataVariable>\n" +
 "    <dataVariable>\n" +
@@ -1111,25 +1118,236 @@ directionsForGenerateDatasetsXml() +
             //GenerateDatasetsXml
             String gdxResults = (new GenerateDatasetsXml()).doIt(new String[]{"-verbose", 
                 "EDDTableFromDapSequence",
-                tUrl, "1440"},
+                tUrl, "1440", "-1"}, //defaultStandardizeWhat
                 false); //doIt loop?
             Test.ensureEqual(gdxResults, results, "Unexpected results from GenerateDatasetsXml.doIt.");
 
             //EDDGridFromDap should fail and try EDDTableFromDapSequence and generate same result
-            results = EDDGridFromDap.generateDatasetsXml(true, tUrl, null, null, null, 1440, null) + "\n";
+            results = EDDGridFromDap.generateDatasetsXml(tUrl, null, null, null, 1440, null) + "\n";
             Test.ensureEqual(results, expected, "results=\n" + results);
 
             //ensure it is ready-to-use by making a dataset from it
             /* This fails because time variable has no units.
+            String tDatasetID = "dyndns_cimt_8cad_5f3b_717e";
+            EDD.deleteCachedDatasetInfo(tDatasetID);
             EDD edd = oneFromXmlFragment(null, results);
-            Test.ensureEqual(edd.datasetID(), "dyndns_cimt_8cad_5f3b_717e", "");
+            Test.ensureEqual(edd.datasetID(), tDatasetID, "");
             Test.ensureEqual(edd.title(), "zztop", "");
             Test.ensureEqual(String2.toCSSVString(edd.dataVariableDestinationNames()), 
                 "zztop",
                 "");
             */
+    }
 
+    /**
+     * testGenerateDatasetsXml
+     */
+    public static void testGenerateDatasetsXml2() throws Throwable {
+        String2.log("\n*** EDDTableFromDapSequence.testGenerateDatasetsXml2\n" +
+            "This requires testNccsvScalar in localhost ERDDAP.\n");
+        testVerboseOn();
 
+        try {
+
+        String tUrl = "http://localhost:8080/cwexperimental/tabledap/testNccsvScalar.html"; //test that it removes .html
+        String results = generateDatasetsXml(tUrl, 1440, null) + "\n";
+
+String expected = 
+"<dataset type=\"EDDTableFromDapSequence\" datasetID=\"localhost_a9c0_2412_8777\" active=\"true\">\n" +
+"    <sourceUrl>http://localhost:8080/cwexperimental/tabledap/testNccsvScalar</sourceUrl>\n" +
+"    <outerSequenceName>s</outerSequenceName>\n" +
+"    <skipDapperSpacerRows>false</skipDapperSpacerRows>\n" +
+"    <sourceCanConstrainStringEQNE>true</sourceCanConstrainStringEQNE>\n" +
+"    <sourceCanConstrainStringGTLT>true</sourceCanConstrainStringGTLT>\n" +
+"    <sourceCanConstrainStringRegex></sourceCanConstrainStringRegex>\n" +
+"    <reloadEveryNMinutes>1440</reloadEveryNMinutes>\n" +
+"    <!-- sourceAttributes>\n" +
+"        <att name=\"cdm_data_type\">Trajectory</att>\n" +
+"        <att name=\"cdm_trajectory_variables\">ship</att>\n" +
+"        <att name=\"Conventions\">COARDS, CF-1.6, ACDD-1.3, NCCSV-1.0</att>\n" +
+"        <att name=\"creator_email\">bob.simons@noaa.gov</att>\n" +
+"        <att name=\"creator_name\">Bob Simons</att>\n" +
+"        <att name=\"creator_type\">person</att>\n" +
+"        <att name=\"creator_url\">https://www.pfeg.noaa.gov</att>\n" +
+"        <att name=\"Easternmost_Easting\" type=\"double\">-130.2576</att>\n" +
+"        <att name=\"featureType\">Trajectory</att>\n" +
+"        <att name=\"geospatial_lat_max\" type=\"double\">28.0003</att>\n" +
+"        <att name=\"geospatial_lat_min\" type=\"double\">27.9998</att>\n" +
+"        <att name=\"geospatial_lat_units\">degrees_north</att>\n" +
+"        <att name=\"geospatial_lon_max\" type=\"double\">-130.2576</att>\n" +
+"        <att name=\"geospatial_lon_min\" type=\"double\">-132.1591</att>\n" +
+"        <att name=\"geospatial_lon_units\">degrees_east</att>\n" +
+"        <att name=\"history\">";
+        Test.ensureEqual(results.substring(0, expected.length()), expected, "results=\n" + results);
+        
+//        2017-05-05T16:27:08Z (local files)
+//2017-05-05T16:27:08Z 
+//"http://localhost:8080/cwexperimental/tabledap/testNccsvScalar.das</att>\n" +
+expected = 
+"        <att name=\"infoUrl\">https://coastwatch.pfeg.noaa.gov/erddap/download/NCCSV.html</att>\n" +
+"        <att name=\"institution\">NOAA NMFS SWFSC ERD, NOAA PMEL</att>\n" +
+"        <att name=\"keywords\">center, data, demonstration, Earth Science &gt; Oceans &gt; Ocean Temperature &gt; Sea Surface Temperature, environmental, erd, fisheries, identifier, laboratory, latitude, long, longitude, marine, national, nccsv, nmfs, noaa, ocean, oceans, pacific, pmel, science, sea, sea_surface_temperature, service, ship, southwest, sst, status, surface, swfsc, temperature, test, testLong, time, trajectory</att>\n" +
+"        <att name=\"keywords_vocabulary\">GCMD Science Keywords</att>\n" +
+"        <att name=\"license\">&quot;NCCSV Demonstration&quot; by Bob Simons and Steve Hankin is licensed under CC BY 4.0, https://creativecommons.org/licenses/by/4.0/ .</att>\n" +
+"        <att name=\"Northernmost_Northing\" type=\"double\">28.0003</att>\n" +
+"        <att name=\"sourceUrl\">(local files)</att>\n" +
+"        <att name=\"Southernmost_Northing\" type=\"double\">27.9998</att>\n" +
+"        <att name=\"standard_name_vocabulary\">CF Standard Name Table v55</att>\n" +
+"        <att name=\"subsetVariables\">ship, status, testLong</att>\n" +
+"        <att name=\"summary\">This is a paragraph or two describing the dataset.</att>\n" +
+"        <att name=\"time_coverage_end\">2017-03-23T23:45:00Z</att>\n" +
+"        <att name=\"time_coverage_start\">2017-03-23T00:45:00Z</att>\n" +
+"        <att name=\"title\">NCCSV Demonstration</att>\n" +
+"        <att name=\"Westernmost_Easting\" type=\"double\">-132.1591</att>\n" +
+"    </sourceAttributes -->\n" +
+"    <!-- Please specify the actual cdm_data_type (TimeSeries?) and related info below, for example...\n" +
+"        <att name=\"cdm_timeseries_variables\">station_id, longitude, latitude</att>\n" +
+"        <att name=\"subsetVariables\">station_id, longitude, latitude</att>\n" +
+"    -->\n" +
+"    <addAttributes>\n" +
+"        <att name=\"keywords\">center, data, demonstration, earth, Earth Science &gt; Oceans &gt; Ocean Temperature &gt; Sea Surface Temperature, environmental, erd, fisheries, identifier, laboratory, latitude, long, longitude, longs, marine, national, nccsv, nmfs, noaa, ocean, oceans, pacific, pmel, science, sea, sea_surface_temperature, service, ship, southwest, sst, status, surface, swfsc, temperature, test, testlong, testnccsvscalar, time, trajectory</att>\n" +
+"        <att name=\"subsetVariables\">ship, time, latitude, longitude, status, testLong, sst</att>\n" +
+"        <att name=\"title\">NCCSV Demonstration (testNccsvScalar)</att>\n" +
+"    </addAttributes>\n" +
+"    <dataVariable>\n" +
+"        <sourceName>ship</sourceName>\n" +
+"        <destinationName>ship</destinationName>\n" +
+"        <!-- sourceAttributes>\n" +
+"            <att name=\"cf_role\">trajectory_id</att>\n" +
+"            <att name=\"ioos_category\">Identifier</att>\n" +
+"            <att name=\"long_name\">Ship</att>\n" +
+"        </sourceAttributes -->\n" +
+"        <addAttributes>\n" +
+"        </addAttributes>\n" +
+"    </dataVariable>\n" +
+"    <dataVariable>\n" +
+"        <sourceName>time</sourceName>\n" +
+"        <destinationName>time</destinationName>\n" +
+"        <!-- sourceAttributes>\n" +
+"            <att name=\"_CoordinateAxisType\">Time</att>\n" +
+"            <att name=\"actual_range\" type=\"doubleList\">1.4902299E9 1.4903127E9</att>\n" +
+"            <att name=\"axis\">T</att>\n" +
+"            <att name=\"ioos_category\">Time</att>\n" +
+"            <att name=\"long_name\">Time</att>\n" +
+"            <att name=\"standard_name\">time</att>\n" +
+"            <att name=\"time_origin\">01-JAN-1970 00:00:00</att>\n" +
+"            <att name=\"units\">seconds since 1970-01-01T00:00:00Z</att>\n" +
+"        </sourceAttributes -->\n" +
+"        <addAttributes>\n" +
+"            <att name=\"colorBarMaximum\" type=\"double\">1.49032E9</att>\n" +
+"            <att name=\"colorBarMinimum\" type=\"double\">1.49022E9</att>\n" +
+"        </addAttributes>\n" +
+"    </dataVariable>\n" +
+"    <dataVariable>\n" +
+"        <sourceName>latitude</sourceName>\n" +
+"        <destinationName>latitude</destinationName>\n" +
+"        <!-- sourceAttributes>\n" +
+"            <att name=\"_CoordinateAxisType\">Lat</att>\n" +
+"            <att name=\"actual_range\" type=\"doubleList\">27.9998 28.0003</att>\n" +
+"            <att name=\"axis\">Y</att>\n" +
+"            <att name=\"colorBarMaximum\" type=\"double\">90.0</att>\n" +
+"            <att name=\"colorBarMinimum\" type=\"double\">-90.0</att>\n" +
+"            <att name=\"ioos_category\">Location</att>\n" +
+"            <att name=\"long_name\">Latitude</att>\n" +
+"            <att name=\"standard_name\">latitude</att>\n" +
+"            <att name=\"units\">degrees_north</att>\n" +
+"        </sourceAttributes -->\n" +
+"        <addAttributes>\n" +
+"        </addAttributes>\n" +
+"    </dataVariable>\n" +
+"    <dataVariable>\n" +
+"        <sourceName>longitude</sourceName>\n" +
+"        <destinationName>longitude</destinationName>\n" +
+"        <!-- sourceAttributes>\n" +
+"            <att name=\"_CoordinateAxisType\">Lon</att>\n" +
+"            <att name=\"actual_range\" type=\"doubleList\">-132.1591 -130.2576</att>\n" +
+"            <att name=\"axis\">X</att>\n" +
+"            <att name=\"colorBarMaximum\" type=\"double\">180.0</att>\n" +
+"            <att name=\"colorBarMinimum\" type=\"double\">-180.0</att>\n" +
+"            <att name=\"ioos_category\">Location</att>\n" +
+"            <att name=\"long_name\">Longitude</att>\n" +
+"            <att name=\"standard_name\">longitude</att>\n" +
+"            <att name=\"units\">degrees_east</att>\n" +
+"        </sourceAttributes -->\n" +
+"        <addAttributes>\n" +
+"        </addAttributes>\n" +
+"    </dataVariable>\n" +
+"    <dataVariable>\n" +
+"        <sourceName>status</sourceName>\n" +
+"        <destinationName>status</destinationName>\n" +
+"        <!-- sourceAttributes>\n" +
+"            <att name=\"actual_range\">?</att>\n" + //info not transmitted correctly by DAP
+"            <att name=\"comment\">From http://some.url.gov/someProjectDocument , Table C</att>\n" +
+"            <att name=\"ioos_category\">Unknown</att>\n" +
+"            <att name=\"long_name\">Status</att>\n" +
+"        </sourceAttributes -->\n" +
+"        <addAttributes>\n" +
+"            <att name=\"actual_range\">null</att>\n" + 
+"        </addAttributes>\n" +
+"    </dataVariable>\n" +
+"    <dataVariable>\n" +
+"        <sourceName>testLong</sourceName>\n" +
+"        <destinationName>testLong</destinationName>\n" +
+"        <!-- sourceAttributes>\n" +
+"            <att name=\"_FillValue\" type=\"double\">NaN</att>\n" + //long vars appear as double vars in DAP
+            //these are the largest longs, converted to doubles
+"            <att name=\"actual_range\" type=\"doubleList\">-9.223372036854776E18 9.2233720368547748E18</att>\n" +
+"            <att name=\"ioos_category\">Unknown</att>\n" +
+"            <att name=\"long_name\">Test of Longs</att>\n" +
+"            <att name=\"units\">1</att>\n" +
+"        </sourceAttributes -->\n" +
+"        <addAttributes>\n" +
+"            <att name=\"colorBarMaximum\" type=\"double\">1.0E19</att>\n" +
+"            <att name=\"colorBarMinimum\" type=\"double\">-1.0E19</att>\n" +
+"        </addAttributes>\n" +
+"    </dataVariable>\n" +
+"    <dataVariable>\n" +
+"        <sourceName>sst</sourceName>\n" +
+"        <destinationName>sst</destinationName>\n" +
+"        <!-- sourceAttributes>\n" +
+"            <att name=\"actual_range\" type=\"floatList\">10.0 10.9</att>\n" +
+"            <att name=\"colorBarMaximum\" type=\"double\">32.0</att>\n" +
+"            <att name=\"colorBarMinimum\" type=\"double\">0.0</att>\n" +
+"            <att name=\"ioos_category\">Temperature</att>\n" +
+"            <att name=\"long_name\">Sea Surface Temperature</att>\n" +
+"            <att name=\"missing_value\" type=\"float\">99.0</att>\n" +
+"            <att name=\"standard_name\">sea_surface_temperature</att>\n" +
+"            <att name=\"testBytes\" type=\"byteList\">-128 0 127</att>\n" +
+"            <att name=\"testChars\">,\n" +
+"&quot;\n" +
+"?</att>\n" +   //test of \\u20ac 
+"            <att name=\"testDoubles\" type=\"doubleList\">-1.7976931348623157E308 0.0 1.7976931348623157E308</att>\n" +
+//??? !!! Unlike Java parseFloat, JDAP reads+/-3.40282345E38 as NaN. !!!
+//Hence NaNs here.  This is an unfixed bug (hopefully won't ever affect anyone).
+"            <att name=\"testFloats\" type=\"floatList\">NaN 0.0 NaN</att>\n" + 
+"            <att name=\"testInts\" type=\"intList\">-2147483648 0 2147483647</att>\n" +
+"            <att name=\"testLongs\" type=\"doubleList\">-9.223372036854776E18 -9.007199254740992E15 9.007199254740992E15 9.2233720368547748E18 NaN</att>\n" +
+"            <att name=\"testShorts\" type=\"shortList\">-32768 0 32767</att>\n" +
+"            <att name=\"testStrings\">a&#9;~&#xfc;,\n" +
+"&#39;z&quot;?</att>\n" +
+"            <att name=\"units\">degree_C</att>\n" +
+"        </sourceAttributes -->\n" +
+"        <addAttributes>\n" +
+"        </addAttributes>\n" +
+"    </dataVariable>\n" +
+"</dataset>\n" +
+"\n\n";
+            int po = results.indexOf(expected.substring(0, 60));
+            Test.ensureEqual(results.substring(po), expected, "results=\n" + results);
+
+            //ensure it is ready-to-use by making a dataset from it
+            String tDatasetID = "localhost_a9c0_2412_8777";
+            EDD.deleteCachedDatasetInfo(tDatasetID);
+            EDD edd = oneFromXmlFragment(null, results);
+            Test.ensureEqual(edd.datasetID(), tDatasetID, "");
+            Test.ensureEqual(edd.title(), "NCCSV Demonstration (testNccsvScalar)", "");
+            Test.ensureEqual(String2.toCSSVString(edd.dataVariableDestinationNames()), 
+                "ship, time, latitude, longitude, status, testLong, sst",
+                "");
+        } catch (Throwable t) {
+            String2.pressEnterToContinue(MustBe.throwableToString(t) + 
+                "\nThis test requires datasetID=testNccsvScalar in localhost ERDDAP."); 
+        }
 
     }
 
@@ -1173,8 +1391,8 @@ directionsForGenerateDatasetsXml() +
      */
     public static void testArgo() throws Throwable {
         testVerboseOn();
-        String sourceUrl = "http://dapper.pmel.noaa.gov/dapper/argo/argo_all.cdp";
-        String2.log("\n*** testArgo " + sourceUrl);
+        String sourceUrl = "http://dapper.pmel.noaa.gov/dapper/argo/argo_all.cdp"; //no longer running
+        String2.log("\n*** EDDTableFromDapSequence.testArgo " + sourceUrl);
         DConnect dConnect = new DConnect(sourceUrl, acceptDeflate, 1, 1);
         String2.log("getDAS");
         DAS das = dConnect.getDAS(OpendapHelper.DEFAULT_TIMEOUT);
@@ -1188,7 +1406,7 @@ directionsForGenerateDatasetsXml() +
         SSR.displayInBrowser("file://" + EDStatic.fullTestCacheDirectory + tName);
         tName = tedd.makeNewFileForDapQuery(null, null, tq, EDStatic.fullTestCacheDirectory, 
             tedd.className() + "_Argo", ".csv"); 
-        String results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        String results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
 //        String expected = 
 //"";
@@ -1211,7 +1429,7 @@ directionsForGenerateDatasetsXml() +
             EDDTable tedd = (EDDTable)oneFromDatasetsXml(null, "cimtPsdac");
             String expected = 
     "time,longitude,latitude,depth,station,waterTemperature,salinity\n" +
-    "UTC,degrees_east,degrees_north,m,,degrees_Celsius,Presumed Salinity Units\n" +
+    "UTC,degrees_east,degrees_north,m,,degree_C,Presumed Salinity Units\n" +
     "2002-06-25T14:55:00Z,-121.845,36.692,1.0,T402,12.8887,33.8966\n" +
     "2002-06-25T14:55:00Z,-121.845,36.692,2.0,T402,12.8272,33.8937\n" +
     "2002-06-25T14:55:00Z,-121.845,36.692,3.0,T402,12.8125,33.8898\n" +
@@ -1262,7 +1480,7 @@ directionsForGenerateDatasetsXml() +
             try {
                 tName = tedd.makeNewFileForDapQuery(null, null, baseQuery, EDStatic.fullTestCacheDirectory, 
                     tedd.className() + "_psdac", ".csv"); 
-                results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+                results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
                 //String2.log(results);
                 Test.ensureEqual(results, expected, "results=\n" + results);      
             } catch (Throwable t) {
@@ -1274,7 +1492,7 @@ directionsForGenerateDatasetsXml() +
             try {            
                 tName = tedd.makeNewFileForDapQuery(null, null, baseQuery + "&station=\"T402\"", 
                     EDStatic.fullTestCacheDirectory, tedd.className() + "_psdacNonTime", ".csv"); 
-                results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+                results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
                 Test.ensureEqual(results, expected, "results=\n" + results);      
             } catch (Throwable t) {
                 String2.pressEnterToContinue(MustBe.throwableToString(t) + 
@@ -1285,7 +1503,7 @@ directionsForGenerateDatasetsXml() +
             try {            
                 tName = tedd.makeNewFileForDapQuery(null, null, baseQuery + "&station>\"T3\"&station<\"T5\"", 
                     EDStatic.fullTestCacheDirectory, tedd.className() + "_psdacGTLT", ".csv"); 
-                results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+                results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
                 Test.ensureEqual(results, expected, "results=\n" + results);      
             } catch (Throwable t) {
                 String2.pressEnterToContinue(MustBe.throwableToString(t) + 
@@ -1298,7 +1516,7 @@ directionsForGenerateDatasetsXml() +
             try {              //always =~ (regardless of what source needs) because this is an erddap request
                 tName = tedd.makeNewFileForDapQuery(null, null, baseQuery + "&station=~\"T40.\"", 
                     EDStatic.fullTestCacheDirectory, tedd.className() + "_psdacRegex", ".csv"); 
-                results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+                results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
                 Test.ensureEqual(results, expected, "results=\n" + results);      
             } catch (Throwable t) {
                 String2.pressEnterToContinue(MustBe.throwableToString(t) + 
@@ -1312,7 +1530,7 @@ directionsForGenerateDatasetsXml() +
             try {              //always =~ (regardless of what source needs) because this is an erddap request
                 tName = tedd.makeNewFileForDapQuery(null, null, baseQuery + "&station=~\"(T402|t403)\"", 
                     EDStatic.fullTestCacheDirectory, tedd.className() + "_psdacRegex", ".csv"); 
-                results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+                results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
                 Test.ensureEqual(results, expected, "results=\n" + results);      
             } catch (Throwable t) {
                 String2.pressEnterToContinue(MustBe.throwableToString(t) + 
@@ -1323,7 +1541,7 @@ directionsForGenerateDatasetsXml() +
             try {
                 tName = tedd.makeNewFileForDapQuery(null, null, baseQuery + "&time=2002-06-25T14:55:00Z", 
                     EDStatic.fullTestCacheDirectory, tedd.className() + "_psdacTime", ".csv"); 
-                results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+                results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
                 Test.ensureEqual(results, expected, "results=\n" + results);      
             } catch (Throwable t) {
                 String2.pressEnterToContinue(MustBe.throwableToString(t) + 
@@ -1348,7 +1566,7 @@ directionsForGenerateDatasetsXml() +
         try {
             tName = tedd.makeNewFileForDapQuery(null, null, baseQuery, EDStatic.fullTestCacheDirectory, 
                 tedd.className() + "_newport", ".csv"); 
-            results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+            results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
             expected = 
 "\n";
             Test.ensureEqual(results, expected, "results=\n" + results);      
@@ -1369,7 +1587,7 @@ directionsForGenerateDatasetsXml() +
         //the basicQuery
         for (int test = 1; test < 2; test++) {
             String url = test == 0? 
-                "http://oceanwatch.pfeg.noaa.gov:8080/dods/GLOBEC/GLOBEC_birds?birds.year,birds.species,birds.head_c,birds.month_local,birds.day_local&birds.year=2000&birds.month_local=8&birds.day_local=7" :
+                "https://oceanwatch.pfeg.noaa.gov:8080/dods/GLOBEC/GLOBEC_birds?birds.year,birds.species,birds.head_c,birds.month_local,birds.day_local&birds.year=2000&birds.month_local=8&birds.day_local=7" :
                 "http://las.pfeg.noaa.gov/cgi-bin/ERDserver/northwest.sql?northwest.temperature,northwest.ctd_station_code,northwest.datetime,northwest.station,northwest.longitude,northwest.latitude&northwest.datetime%3E13821";
             System.out.println("\ntesting url=" + url);
             DConnect dConnect = new DConnect(url, true);
@@ -1455,7 +1673,7 @@ calcatch.time, calcatch.area, calcatch.block, calcatch.Comments, calcatch.Descri
 try {
             tName = tedd.makeNewFileForDapQuery(null, null, baseQuery, EDStatic.fullTestCacheDirectory, 
                 tedd.className() + "_CalCaltch", ".csv"); 
-            results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+            results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
             expected = 
 "\n";
             Test.ensureEqual(results, expected, "results=\n" + results);      
@@ -1499,7 +1717,7 @@ try {
 
     /** This tests sourceNeedsExpandedFP_EQ. */
     public static void testSourceNeedsExpandedFP_EQ() throws Throwable {
-        String2.log("\n****************** EDDTableFromDapSequence.testSourceNeedsExpandedFP_EQ\n");
+        String2.log("\n*** EDDTableFromDapSequence.testSourceNeedsExpandedFP_EQ\n");
         testVerboseOn();
         String results, query, tName, expected;
         try {
@@ -1512,7 +1730,7 @@ try {
            
             tName = edd.makeNewFileForDapQuery(null, null, query, EDStatic.fullTestCacheDirectory, 
                 edd.className() + "_FP_EQ", ".csv"); 
-            results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+            results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
             expected = //pre 2015-12-28 was sorted lexically, now case insensitive. pre 2013-05-28 wasn't sorted
 "longitude,latitude,time,common_name\n" +
 "degrees_east,degrees_north,UTC,\n" +
@@ -1542,24 +1760,24 @@ try {
 
     /** NOT FINISHED.  This tests nosCoopsRWL. */
     public static void testNosCoopsRWL() throws Throwable {
-        String2.log("\n****************** EDDTableFromDapSequence.testNosCoopsRWL\n");
+        String2.log("\n*** EDDTableFromDapSequence.testNosCoopsRWL\n");
         testVerboseOn();
         String results, query, tName, expected;
-        String today     = Calendar2.epochSecondsToIsoStringT(Calendar2.backNDays(1, Double.NaN));
-        String yesterday = Calendar2.epochSecondsToIsoStringT(Calendar2.backNDays(2, Double.NaN));
+        String today     = Calendar2.epochSecondsToIsoStringTZ(Calendar2.backNDays(1, Double.NaN));
+        String yesterday = Calendar2.epochSecondsToIsoStringTZ(Calendar2.backNDays(2, Double.NaN));
 
         try {
             EDDTable edd = (EDDTable)oneFromDatasetsXml(null, "nosCoopsRWL"); 
 
             //*** test a TableWriter that doesn't convert time to iso format
             query = "&station=\"1612340\"&datum=\"MLLW\"&beginTime=" + yesterday + "&endTime=" + today;             
-//http://opendap.co-ops.nos.noaa.gov/dods/IOOS/SixMin_Verified_Water_Level.ascii?
+//https://opendap.co-ops.nos.noaa.gov/dods/IOOS/SixMin_Verified_Water_Level.ascii?
 //&WATERLEVEL_6MIN_VFD_PX._STATION_ID="1612340"&WATERLEVEL_6MIN_VFD_PX._DATUM="MLLW"
 //&WATERLEVEL_6MIN_VFD_PX._BEGIN_DATE="20100825"&WATERLEVEL_6MIN_VFD_PX._END_DATE="20100826"            
             tName = edd.makeNewFileForDapQuery(null, null, query, EDStatic.fullTestCacheDirectory, 
                 edd.className() + "_RWL", ".csv"); 
-            results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
-//trouble: Joda doesn't like space-padded hour values
+            results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
+//trouble: java.time (was Joda) doesn't like space-padded hour values
 
             expected = 
 "zztop\n";
@@ -1574,7 +1792,7 @@ try {
     /** Test reading .das */
     public static void testReadDas() throws Exception {
         String2.log("\n*** EDDTableFromDapSequence.testReadDas\n");
-        String url = "http://coastwatch.pfeg.noaa.gov/erddap/tabledap/erdGtsppBest";
+        String url = "https://coastwatch.pfeg.noaa.gov/erddap/tabledap/erdGtsppBest";
         try {
             DConnect dConnect = new DConnect(url, true, 1, 1);
             DAS das = dConnect.getDAS(OpendapHelper.DEFAULT_TIMEOUT);
@@ -1621,8 +1839,8 @@ try {
 
         String tName = edd.makeNewFileForDapQuery(null, null, "", EDStatic.fullTestCacheDirectory, 
             edd.className() + "_Entire", ".das"); 
-        String results = String2.annotatedString(new String((new ByteArray(
-            EDStatic.fullTestCacheDirectory + tName)).toArray()));
+        String results = String2.annotatedString(String2.directReadFrom88591File(
+            EDStatic.fullTestCacheDirectory + tName));
         String tResults;
         String expected = 
 "Attributes {[10]\n" +
@@ -1738,10 +1956,7 @@ expected =
 "tabledap/nwioosCoral.das\";[10]\n" +
 "    String infoUrl \"http://nwioos.coas.oregonstate.edu:8080/dods/drds/Coral%201980-2005.info\";[10]\n" +
 "    String institution \"NOAA NWFSC\";[10]\n" +
-"    String keywords \"Biosphere > Aquatic Ecosystems > Coastal Habitat,[10]\n" +
-"Biosphere > Aquatic Ecosystems > Marine Habitat,[10]\n" +
-"Biological Classification > Animals/Invertebrates > Cnidarians > Anthozoans/Hexacorals > Hard Or Stony Corals,[10]\n" +
-"1980-2005, abbreviation, atmosphere, beginning, coast, code, collected, coral, data, depth, family, genus, height, identifier, institution, noaa, nwfsc, off, order, scientific, species, station, survey, taxa, taxonomic, taxonomy, time, west, west coast, year\";[10]\n" +
+"    String keywords \"1980-2005, abbreviation, atmosphere, beginning, coast, code, collected, coral, data, depth, Earth Science > Biological Classification > Animals/Invertebrates > Cnidarians > Anthozoans/Hexacorals > Hard Or Stony Corals, Earth Science > Biosphere > Aquatic Ecosystems > Coastal Habitat, Earth Science > Biosphere > Aquatic Ecosystems > Marine Habitat, family, genus, height, identifier, institution, noaa, nwfsc, off, order, scientific, species, station, survey, taxa, taxonomic, taxonomy, time, west, west coast, year\";[10]\n" +
 "    String keywords_vocabulary \"GCMD Science Keywords\";[10]\n" +
 "    String license \"The data may be used and redistributed for free but is not intended[10]\n" +
 "for legal use, since it may contain inaccuracies. Neither the data[10]\n" +
@@ -1753,7 +1968,7 @@ expected =
 "    Float64 Northernmost_Northing 48.969085693359375;[10]\n" +
 "    String sourceUrl \"http://nwioos.coas.oregonstate.edu:8080/dods/drds/Coral%201980-2005\";[10]\n" +
 "    Float64 Southernmost_Northing 32.570838928222656;[10]\n" +
-"    String standard_name_vocabulary \"CF Standard Name Table v29\";[10]\n" +
+"    String standard_name_vocabulary \"CF Standard Name Table v55\";[10]\n" +
 "    String subsetVariables \"longitude, latitude, depth, time, institution, institution_id, species_code, taxa_scientific, taxonomic_order, order_abbreviation, taxonomic_family, family_abbreviation, taxonomic_genus\";[10]\n" +
 "    String summary \"This data contains the locations of some observations of[10]\n" +
 "cold-water/deep-sea corals off the west coast of the United States.[10]\n" +
@@ -1810,19 +2025,20 @@ expected =
         }
     }
 
-     
+
     /**
      * This tests the methods in this class.
      *
      * @throws Throwable if trouble
      */
     public static void test() throws Throwable {
-        String2.log("\n****************** EDDTableFromDapSequence.test() *****************\n");
+        String2.log("\n*** EDDTableFromDapSequence.test()\n");
         testVerboseOn();
 
-/* */
+/* for releases, this line should have open/close comment */
         //always done        
         testGenerateDatasetsXml();
+        testGenerateDatasetsXml2();
         testPsdac();
         testSourceNeedsExpandedFP_EQ();
         testReadDas();
@@ -1839,7 +2055,7 @@ expected =
 
         //not done
         //Tests of DAPPER were removed 2012-10-10. DAPPER was shut down recently.
-        //  http://www.epic.noaa.gov/epic/dapper_dchart/unsupported.html
+        //  https://www.pmel.noaa.gov/epic/dapper_dchart/unsupported.html
 
     }
 

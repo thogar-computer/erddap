@@ -9,7 +9,7 @@ import com.cohort.util.*;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.FileInputStream;
+import java.io.InputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.text.MessageFormat;
@@ -37,7 +37,7 @@ public class ByteArray extends PrimitiveArray {
     public byte[] array;
 
     /** This indicates if this class' type (e.g., short.class) can be contained in a long. 
-     * The integer type classes override this.
+     * The integer type classes overwrite this.
      */
     public boolean isIntegerType() {
         return true;
@@ -115,14 +115,17 @@ public class ByteArray extends PrimitiveArray {
      */
     public ByteArray(String fileName) throws Exception {
         this();
-        FileInputStream stream = new FileInputStream(fileName);
-        int available = stream.available();
-        while (available > 0) {
-            ensureCapacity(size + (long)available);
-            size += stream.read(array, size, available);
-            available = stream.available();
+        InputStream stream = File2.getDecompressedBufferedInputStream(fileName);
+        try {
+            int available = stream.available();
+            while (available > 0) {
+                ensureCapacity(size + (long)available);
+                size += stream.read(array, size, available);
+                available = stream.available();
+            }
+        } finally {
+            stream.close();
         }
-        stream.close();
     }
 
     /** This constructs a ByteArray from the values of another PrimitiveArray by
@@ -135,6 +138,10 @@ public class ByteArray extends PrimitiveArray {
      * <li>numeric uses StandardMissingValue-&gt;StandardMissingValue, 
      *    0-&gt;false, others-&gt;true.
      * </ul>
+     *
+     * @param pa the values of pa are interpreted as boolean, which are then
+     *   converted to bytes.
+     * @return a ByteArray
      */
     public static ByteArray toBooleanToByte(PrimitiveArray pa) {
         int size = pa.size();
@@ -169,6 +176,13 @@ public class ByteArray extends PrimitiveArray {
         return ba;
     }
 
+    /** The minimum value that can be held by this class. */
+    public String MINEST_VALUE() {return "" + Byte.MIN_VALUE;}
+
+    /** The maximum value that can be held by this class 
+        (not including the cohort missing value). */
+    public String MAXEST_VALUE() {return "" + (Byte.MAX_VALUE - 1);}
+
     /**
      * This returns the current capacity (number of elements) of the internal data array.
      * 
@@ -188,7 +202,7 @@ public class ByteArray extends PrimitiveArray {
      */
     public int hashCode() {
         //see https://docs.oracle.com/javase/8/docs/api/java/util/List.html#hashCode()
-        //and http://stackoverflow.com/questions/299304/why-does-javas-hashcode-in-string-use-31-as-a-multiplier
+        //and https://stackoverflow.com/questions/299304/why-does-javas-hashcode-in-string-use-31-as-a-multiplier
         int code = 0;
         for (int i = 0; i < size; i++)
             code = 31*code + array[i];
@@ -199,14 +213,17 @@ public class ByteArray extends PrimitiveArray {
      * This makes a new subset of this PrimitiveArray based on startIndex, stride,
      * and stopIndex.
      *
+     * @param pa the pa to be filled (may be null). If not null, must be of same type as this class. 
      * @param startIndex must be a valid index
      * @param stride   must be at least 1
      * @param stopIndex (inclusive) If &gt;= size, it will be changed to size-1.
-     * @return a new PrimitiveArray with the desired subset.
-     *    It will have a new backing array with a capacity equal to its size.
+     * @return The same pa (or a new PrimitiveArray if it was null) with the desired subset.
+     *    If new, it will have a backing array with a capacity equal to its size.
      *    If stopIndex &lt; startIndex, this returns PrimitiveArray with size=0;
      */
-    public PrimitiveArray subset(int startIndex, int stride, int stopIndex) {
+    public PrimitiveArray subset(PrimitiveArray pa, int startIndex, int stride, int stopIndex) {
+        if (pa != null)
+            pa.clear();
         if (startIndex < 0)
             throw new IndexOutOfBoundsException(MessageFormat.format(
                 ArraySubsetStart, getClass().getSimpleName(), "" + startIndex));
@@ -216,11 +233,18 @@ public class ByteArray extends PrimitiveArray {
         if (stopIndex >= size)
             stopIndex = size - 1;
         if (stopIndex < startIndex)
-            return new ByteArray(new byte[0]);
+            return pa == null? new ByteArray(new byte[0]) : pa;
 
         int willFind = strideWillFind(stopIndex - startIndex + 1, stride);
-        Math2.ensureMemoryAvailable(1L * willFind, "ByteArray"); 
-        byte tar[] = new byte[willFind];
+        ByteArray ba = null;
+        if (pa == null) {
+            ba = new ByteArray(willFind, true);
+        } else {
+            ba = (ByteArray)pa;
+            ba.ensureCapacity(willFind);
+            ba.size = willFind;
+        }
+        byte tar[] = ba.array;
         if (stride == 1) {
             System.arraycopy(array, startIndex, tar, 0, willFind);
         } else {
@@ -228,7 +252,7 @@ public class ByteArray extends PrimitiveArray {
             for (int i = startIndex; i <= stopIndex; i+=stride) 
                 tar[po++] = array[i];
         }
-        return new ByteArray(tar);
+        return ba;
     }
 
     /**
@@ -283,7 +307,7 @@ public class ByteArray extends PrimitiveArray {
     /**
      * This adds n copies of value to the array (increasing 'size' by n).
      *
-     * @param n  if less than 0, this throws Exception
+     * @param n  if less than 0, this throws Exception.
      * @param value the value to be added to the array.
      *    n &lt; 0 throws an Exception.
      */
@@ -329,7 +353,8 @@ public class ByteArray extends PrimitiveArray {
     /**
      * This adds n Strings to the array.
      *
-     * @param n the number of times 'value' should be added
+     * @param n the number of times 'value' should be added.
+     *    If less than 0, this throws Exception.
      * @param value the value, as a String.
      */
     public void addNStrings(int n, String value) {
@@ -366,7 +391,8 @@ public class ByteArray extends PrimitiveArray {
     /**
      * This adds n doubles to the array.
      *
-     * @param n the number of times 'value' should be added
+     * @param n the number of times 'value' should be added.
+     *    If less than 0, this throws Exception.
      * @param value the value, as a double.
      */
     public void addNDoubles(int n, double value) {
@@ -760,7 +786,7 @@ public class ByteArray extends PrimitiveArray {
      *   with String2.parseDouble and so may return Double.NaN.
      */
     public double getUnsignedDouble(int index) {
-        //or see http://www.unidata.ucar.edu/software/thredds/current/netcdf-java/reference/faq.html#Unsigned
+        //or see https://www.unidata.ucar.edu/software/thredds/current/netcdf-java/reference/faq.html#Unsigned
         return Byte.toUnsignedInt(get(index));
     }
 
@@ -769,7 +795,7 @@ public class ByteArray extends PrimitiveArray {
      * This "raw" variant leaves missingValue from integer data types 
      * (e.g., ByteArray missingValue=127) AS IS.
      *
-     * <p>All integerTypes override this.
+     * <p>All integerTypes overwrite this.
      * 
      * @param index the index number 0 ... size-1
      * @return the value as a double. String values are parsed
@@ -803,12 +829,26 @@ public class ByteArray extends PrimitiveArray {
     }
 
     /**
+     * Return a value from the array as a String suitable for a JSON file. 
+     * char returns a String with 1 character.
+     * String returns a json String with chars above 127 encoded as \\udddd.
+     * 
+     * @param index the index number 0 ... size-1 
+     * @return For numeric types, this returns ("" + ar[index]), or null for NaN or infinity.
+     */
+    public String getJsonString(int index) {
+        byte b = get(index);
+        return b == Byte.MAX_VALUE? "null" : String.valueOf(b);
+    }
+
+
+    /**
      * Return a value from the array as a String.
      * This "raw" variant leaves missingValue from integer data types 
      * (e.g., ByteArray missingValue=127) AS IS.
      * FloatArray and DoubleArray return "" if the stored value is NaN. 
      *
-     * <p>All integerTypes override this.
+     * <p>All integerTypes overwrite this.
      * 
      * @param index the index number 0 ... size-1
      * @return the value as a double. String values are parsed
@@ -861,6 +901,8 @@ public class ByteArray extends PrimitiveArray {
      * @return the index where 'lookFor' is found, or -1 if not found.
      */
     public int indexOf(String lookFor, int startIndex) {
+        if (startIndex >= size)
+            return -1;
         return indexOf(Math2.roundToByte(String2.parseInt(lookFor)), startIndex);
     }
 
@@ -950,6 +992,33 @@ public class ByteArray extends PrimitiveArray {
     }
 
     /** 
+     * This converts the elements into an NCCSV attribute String, e.g.,: -128b, 127b
+     *
+     * @return an NCCSV attribute String
+     */
+    public String toNccsvAttString() {
+        StringBuilder sb = new StringBuilder(size * 6);
+        for (int i = 0; i < size; i++) 
+            sb.append((i == 0? "" : ",") + array[i] + "b");
+        return sb.toString();
+    }
+
+    /**
+     * For integer types, this fixes unsigned bytes that were incorrectly read as signed
+     * so that they have the correct ordering of values (0 to 255 becomes -128 to 127).
+     * <br>What were read as signed:    0  127 -128  -1
+     * <br>should become   unsigned: -128   -1    0 255
+     * <br>This also does the reverse.
+     * <br>For non-integer types, this does nothing.
+     */
+    public void changeSignedToFromUnsigned() {
+        for (int i = 0; i < size; i++) {
+            int b = array[i];
+            array[i] = (byte)(b < 0? b + 128 : b - 128);
+        }
+    }
+
+    /** 
      * This sorts the elements in ascending order.
      * To get the elements in reverse order, just read from the end of the list
      * to the beginning.
@@ -1009,6 +1078,14 @@ public class ByteArray extends PrimitiveArray {
     }
 
     /**
+     * This reverses the order of the bytes in each value,
+     * e.g., if the data was read from a little-endian source.
+     */
+    public void reverseBytes() {
+        //ByteArray does nothing
+    }
+
+    /**
      * This writes 'size' elements to a DataOutputStream.
      *
      * @param dos the DataOutputStream
@@ -1056,11 +1133,11 @@ public class ByteArray extends PrimitiveArray {
      * @throws Exception if trouble
      */
     public void externalizeForDODS(DataOutputStream dos) throws Exception {
-        super.externalizeForDODS(dos);
+        super.externalizeForDODS(dos); //writes as bytes
 
         //pad to 4 bytes boundary at end
         int tSize = size;
-        while (tSize++ % 4 != 0)
+        while (tSize++ % 4 != 0)  
             dos.writeByte(0);
     }
 
@@ -1352,11 +1429,6 @@ public class ByteArray extends PrimitiveArray {
     }
 
 
-    /** This returns the minimum value that can be held by this class. */
-    public String minValue() {return "" + Byte.MIN_VALUE;}
-
-    /** This returns the maximum value that can be held by this class. */
-    public String maxValue() {return "" + (Byte.MAX_VALUE - 1);}
 
     /**
      * This finds the number of non-missing values, and the index of the min and
@@ -1389,6 +1461,7 @@ public class ByteArray extends PrimitiveArray {
      */
     public static void test() throws Throwable {
         String2.log("*** Testing ByteArray");
+/* for releases, this line should have open/close comment */
 
         //** test default constructor and many of the methods
         ByteArray anArray = new ByteArray();
@@ -1699,6 +1772,15 @@ public class ByteArray extends PrimitiveArray {
         ss = anArray.subset(1, 1, 0);
         Test.ensureEqual(ss.toString(), "", "");
 
+        ss.trimToSize();
+        anArray.subset(ss, 1, 3, 4);
+        Test.ensureEqual(ss.toString(), "5, 19", "");
+        anArray.subset(ss, 0, 1, 0);
+        Test.ensureEqual(ss.toString(), "25", "");
+        anArray.subset(ss, 0, 1, -1);
+        Test.ensureEqual(ss.toString(), "", "");
+        anArray.subset(ss, 1, 1, 0);
+        Test.ensureEqual(ss.toString(), "", "");
         
         //evenlySpaced
         anArray = new ByteArray(new byte[] {10,20,30});
@@ -1756,11 +1838,19 @@ public class ByteArray extends PrimitiveArray {
 
         //min max
         anArray = new ByteArray();
-        anArray.addString(anArray.minValue());
-        anArray.addString(anArray.maxValue());
-        Test.ensureEqual(anArray.getString(0), anArray.minValue(), "");
+        anArray.addString(anArray.MINEST_VALUE());
+        anArray.addString(anArray.MAXEST_VALUE());
+        Test.ensureEqual(anArray.getString(0), anArray.MINEST_VALUE(), "");
         Test.ensureEqual(anArray.getString(0), "-128", "");
-        Test.ensureEqual(anArray.getString(1), anArray.maxValue(), "");
+        Test.ensureEqual(anArray.getString(1), anArray.MAXEST_VALUE(), "");
+
+        //tryToFindNumericMissingValue() 
+        Test.ensureEqual((new ByteArray(new byte[] {     })).tryToFindNumericMissingValue(), Double.NaN, "");
+        Test.ensureEqual((new ByteArray(new byte[] {1, 2 })).tryToFindNumericMissingValue(), Double.NaN, "");
+        Test.ensureEqual((new ByteArray(new byte[] {-128 })).tryToFindNumericMissingValue(), -128, "");
+        Test.ensureEqual((new ByteArray(new byte[] {127  })).tryToFindNumericMissingValue(),  127, "");
+        Test.ensureEqual((new ByteArray(new byte[] {1, 99})).tryToFindNumericMissingValue(),   99, "");
+
     }
 
 }

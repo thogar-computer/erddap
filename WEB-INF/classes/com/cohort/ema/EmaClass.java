@@ -11,8 +11,11 @@ import com.cohort.util.ResourceBundle2;
 import com.cohort.util.String2;
 import com.cohort.util.Test;
 import com.cohort.util.XML;
+import java.io.BufferedOutputStream;
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.util.ArrayList;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.GregorianCalendar;
@@ -40,19 +43,19 @@ import javax.servlet.ServletException;
  * <li> "formName" is the name of the HTML form (default = "emaForm").
  *      It must be length&gt;1 with no spaces (like a variable name).
  * <li> (optional) There are several default strings inherited from 
- *      com/cohort/ema/Ema.properties that you can override by specifying
+ *      com/cohort/ema/Ema.properties that you can overwrite by specifying
  *      a new value in the properties file:
  *    <ul>
- *    <li> "placeHolder" overrides placeHolder. If the background color
+ *    <li> "placeHolder" overwrites placeHolder. If the background color
  *       of the form isn't white, change this to refer to the correct color.
- *    <li> "beginError" overrides beginError.
- *    <li> "endError" overrides endError.
- *    <li> "beginTable" overrides beginTable.
+ *    <li> "beginError" overwrites beginError.
+ *    <li> "endError" overwrites endError.
+ *    <li> "beginTable" overwrites beginTable.
  *        Specify this to change the appearance of the table.
- *    <li> "endTable" overrides endTable.
+ *    <li> "endTable" overwrites endTable.
  *        Specify this to change the appearance of the table.
- *    <li> "clickPlus" overrides clickPlus.
- *    <li> "clickMinus" overrides clickMinus.
+ *    <li> "clickPlus" overwrites clickPlus.
+ *    <li> "clickMinus" overwrites clickMinus.
  *    <li> "requiredTextError" specifies an error message to be displayed
  *        if no text has been entered in a required text field.
  *        If the string contains "{0}", the attribute's name will be substituted.
@@ -125,7 +128,7 @@ public class EmaClass extends HttpServlet {
 
     /** 
      * These default values may be overridden in the class's properties file 
-     * (which would override the defaults in Ema.properties). 
+     * (which would overwrite the defaults in Ema.properties). 
      */
     protected String clickPlusMSD; 
     protected String clickMinusMSD; 
@@ -145,20 +148,20 @@ public class EmaClass extends HttpServlet {
     protected String lengthError;
     protected String componentStyle;
 
-    /** You can override the defaults for these values in the class's properties file. */
+    /** You can overwrite the defaults for these values in the class's properties file. */
     protected boolean defaultRequired;
     protected boolean defaultDoubleWide;
     protected boolean defaultEnterSubmitsForm;
     protected String  pressEnterToSubmit;
     protected boolean spacerAfterDoubleWide;
 
-    protected String beginRow = "<tr align=\"left\">";
+    protected String beginRow = "<tr style=\"text-align:left\">";
     protected String endRow = "</tr>";
 
     /** This is the JavaScript the needs to be in the Head section of the HTML page 
      * for just the 'enter' function. */
     public static String includeJavaScriptForEnter =
-        "<script type=\"text/javascript\">\n" +
+        "<script>\n" +
         "<!--\n" + //hide from browsers without javascript
         //was the keypress event's keycode 'Enter'?
         //see http://www.mredkj.com/tutorials/validate.html
@@ -172,7 +175,7 @@ public class EmaClass extends HttpServlet {
     /** This standard JavaScript needs to be in the Head section of the HTML page. */
     public static String includeJavaScript =
         //EnterSubmitsForm
-        "<script type=\"text/javascript\">\n" +
+        "<script>\n" +
         "<!--\n" + //hide from browsers without javascript
         //was the keypress event's keycode 'Enter'?
         //see http://www.mredkj.com/tutorials/validate.html
@@ -231,7 +234,7 @@ public class EmaClass extends HttpServlet {
         "}\n" +
         /*
         //DigitsOnly
-        "<script language=\"JavaScript\">\n" +
+        "<script>\n" +
         "function digitsOnly(textfield) {\n" +
         "  var s1 = textfield.value;\n" +
         "  var s2 = \"\";\n" +
@@ -268,8 +271,8 @@ public class EmaClass extends HttpServlet {
     /** This will display a message to the user if JavaScript is not supported
      * or disabled. Last verified 2007-10-11. */
     public static String javaScriptDisabled =
-        "  <noscript><font color=\"red\"><b>This web page works much better when\n" +
-        "    JavaScript is enabled.</b> Please:</font>\n" +
+        "  <noscript><span style=\"color:red\"><strong>This web page works much better when\n" +
+        "    JavaScript is enabled.</strong> Please:</span>\n" +
         "    <ol>\n" +
         "    <li>Enable JavaScript in your browser:\n" +
         "      <ul>\n" + 
@@ -576,7 +579,7 @@ public class EmaClass extends HttpServlet {
 
     /** 
      * This lets you change the HTML code for beginning a row of 
-     * the table (normally &lt;tr align="left"&gt;). 
+     * the table (normally &lt;tr style="align:left;"&gt;). 
      */
     public void setBeginRow(String code) {
         beginRow = code;
@@ -787,7 +790,7 @@ public class EmaClass extends HttpServlet {
                   addedHtml +
                   "</form>\n");
         sb.append("<!-- This form generated " + 
-            Calendar2.getCurrentISODateTimeStringLocal() + 
+            Calendar2.getCurrentISODateTimeStringLocalTZ() + 
 //            " by Ema (www.cohort.com)" +
             (startMillis > 0 ? 
                 " in " + tTime + " ms" :
@@ -845,7 +848,7 @@ public class EmaClass extends HttpServlet {
         //I note that this 4.01 DOCTYPE tag causes radio buttons in Mac IE to have the 
         //wrong background color.  But I still think it is the proper thing to do.
         sb.append("<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\"\n" +
-            "\"http://www.w3.org/TR/html4/loose.dtd\">\n" +
+            "\"https://www.w3.org/TR/html4/loose.dtd\">\n" +
             "<html>\n" +
             "<head>\n");
         if (windowTitle.length() > 0) 
@@ -966,7 +969,7 @@ public class EmaClass extends HttpServlet {
     public String getUsageStatistics() {
         long time = Math.max(1, getTimeSinceInstantiation());
         return "Usage statistics for " + fullClassName + " (" + 
-                Calendar2.getCurrentISODateTimeStringLocal() + "):\n" +
+                Calendar2.getCurrentISODateTimeStringLocalTZ() + "):\n" +
             "  time since instantiation = " + Calendar2.elapsedTimeString(time) + "\n" +
             "  total number of forms created since instantiation = " + totalNFormsCreated + 
                 " (average = " + 
@@ -1049,9 +1052,11 @@ public class EmaClass extends HttpServlet {
 
         //output the response html page 
         response.setContentType("text/html");
-        response.setCharacterEncoding("UTF-8");
-        OutputStreamWriter out = new OutputStreamWriter(response.getOutputStream(), "UTF-8");
+        response.setCharacterEncoding(String2.UTF_8);
+        Writer out = new BufferedWriter(new OutputStreamWriter(
+            new BufferedOutputStream(response.getOutputStream()), String2.UTF_8));
         out.write(getHTMLPage(request, request.getContentLength() > 0)); //displayErrorMessages
+        out.flush(); //close it???
     }
 
     /**

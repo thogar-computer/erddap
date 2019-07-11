@@ -18,6 +18,9 @@ public class EDVAltGridAxis extends EDVGridAxis {
     /**
      * The constructor.
      *
+     * @param tParentDatasetID This is needed if dimensionValuesInMemory is false,
+     *   so sourceValues sometimes need to be read from 
+     *   [cacheDirectory(tParentDatasetID)]/dimensionSourceValues.nc
      * @param tSourceName the name of the axis variable in the dataset source
      *    (usually with no spaces).
      * @param tSourceAttributes are the attributes for the variable
@@ -31,12 +34,17 @@ public class EDVAltGridAxis extends EDVGridAxis {
      *    There must be at least one element.
      * @throws Throwable if trouble
      */
-    public EDVAltGridAxis(String tSourceName, 
+    public EDVAltGridAxis(String tParentDatasetID, String tSourceName, 
         Attributes tSourceAttributes, Attributes tAddAttributes, 
         PrimitiveArray tSourceValues) 
         throws Throwable {
 
-        super(tSourceName, ALT_NAME, tSourceAttributes, tAddAttributes, tSourceValues); 
+        super(tParentDatasetID, tSourceName, ALT_NAME, 
+            tSourceAttributes, tAddAttributes, tSourceValues); 
+
+        if (destinationDataType().equals("String"))
+            throw new RuntimeException("datasets.xml error: " +
+            "The destination dataType for the altitude variable must be a numeric dataType.");
 
         longName = ALT_LONGNAME;
         units = ALT_UNITS;

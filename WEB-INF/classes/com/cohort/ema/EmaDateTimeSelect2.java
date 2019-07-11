@@ -134,7 +134,7 @@ public class EmaDateTimeSelect2 extends EmaAttribute {
 
     /**
      * This removes all of this attribute's values from the session.
-     * EmaAttributes which use more than 1 control must override this
+     * EmaAttributes which use more than 1 control must overwrite this
      * to deal with separate sub-values.
      *
      * @param session is the session associated with a user
@@ -177,7 +177,7 @@ public class EmaDateTimeSelect2 extends EmaAttribute {
      * Whether this class is a JSP or a servlet, this handles
      * a "request" from a user, storing incoming attributes
      * as session values.
-     * Since this has more than 1 control, I have to override
+     * Since this has more than 1 control, I have to overwrite
      * super to handle widget#1 and widget#2.
      *
      * @param request 
@@ -290,7 +290,7 @@ public class EmaDateTimeSelect2 extends EmaAttribute {
 
         if (options.length > 1) 
             sb.append(    //td for <select>
-                  "\n        <table width=\"2%\" cellspacing=\"0\" cellpadding=\"0\"><tr>"); //'width' solves gap betwen buttons in opera 9
+                  "\n        <table class=\"erd\" style=\"width:2%;\"><tr>"); //padding=0. 'width' solves gap betwen buttons in opera 9
 
         //the main select widget
         String onChangeSubmitsFormHTML = getOnChangeSubmitsFormHTML();
@@ -399,7 +399,7 @@ public class EmaDateTimeSelect2 extends EmaAttribute {
                 //  transmit the html for the main select to the user will be 
                 //  far longer.
                 //String2.log("EmaGDateTimeSelect2 widget2 n=" + optionsLength + 
-                //    " time=" + (System.currentTimeMillis() - time));             
+                //    " time=" + (System.currentTimeMillis() - time) + "ms");             
             }
 
             //make the year, month, day, and optional time widgets

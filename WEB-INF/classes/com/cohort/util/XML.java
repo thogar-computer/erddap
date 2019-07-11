@@ -36,6 +36,8 @@ public class XML {
     /** For each character 0 - 255, these indicate how the character
      * should appear in HTML content. 
      * See HTML &amp; XHTML book, Appendix F.
+     * XML is same as HTML for 0-127 (see 
+     * https://en.wikipedia.org/wiki/List_of_XML_and_HTML_character_entity_references#Predefined_entities_in_XML )
      * &quot; and &#39; are encoded to be safe (see encodeAsXML comments)
      * and consistent with encodeAsXML.
      */
@@ -52,10 +54,13 @@ public class XML {
         "Z", "[", "\\", "]", "^",   "_", "`", "a", "b", "c",   //90..
         "d", "e", "f", "g", "h",   "i", "j", "k", "l", "m",   //100..
         "n", "o", "p", "q", "r",   "s", "t", "u", "v", "w",   //110..
-        "x", "y", "z", "{", "|",   "}", "~", "", "", "",   //120..
-"&#130;","&#131;","&#132;","&#133;","&#134;","&#135;","&#136;","&#137;","&#138;","&#139;",   //130.. "forbidden"!
-"&#140;","",      "&#142;","",      "",      "&#145;","&#146;","&#147;","&#148;","&#149;",   //140.. "forbidden"!
-"&#150;","&#151;","&#152;","&#153;","&#154;","&#155;","&#156;","",      "&#158;","&#159;",   //150.. "forbidden"!
+        "x", "y", "z", "{", "|",   "}", "~", "",   //120..
+//Assume 128-159 are from Windows https://en.wikipedia.org/wiki/Windows-1252
+//So convert them to ASCII (a few) or HTML character entity.
+//                                                upArrow  upDownArrow                                                    Zcaron
+"&euro;", "",  ",","&fnof;",",,",    "&hellip;", "&#8224;","&#8225;","^","&permil;","&Scaron;", "&lsaquo;","&OElig;", "", "&#381;", "",        //128..
+"",       "'", "'","&quot;","&quot;","&bull;",   "&ndash;","&mdash;","~","&trade;", "&scaron;", "&rsaquo;","&oelig;", "", "&#382;", "&Yuml;",  //144
+
 "&nbsp;","&iexcl;","&cent;","&pound;","&curren;", //160
 "&yen;","&brvbar;","&sect;","&uml;","&copy;", //165
 "&ordf;","&laquo;","&not;","&shy;","&reg;", //170
@@ -79,7 +84,10 @@ public class XML {
     
     public static HashMap<String,Character> ENTITY_TO_CHAR_HASHMAP = new HashMap();
     static {
+        Test.ensureEqual(HTML_ENTITIES.length, 256, "HTML_ENTITIES.length");
         for (int i = 0; i < 256; i++) {
+            if (i >= 128 && i < 160) //but not the Windows-1252 characters
+                continue;
             String ent = HTML_ENTITIES[i];
             if (ent.length() > 0)
                 ENTITY_TO_CHAR_HASHMAP.put(ent, new Character((char)i));
@@ -104,9 +112,17 @@ public class XML {
 
             //is it the start of a tag? skip the tag
             if (ch == '<') {
+                int po1 = po - 1;
                 while (po < htmlStringLength && ch != '>') {
                     ch = htmlString.charAt(po++);
                 }
+                //save href from <a> or <img>
+                String tag = htmlString.substring(po1, po);
+                String href = String2.extractCaptureGroup(tag, ".*href=\"(.*?)\".*", 1);
+                if (String2.isUrl(href))  //just show if it is a complete URL, not if relative fragment
+                    sb.append(
+                        (sb.length() > 0 && !String2.isWhite(sb.charAt(sb.length() - 1)) ? " " : "") + 
+                        "[ " + href + " ] ");
             } else sb.append(ch);
         }
         return decodeEntities(sb.toString());
@@ -150,10 +166,11 @@ public class XML {
     }
 
     /**
-     * For security reasons, for text that will be used as an HTML attribute, 
+     * For security reasons, for text that will be used as an HTML or XML attribute, 
      * this replaces non-alphanumeric characters with HTML Entity &amp;#xHHHH; format.
      * See HTML Attribute Encoding at
      * https://www.owasp.org/index.php/XSS_%28Cross_Site_Scripting%29_Prevention_Cheat_Sheet#Output_Encoding_Rules_Summary
+     * On the need to escape HTML attributes: http://wonko.com/post/html-escaping
      *
      * @param plainText the string to be encoded.
      *    If null, this throws exception.
@@ -179,7 +196,9 @@ public class XML {
      * "&amp;amp;", "&amp;lt;", "&amp;gt;", "&amp;quot;", "&amp;#39;" so plainText can be safely
      * stored as a quoted string within XML.
      *
-     * <p>See "XML in a Nutshell" book, pg 20 for info on these 5 character encodings
+     * <p>XML is same as HTML for 0-127 (see 
+     * https://en.wikipedia.org/wiki/List_of_XML_and_HTML_character_entity_references#Predefined_entities_in_XML )
+     * And see "XML in a Nutshell" book, pg 20 for info on these 5 character encodings
      * (and no others).
      *
      * <p>char 0 - 127 and &gt;=256 are encoded same as encodeAsHTML.
@@ -223,11 +242,11 @@ public class XML {
 
     /** This encodes spaces as (char)160 (nbsp) when they are leading, trailing,
      * or more than 1 consecutive.
-     * #160 (instead of &amp;nbsp; or &amp;#160;) is fine because that is the 
-     * UTF character for a non-break-space. When UTF stream is encoded as UTF-8, 
-     * it is appropriately encoded.
+     * #160 (instead of &amp;nbsp; [not supported in XML] or &amp;#160;) 
+     * is fine because that is the character for a non-break-space. 
+     * When the stream is encoded as UTF-8, it is appropriately encoded.
      *
-     * This is reasonable for HTML, but not recommended for xhtml.
+     * This is reasonable for HTML, but not recommended for xhtml(?).
      *
      * @param s
      * @return s with some spaces encoded as (char)160 (nbsp)
@@ -276,7 +295,7 @@ public class XML {
     }
 
     /**
-     * This is like encodeAsHTML but treats plainText as &lt;pre&gt; text.
+     * This is like encodeAsHTML but adds specific line breaks (&lt;br&gt;).
      *
      * @param plainText
      * @param maxLineLength  if lines are longer, they are broken
@@ -289,13 +308,26 @@ public class XML {
         return s;
     }
 
+    /**
+     * This is like encodeAsHTML but adds specific line breaks (&lt;br&gt;).
+     * This variant doesn't call noLongLinesAtSpace
+     *
+     * @param plainText
+     */
+    public static String encodeAsPreHTML(String plainText) {
+        String s = encodeAsHTML(plainText);  
+        s = String2.replaceAll(s, "\r", "");
+        s = String2.replaceAll(s, "\n", "<br>");  //after encodeAsHTML; 
+        return s;
+    }
+
 
     /**
      * This replaces HTML character entities (and the XML subset)
      * (e.g., "&amp;amp;", "&amp;lt;", "&amp;gt;", "&amp;quot;", etc.) in the string
      * with characters (e.g., '&amp;', '&lt;', '&gt;', '"', etc.) 
      * so the original string can be recovered.
-     * "&amp;nbsp;" is decoded to regular ' '.
+     * Before 2017-10-04 (version 1.82) "&amp;nbsp;" was decoded to regular ' '; now left intact.
      * Unrecognized/invalid entities are left intact so appear as e.g., &amp;#A;.
      *
      * @param s the string to be decoded
@@ -322,7 +354,6 @@ public class XML {
                         }
                         int v = String2.parseInt(num);  //this relies on leading 0's being ignored -> decimal (not octal)
                         output.append(
-                            v == 160? " " :  //nbsp
                             v < Character.MAX_VALUE? "" + (char)v : 
                             entity); //show intact original entity as plain text
                     } else {
@@ -611,7 +642,7 @@ public class XML {
      * @param item usually a Document from parseXml() above, but may be a NodeList or a Node.
      * @param xPath  from getXPath()
      * @param xPathQuery  e.g., "/testr/level1". 
-     *    See XPath documentation: http://www.w3.org/TR/xpath
+     *    See XPath documentation: https://www.w3.org/TR/xpath
      * @return the NodeList of matching Nodes (it may be of length 0)
      * @throws Exception if trouble
      */
@@ -626,7 +657,7 @@ public class XML {
      * @param item usually a Document from parseXml() above, but may be a NodeList or a Node.
      * @param xPath  from getXPath()
      * @param xPathQuery  e.g., "/testr/level1". 
-     *    See XPath documentation: http://www.w3.org/TR/xpath
+     *    See XPath documentation: https://www.w3.org/TR/xpath
      * @return the first node matching an XPath query (or null if none).
      */
     public static Node getFirstNode(Object item, XPath xPath, String xPathQuery) throws Exception {
@@ -679,7 +710,7 @@ public class XML {
      * @param item usually a Document from parseXml() above, but may be a NodeList or a Node.
      * @param xPath  from getXPath()
      * @param xPathQuery  e.g., "/testr/level1". 
-     *    See XPath documentation: http://www.w3.org/TR/xpath
+     *    See XPath documentation: https://www.w3.org/TR/xpath
      * @return the text content (or "" if no matching node or no content).
      */
     public static String getTextContent1(Object item, XPath xPath, String xPathQuery) throws Exception {
@@ -705,7 +736,7 @@ public class XML {
         String2.log("prettyXml\n in=" + inFileName + "\nout=" + outFileName);
         if (inFileName.equals(outFileName))
             throw new RuntimeException("Error: inFileName equals outFileName!");
-        String in[] = String2.readFromFile(inFileName, "UTF-8");
+        String in[] = String2.readFromFile(inFileName, String2.UTF_8);
         if (in[0].length() > 0)
             throw new RuntimeException("Error while reading " + inFileName + "\n" + in[0]);
         String xml = in[1];
@@ -722,7 +753,7 @@ public class XML {
   <gmd:axisDimensionProperties>
     <gmd:MD_Dimension>
       <gmd:dimensionName>
-        <gmd:MD_DimensionNameTypeCode codeList="http://www.ngdc.noaa.gov/metadata/published/xsd/schema/resources/Codelist/gmxCodelists.xml#gmd:MD_DimensionNameTypeCode" codeListValue="column">column</gmd:MD_DimensionNameTypeCode>
+        <gmd:MD_DimensionNameTypeCode codeList="https://www.ngdc.noaa.gov/metadata/published/xsd/schema/resources/Codelist/gmxCodelists.xml#gmd:MD_DimensionNameTypeCode" codeListValue="column">column</gmd:MD_DimensionNameTypeCode>
       </gmd:dimensionName>
       <gmd:dimensionSize gco:nilReason="unknown"/>
       <gmd:resolution>
@@ -816,11 +847,13 @@ public class XML {
      */
     public static void test() throws Exception {
         String2.log("\n*********************************************************** XML.test");
+/* for releases, this line should have open/close comment */
 
         //test removeHTMLTags
         String2.log("test removeHTMLTags");
-        Test.ensureEqual(removeHTMLTags("Hi, <b>bob.simons&amp;</b>!"), 
-            "Hi, bob.simons&!", "a");
+        Test.ensureEqual(removeHTMLTags(
+            "Hi, <strong>bob.simons&amp;</strong>! <a href=\"http://someUrl\">Click here!</a>"), 
+            "Hi, bob.simons&! [ http://someUrl ] Click here!", "a");
 
         //test encodeAsXML
         String2.log("test encode");
@@ -835,6 +868,8 @@ public class XML {
             "Hi%%%% &<>\"\u00a0°°", "decode");
 
         for (int ch = 0; ch < 260; ch++) {
+            if (ch >= 128 && ch < 160) //don't test Windows-1252 characters
+                continue;
             char ch1 = (char)ch;
             String ch2 = decodeEntities(encodeAsXML("" + ch1));
             if (ch2.length() > 0 && ch != 160)   //#160=nbsp decodes as #20=' ' 

@@ -4,6 +4,7 @@
  */
 package com.cohort.util;
 
+import java.nio.ByteBuffer;
 import java.text.MessageFormat;
 import java.util.Arrays;
 
@@ -54,6 +55,7 @@ public class Math2 {
     /** 
      * These are *not* final so EDStatic can replace them with translated Strings. 
      * These are MessageFormat-style strings, so any single quote ' must be escaped as ''. 
+     * !!! If you add another, add it to EDStatic.sendError(), which looks for these.
      */
     public static String memoryTooMuchData = 
         "Your query produced too much data.  Try to request less data.";
@@ -63,7 +65,7 @@ public class Math2 {
         "than is ever safely available in this Java setup ({1} MB).";
     public static String memoryArraySize = 
         "The request needs an array size ({0}) bigger than Java ever allows ({1}).";
-    /** gcSleep is used by gcAndWait() and a few other places.
+    /** shortSleep is used by gcAndWait() and a few other places.
      * 2013-12-06 If I use -verbose:gc with my localhost ERDDAP 
      * and hammer it with WMS requests, I can get memory use up to 500 MB (1.5 GB allocated).
      * GC (&lt; 0.02 s) runs often by itself and Full GC (&lt; 0.06 s) runs fairly often.
@@ -73,7 +75,7 @@ public class Math2 {
      * bigger tasks are usually given to computers with more, faster cores and more memory,
      * and smaller tasks are usually given to computers with fewer, slower cores and less memory.
      */
-    public static int gcSleep = 250; 
+    public static int shortSleep = 250; 
 
 
     /** If memory use jumps by this amount, a call to incgc will trigger a call
@@ -100,7 +102,7 @@ public class Math2 {
     public final static double kmPerMile = mPerMile * 0.001;
 
     /**
-     *<TT>two</TT> defines powers of two,
+     *<tt>two</tt> defines powers of two,
      * e.g., Two[0]=1, Two[1]=2, Two[2]=4, ... Two[31].
      */
     public static final int[] Two = {
@@ -137,21 +139,11 @@ public class Math2 {
         30, 35, 40, 45, 50, 60, 70, 80, 90, 100, 110
     };
 
+    public static final double[] COMMON_MV9 = {
+        -99, -99.9, -99.99, -999, -999.9, -9999, -99999, -999999, -9999999,
+         99,  99.9,  99.99,  999,  999.9,  9999,  99999,  999999,  9999999};
 
 
-    /**
-     * This returns the log base 10 of d.
-     * 
-     * @param d a double value
-     * @return the log base 10 of d.
-     *     d=0 returns Double.NEGATIVE_INFINITY. 
-     *     d&lt;0 returns NaN.
-     *     d=Double.POSITIVE_INFINITY returns Double.POSITIVE_INFINITY. 
-     *     d=NaN returns NaN. 
-     */
-    public static double log10(double d) {
-        return Math.log(d) / ln10; 
-    }
 
     /**
      * This returns the truncated part of a double.
@@ -217,12 +209,12 @@ public class Math2 {
      *     d=0 returns 0.
      */
     public static int intExponent(double d) {
-        if (!isFinite(d))
+        if (!Double.isFinite(d))
             return Integer.MAX_VALUE;
         if (d == 0)
             return 0;
 
-        return (int)Math.floor(log10(Math.abs(d))); //safe since the exponent of a finite double is +/-308.
+        return (int)Math.floor(Math.log10(Math.abs(d))); //safe since the exponent of a finite double is +/-308.
     }
 
     /**
@@ -256,23 +248,12 @@ public class Math2 {
         if (d == 0)
             return 0;
 
-        if (!isFinite(d))
+        if (!Double.isFinite(d))
             return Double.NaN;
 
         return d / exponent(d);
     }
 
-
-    /**
-     * Checks if the value is not NaN or +-Infinite.   
-     * This works for floats.
-     *
-     * @param d any double value or float value
-     * @return true if d is is not NaN or +/-infinity.
-     */
-    public static boolean isFinite(double d) {
-        return !Double.isNaN(d) && !Double.isInfinite(d);
-    }
 
     /**
      * Checks if the value is NaN or infinite:
@@ -282,7 +263,7 @@ public class Math2 {
      * @return d (or NaN if !isFinite(d))
      */
     public static double NaNCheck(double d) {
-        return !isFinite(d) ? Double.NaN : d;
+        return !Double.isFinite(d) ? Double.NaN : d;
     }
 
 
@@ -358,8 +339,8 @@ public class Math2 {
         long using = getMemoryInUse();
         maxUsingMemory = Math.max(maxUsingMemory, using); //before gc
 
-        return "Memory: currently using " + String2.right("" + using/BytesPerMB, 7) + 
-            " MB (high water mark = " + String2.right("" + maxUsingMemory/BytesPerMB, 7) + 
+        return "MemoryInUse=" + String2.right("" + using/BytesPerMB, 6) + 
+            " MB (highWaterMark=" + String2.right("" + maxUsingMemory/BytesPerMB, 6) + 
             " MB)";
     }
 
@@ -413,7 +394,7 @@ public class Math2 {
      * standardWaitTime is intended to give gc sufficient time to do its job, even under heavy use.
      */
     public static void gcAndWait() {
-        gc(gcSleep);
+        gc(shortSleep);
     }
 
     /**
@@ -564,7 +545,7 @@ public class Math2 {
         if (d == 0)
             return Binary0;
 
-        if (!isFinite(d))
+        if (!Double.isFinite(d))
             return BinaryLimit;
 
         int e = (int) (Double.doubleToLongBits(d) >> 52); //safe since the binary exponent of a finite double is +-1024
@@ -572,7 +553,7 @@ public class Math2 {
     }
 
     /**
-     * This quickly tests if <TT>d</TT> is almost 0 (Math.abs(d)&lt;dEps).
+     * This quickly tests if <tt>d</tt> is almost 0 (Math.abs(d)&lt;dEps).
      * <UL>
      * <LI> If you are working with small numbers, this test may be inappropriate.
      * <LI> This is very fast, since it only involves one comparison.
@@ -800,7 +781,7 @@ public class Math2 {
      *   Undesirable: d.5 rounds up for positive numbers, down for negative.
      */
     public static final byte roundToByte(double d) {
-        return d > Byte.MAX_VALUE || d <= Byte.MIN_VALUE - 0.5 || !isFinite(d)? 
+        return d > Byte.MAX_VALUE || d <= Byte.MIN_VALUE - 0.5 || !Double.isFinite(d)? 
             Byte.MAX_VALUE : 
             (byte)Math.round(d);
     }
@@ -814,7 +795,7 @@ public class Math2 {
      *   Undesirable: d.5 rounds up for positive numbers, down for negative.
      */
     public static final char roundToChar(double d) {
-        return d > Character.MAX_VALUE || d <= Character.MIN_VALUE - 0.5 || !isFinite(d)?
+        return d > Character.MAX_VALUE || d <= Character.MIN_VALUE - 0.5 || !Double.isFinite(d)?
             Character.MAX_VALUE : 
             (char)Math.round(d);
     }
@@ -828,7 +809,7 @@ public class Math2 {
      *   Undesirable: d.5 rounds up for positive numbers, down for negative.
      */
     public static final short roundToShort(double d) {
-        return d > Short.MAX_VALUE || d <= Short.MIN_VALUE - 0.5 || !isFinite(d)? 
+        return d > Short.MAX_VALUE || d <= Short.MIN_VALUE - 0.5 || !Double.isFinite(d)? 
             Short.MAX_VALUE : 
             (short)Math.round(d);
     }
@@ -843,7 +824,7 @@ public class Math2 {
      *   Undesirable: d.5 rounds up for positive numbers, down for negative.
      */
     public static final int roundToInt(double d) {
-        return d > Integer.MAX_VALUE || d <= Integer.MIN_VALUE - 0.5 || !isFinite(d)? 
+        return d > Integer.MAX_VALUE || d <= Integer.MIN_VALUE - 0.5 || !Double.isFinite(d)? 
             Integer.MAX_VALUE : 
             (int)Math.round(d); //safe since checked for larger values above
     }
@@ -857,7 +838,7 @@ public class Math2 {
      *   Undesirable: d.5 rounds up for positive numbers, down for negative.
      */
     public static final long roundToLong(double d) {
-        return d > Long.MAX_VALUE || d <= Long.MIN_VALUE - 0.5 || !isFinite(d)? 
+        return d > Long.MAX_VALUE || d < -9.223372036854776E18 || !Double.isFinite(d)? 
             Long.MAX_VALUE : 
             Math.round(d);
     }
@@ -873,7 +854,7 @@ public class Math2 {
      *   (which rounds to nearest even number).
      */
     public static final double roundToDouble(double d) {
-        return isFinite(d)? Math.floor(d + 0.5) : Double.NaN;
+        return Double.isFinite(d)? Math.floor(d + 0.5) : Double.NaN;
     }
 
     /**
@@ -1001,14 +982,19 @@ public class Math2 {
      * </UL>
      */
     public static final double angle0360(double degrees) {
-        if (!isFinite(degrees))
+        if (!Double.isFinite(degrees))
             return 0;
 
-        degrees = frac(degrees / 360) * 360;
-
-        //now it is -360..360
-        if (degrees < 0)
+        while (degrees < 0)
             degrees += 360;
+        while (degrees >= 360)
+            degrees -= 360;
+
+        //causes slight bruising
+        //degrees = frac(degrees / 360) * 360;
+        //now it is -360..360
+        //if (degrees < 0)
+        //    degrees += 360;
 
         return degrees;
     }
@@ -1022,7 +1008,7 @@ public class Math2 {
      *    A non-finite degrees returns the original value.
      */
     public static final double looserAngle0360(double degrees) {
-        if (!isFinite(degrees))
+        if (!Double.isFinite(degrees))
             return degrees;
 
         while (degrees < 0)   degrees += 360;
@@ -1060,16 +1046,17 @@ public class Math2 {
      *   If isMV(angle), it returns 0.
      */
     public static final double anglePM180(double degrees) {
-        if (!isFinite(degrees))
+        if (!Double.isFinite(degrees))
             return 0;
 
-        degrees = frac(degrees / 360) * 360;
+        while (degrees < -180) degrees += 360;
+        while (degrees >= 180) degrees -= 360;
 
+        //this causes some bruising
+        //degrees = frac(degrees / 360) * 360;
         //now it is -360..360
-        if (degrees < -180)
-            degrees += 360;
-        if (degrees >= 180)
-            degrees -= 360;
+        //if (degrees < -180) degrees += 360;
+        //if (degrees >= 180) degrees -= 360;
 
         return degrees;
     }
@@ -1083,7 +1070,7 @@ public class Math2 {
      *    A non-finite degrees returns the original value.
      */
     public static final double looserAnglePM180(double degrees) {
-        if (!isFinite(degrees))
+        if (!Double.isFinite(degrees))
             return degrees;
 
         while (degrees < -180) degrees += 360;
@@ -1096,11 +1083,11 @@ public class Math2 {
      * This converts an angle (in radians) into the range &gt;=0 to
      *   &lt;2PI.
      * <UL>
-     * <LI> If !isFinite(angle), it returns 0.
+     * <LI> If !Double.isFinite(angle), it returns 0.
      * </UL>
      */
     public static final double angle02Pi(double radians) {
-        if (!isFinite(radians))
+        if (!Double.isFinite(radians))
             return 0;
 
         radians = frac(radians / TwoPi) * TwoPi;
@@ -1220,6 +1207,23 @@ public class Math2 {
 
 
     /**
+     * This converts a long to a double (Long.MAX_VALUE becomes NaN).
+     *
+     * @param tl
+     * @return a double.
+     *    If f is NaN or +-INFINITY, this returns Double.NaN.
+     */
+    public static final double longToDoubleNaN(long tl) {
+        if (tl == Long.MAX_VALUE)
+            return Double.NaN;
+        //make sure round(d) is legit long. Low numbers are not a problem. 
+        //ideally    9223372036854775806
+        if (tl >     9223372036854774784L)   //best available
+            return  9.223372036854774784E18;
+        return tl;
+    }
+
+    /**
      * Safely converts a float to a double.
      *
      * @param f a double or float
@@ -1257,7 +1261,7 @@ public class Math2 {
      *    this returns Float.NaN.
      */
     public static final float doubleToFloatNaN(double d) {
-        if (isFinite(d) && Math.abs(d) <= Float.MAX_VALUE)
+        if (Double.isFinite(d) && Math.abs(d) <= Float.MAX_VALUE)
             return (float)d;
         return Float.NaN;
     }
@@ -1276,7 +1280,7 @@ public class Math2 {
      * @param nDigits the desired number of significant digits
      */
     public static final double niceDouble(double d, int nDigits) {
-        if (!isFinite(d))
+        if (!Double.isFinite(d))
             return d; //avoid possible overflow if nDigits>7
 
         if (d == 0)
@@ -1330,11 +1334,11 @@ public class Math2 {
      *
      * @param d a double
      * @return a number slightly larger than d.
-     *    If !isFinite(d), it returns d.
+     *    If !Double.isFinite(d), it returns d.
      *    If almost 0, it returns 0.01.
      */
     public static double bigger(double d) {
-        if (!isFinite(d))
+        if (!Double.isFinite(d))
             return d;
 
         if (almost0(d))
@@ -1354,11 +1358,11 @@ public class Math2 {
      *
      * @param d a double
      * @return a number slightly smaller than d.
-     *    If !isFinite(d), it returns d.
+     *    If !Double.isFinite(d), it returns d.
      *    If almost 0, it returns -0.01.
      */
     public static double smaller(double d) {
-        if (!isFinite(d))
+        if (!Double.isFinite(d))
             return d;
 
         if (almost0(d))
@@ -1377,7 +1381,7 @@ public class Math2 {
      * This increases the first digit of d 
      * (for example, .8, .9, 1, 2, 3, ..., 9, 10, 20, 30, ...).
      * It rounds to nearest single digit mantissa, then changes it.
-     * If !isFinite(d), it returns def.
+     * If !Double.isFinite(d), it returns def.
      * If d = 0, it returns 1.
      * 
      * @param max the maximum value which may be returned
@@ -1387,7 +1391,7 @@ public class Math2 {
      *     with the initial digit increased
      */
     public static double oneDigitBigger(double max, double def, double d) {
-        if (!isFinite(d))
+        if (!Double.isFinite(d))
             return def;
 
         double mantissa = Math.rint(mantissa(d)); //rint safer than floor
@@ -1399,7 +1403,7 @@ public class Math2 {
      * This decreases the first digit of d 
      * (for example, 30, 20, 10, 9, ..., 3, 2, 1, .9, .8, ...).
      * It rounds to nearest single digit mantissa, then changes it.
-     * If !isFinite(d), it returns def.
+     * If !Double.isFinite(d), it returns def.
      * If d = 0, it returns -1.
      * 
      * @param min the minimum value which may be returned
@@ -1409,7 +1413,7 @@ public class Math2 {
      *     with the initial digit decreased
      */
     public static double oneDigitSmaller(double min, double def, double d) {
-        if (!isFinite(d))
+        if (!Double.isFinite(d))
             return def;
 
         double mantissa = Math.rint(mantissa(d)); //rint safer than floor
@@ -1426,7 +1430,7 @@ public class Math2 {
      * @return an appropriate increment for the range
      */
     public static double getSmallIncrement(double range) {
-        if (!isFinite(range) || range == 0)
+        if (!Double.isFinite(range) || range == 0)
             return 0.1;
 
         return exponent(Math.abs(range) / 2) / 10;
@@ -1441,10 +1445,10 @@ public class Math2 {
      * @param d the initial value
      * @return the next multiple of mult bigger than d.
      *     It rounds to nearest mult, then changes it.
-     *     If !isFinite(d), it returns def.
+     *     If !Double.isFinite(d), it returns def.
      */
     public static double biggerDouble(double def, double mult, double max, double d) {
-        if (!isFinite(d))
+        if (!Double.isFinite(d))
             return def;
 
         return Math.min(max, (Math.rint(d / mult) + 1) * mult); //rint safer than floor
@@ -1459,10 +1463,10 @@ public class Math2 {
      * @param d the initial value
      * @return the next multiple of mult smaller than d.
      *     It rounds to nearest mult, then changes it.
-     *     If !isFinite(d), it returns def.
+     *     If !Double.isFinite(d), it returns def.
      */
     public static double smallerDouble(double def, double mult, double min, double d) {
-        if (!isFinite(d))
+        if (!Double.isFinite(d))
             return def;
 
         return Math.max(min, (Math.rint(d / mult) - 1) * mult); //rint safer than floor
@@ -1475,10 +1479,10 @@ public class Math2 {
      * @param d the initial value
      * @return the next multiple 15.
      *     It rounds to nearest mult, then changes it.
-     *     If !isFinite(d), it returns d.
+     *     If !Double.isFinite(d), it returns d.
      */
     public static double biggerAngle(double d) {
-        if (!isFinite(d))
+        if (!Double.isFinite(d))
             return d;
 
         //which 15degree step?
@@ -1496,10 +1500,10 @@ public class Math2 {
      * @param d the initial value
      * @return the previous multiple 15.
      *     It rounds to nearest mult, then changes it.
-     *     If !isFinite(d), it returns d.
+     *     If !Double.isFinite(d), it returns d.
      */
     public static double smallerAngle(double d) {
-        if (!isFinite(d))
+        if (!Double.isFinite(d))
             return d;
 
         //which 15degree step?
@@ -1517,11 +1521,11 @@ public class Math2 {
      * @param d the initial value
      * @return the next 1 or 5 * 10^x.
      *     It rounds to nearest 1 or 5, then changes it.
-     *     If !isFinite(d), it returns d.
+     *     If !Double.isFinite(d), it returns d.
      *     If almost0(d), it returns 0.01.
      */
     public static double bigger15(double d) {
-        if (!isFinite(d))
+        if (!Double.isFinite(d))
             return d;
 
         if (almost0(d))
@@ -1538,11 +1542,11 @@ public class Math2 {
      * @param d the initial value
      * @return the next 1 or 5 * 10^x.
      *     It rounds to nearest 1 or 5, then changes it.
-     *     If !isFinite(d), it returns d.
+     *     If !Double.isFinite(d), it returns d.
      *     If almost0(d), it returns 0.01.
      */
     public static double smaller15(double d) {
-        if (!isFinite(d))
+        if (!Double.isFinite(d))
             return d;
 
         if (almost0(d))
@@ -1561,16 +1565,22 @@ public class Math2 {
      * @param high the high end of the range
      * @return returnLowHigh an array with 2 elements.
      *    The resulting bounds are stored as [0]=low and [1]=high.
-     *    If low or high is not finite, this returns 0,1.
-     *    If low and high are equal, this returns an appropriate wider range.
+     *    If low and high are not finite, this returns 0,1.
+     *    In all other cases, this returns an appropriate wider range.
      */
     public static double[] suggestLowHigh(double low, double high) {
         //String2.log("suggestLowHigh low=" + low + " high=" + high);
         double lowHigh[] = new double[2];
-        if (!isFinite(low) || !isFinite(high)) {
-            lowHigh[0] = 0;
-            lowHigh[1] = 1;
-            return lowHigh;
+        if (!Double.isFinite(low)) {
+            if (!Double.isFinite(high)) {
+                lowHigh[0] = 0;
+                lowHigh[1] = 1;
+                return lowHigh;
+            } else {
+                low = high >= 0? high / 2 : high * 2;
+            }
+        } else if (!Double.isFinite(high)) {
+            high = low >= 0? low * 2 : low / 2;
         }
 
         //low==high?
@@ -1610,6 +1620,8 @@ public class Math2 {
             //special case for low end close to 0
         } else lowExp -= 0.05;
         lowHigh[0] = Math.floor(lowExp) * exp;
+        if (low >= 0)
+            lowHigh[0] = Math.max(0, lowHigh[0]);
         lowHigh[1] = Math.ceil((high / exp) + .05) * exp;
 
         return lowHigh;
@@ -1631,7 +1643,7 @@ public class Math2 {
         double results[] = new double[2];
 
         //handle trouble
-        if (!isFinite(range)) {
+        if (!Double.isFinite(range)) {
             results[0] = Double.NaN;
             results[1] = Double.NaN;
             return results;
@@ -1687,7 +1699,7 @@ public class Math2 {
     public static double suggestMaxDivisions(double range, int maxDivisions) {
 
         //handle trouble
-        if (!isFinite(range))  return Double.NaN;
+        if (!Double.isFinite(range))  return Double.NaN;
         if (range == 0)        return 1;
         if (maxDivisions == 0) return range;
 
@@ -1893,5 +1905,34 @@ public class Math2 {
         return Double.isNaN(a)? b :
                Double.isNaN(b)? a : Math.max(a,b);
     }
+
+    /**
+     * This returns true if a == b. 
+     * This treats as true: NaN=NaN (which Java says is false), NEGATIVE_INFINITY=NEGATIVE_INFINITY, and 
+     * POSITIVE_INFINITY=POSITIVE_INFINITY. 
+     *
+     * @param a
+     * @param b
+     * @return true if a == b. 
+     */
+    public static boolean equalsIncludingNanOrInfinite(double a, double b) {
+        return a == b ||   //handles +infinity==+infinity and -infinity==-infinity
+               (Double.isNaN(a) && Double.isNaN(b));
+    }
+
+    /**
+     * This returns true if a == b. 
+     * This treats as true: NaN=NaN (which Java says is false), NEGATIVE_INFINITY=NEGATIVE_INFINITY, and 
+     * POSITIVE_INFINITY=POSITIVE_INFINITY. 
+     *
+     * @param a
+     * @param b
+     * @return true if a == b. 
+     */
+    public static boolean equalsIncludingNanOrInfinite(float a, float b) {
+        return a == b ||   //handles +infinity==+infinity and -infinity==-infinity
+               (Float.isNaN(a) && Float.isNaN(b));
+    }
+
 
 } //End of Math2 class.

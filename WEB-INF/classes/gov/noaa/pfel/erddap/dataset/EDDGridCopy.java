@@ -21,6 +21,7 @@ import gov.noaa.pfel.coastwatch.griddata.NcHelper;
 import gov.noaa.pfel.coastwatch.pointdata.Table;
 import gov.noaa.pfel.coastwatch.util.RegexFilenameFilter;
 import gov.noaa.pfel.coastwatch.util.SimpleXMLReader;
+import gov.noaa.pfel.coastwatch.util.SSR;
 
 import gov.noaa.pfel.erddap.Erddap;
 import gov.noaa.pfel.erddap.util.EDStatic;
@@ -32,17 +33,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Get netcdf-X.X.XX.jar from 
- * http://www.unidata.ucar.edu/software/thredds/current/netcdf-java/index.html
+ * Get netcdfAll-......jar from ftp://ftp.unidata.ucar.edu/pub
  * and copy it to <context>/WEB-INF/lib renamed as netcdf-latest.jar.
- * Get slf4j-jdk14.jar from 
- * ftp://ftp.unidata.ucar.edu/pub/netcdf-java/slf4j-jdk14.jar
- * and copy it to <context>/WEB-INF/lib.
- * Put both of these .jar files in the classpath for the compiler and for Java.
+ * Put it in the classpath for the compiler and for Java.
  */
 import ucar.nc2.*;
 import ucar.nc2.dataset.NetcdfDataset;
-import ucar.nc2.dods.*;
+//import ucar.nc2.dods.*;
 import ucar.nc2.util.*;
 import ucar.ma2.*;
 
@@ -73,6 +70,8 @@ public class EDDGridCopy extends EDDGrid {
 
     private static int maxChunks = Integer.MAX_VALUE;    //some test methods reduce this
 
+    protected String onlySince = null;
+
     /**
      * This constructs an EDDGridCopy based on the information in an .xml file.
      * 
@@ -101,7 +100,10 @@ public class EDDGridCopy extends EDDGrid {
         boolean tFileTableInMemory = false;
         String tDefaultDataQuery = null;
         String tDefaultGraphQuery = null;
+        int tnThreads = -1; //interpret invalid values (like -1) as EDStatic.nGridThreads
         boolean tAccessibleViaFiles = false;
+        boolean tDimensionValuesInMemory = true;
+        String tOnlySince = null;
 
         //process the tags
         String startOfTags = xmlReader.allTags();
@@ -145,8 +147,14 @@ public class EDDGridCopy extends EDDGrid {
             else if (localTags.equals("</defaultDataQuery>")) tDefaultDataQuery = content; 
             else if (localTags.equals( "<defaultGraphQuery>")) {}
             else if (localTags.equals("</defaultGraphQuery>")) tDefaultGraphQuery = content; 
+            else if (localTags.equals( "<nThreads>")) {}
+            else if (localTags.equals("</nThreads>")) tnThreads = String2.parseInt(content); 
+            else if (localTags.equals( "<dimensionValuesInMemory>")) {}
+            else if (localTags.equals("</dimensionValuesInMemory>")) tDimensionValuesInMemory = String2.parseBoolean(content);
             else if (localTags.equals( "<accessibleViaFiles>")) {}
             else if (localTags.equals("</accessibleViaFiles>")) tAccessibleViaFiles = String2.parseBoolean(content); 
+            else if (localTags.equals( "<onlySince>")) {}
+            else if (localTags.equals("</onlySince>")) tOnlySince = content; 
             else if (localTags.equals("<dataset>")) {
 
                 if ("false".equals(xmlReader.attributeValue("active"))) {
@@ -192,20 +200,21 @@ public class EDDGridCopy extends EDDGrid {
             tOnChange, tFgdcFile, tIso19115File,
             tDefaultDataQuery, tDefaultGraphQuery, 
             tReloadEveryNMinutes, 
-            tSourceEdd, tFileTableInMemory, tAccessibleViaFiles);
+            tSourceEdd, tFileTableInMemory, tAccessibleViaFiles, tOnlySince, 
+            tnThreads, tDimensionValuesInMemory);
     }
 
     /**
      * The constructor.
      *
      * @param tDatasetID is a very short string identifier 
-     *   (required: just safe characters: A-Z, a-z, 0-9, _, -, or .)
+     *  (recommended: [A-Za-z][A-Za-z0-9_]* )
      *   for this dataset. See EDD.datasetID().
      * @param tAccessibleTo is a comma separated list of 0 or more
      *    roles which will have access to this dataset.
      *    <br>If null, everyone will have access to this dataset (even if not logged in).
      *    <br>If "", no one will have access to this dataset.
-     * @param tOnChange 0 or more actions (starting with "http://" or "mailto:")
+     * @param tOnChange 0 or more actions (starting with http://, https://, or mailto: )
      *    to be done whenever the dataset changes significantly
      * @param tFgdcFile This should be the fullname of a file with the FGDC
      *    that should be used for this dataset, or "" (to cause ERDDAP not
@@ -225,7 +234,8 @@ public class EDDGridCopy extends EDDGrid {
         StringArray tOnChange, String tFgdcFile, String tIso19115File, 
         String tDefaultDataQuery, String tDefaultGraphQuery, 
         int tReloadEveryNMinutes, EDDGrid tSourceEdd, 
-        boolean tFileTableInMemory, boolean tAccessibleViaFiles) throws Throwable {
+        boolean tFileTableInMemory, boolean tAccessibleViaFiles,
+        String tOnlySince, int tnThreads, boolean tDimensionValuesInMemory) throws Throwable {
 
         if (verbose) String2.log(
             "\n*** constructing EDDGridCopy " + tDatasetID); 
@@ -249,6 +259,9 @@ public class EDDGridCopy extends EDDGrid {
         defaultGraphQuery = tDefaultGraphQuery;
         setReloadEveryNMinutes(tReloadEveryNMinutes);
         matchAxisNDigits = tMatchAxisNDigits;
+        onlySince = tOnlySince;
+        nThreads = tnThreads; //interpret invalid values (like -1) as EDStatic.nGridThreads
+        dimensionValuesInMemory = tDimensionValuesInMemory; 
 
         //ensure copyDatasetDir exists
         String copyDatasetDir = EDStatic.fullCopyDirectory + datasetID + "/";
@@ -276,10 +289,30 @@ public class EDDGridCopy extends EDDGrid {
                     int nDV = sourceEdd.dataVariables.length;
                     StringBuilder av1on = new StringBuilder();
                     for (int av = 1; av < nAV; av++)
-                        av1on.append("[]");
+                        av1on.append(SSR.minimalPercentEncode("[]"));
                     int nValues = tDestValues.size();
                     nValues = Math.min(maxChunks, nValues); 
+                    double onlySinceDouble = Double.NaN; //usually epochSeconds
+                    if (String2.isSomething(onlySince)) {
+                        onlySinceDouble = 
+                            onlySince.toLowerCase().startsWith("now")?
+                                Calendar2.nowStringToEpochSeconds(onlySince) :   //throws exception if trouble
+                            Calendar2.isIsoDate(onlySince)?
+                                Calendar2.isoStringToEpochSeconds(onlySince) :
+                            String2.parseDouble(onlySince); 
+                        if (Double.isNaN(onlySinceDouble))
+                            throw new SimpleException(String2.ERROR + 
+                                " while parsing onlySince=" + onlySince);
+                    }
+                    int onlySinceNSkipped = 0;
                     for (int vi = 0; vi < nValues; vi++) {
+                        //if onlySince is active, skip this value?
+                        if (!Double.isNaN(onlySinceDouble) &&
+                            tDestValues.getDouble(vi) < onlySinceDouble) {
+                            onlySinceNSkipped++;
+                            continue;
+                        }
+
                         //[fullCopyDirectory]/datasetID/value.nc
                         //does the file already exist?
                         String tDestValue = tDestValues.getString(vi);
@@ -295,7 +328,7 @@ public class EDDGridCopy extends EDDGrid {
                             if (dv > 0)
                                 tQuery.append(',');
                             tQuery.append(sourceEdd.dataVariableDestinationNames[dv] + 
-                                "[(" + tDestValue + ")]" + av1on);
+                                SSR.minimalPercentEncode("[(" + tDestValue + ")]") + av1on);
                         }
 
                         //make the task
@@ -314,6 +347,11 @@ public class EDDGridCopy extends EDDGrid {
                                     copyDatasetDir + fileName + ".nc");
                         }
                     }
+
+                    if (onlySinceNSkipped > 0)
+                        String2.log("  onlySince=" + onlySince + "=" + onlySinceDouble + 
+                            " caused " + onlySinceNSkipped + 
+                            " source values to be skipped.");
 
                     //create task to flag dataset to be reloaded
                     if (taskNumber > -1) {
@@ -432,7 +470,8 @@ public class EDDGridCopy extends EDDGrid {
             copyDatasetDir, fileNameRegex, recursive, ".*", //true pathRegex is for remote site
             EDDGridFromFiles.MF_LAST,
             matchAxisNDigits,  //sourceEdd should have made them consistent
-            tFileTableInMemory, false); //accessibleViaFiles false here
+            tFileTableInMemory, false, nThreads, dimensionValuesInMemory, //accessibleViaFiles false here
+            "", -1, ""); //cacheFromUrl, cacheSizeGB, cachePartialPathRegex
 
         //copy things from localEdd 
         //remove last 2 lines from history (will be redundant)
@@ -474,10 +513,30 @@ public class EDDGridCopy extends EDDGrid {
 
         //finally
         if (verbose) String2.log(
-            (reallyVerbose? "\n" + toString() : "") +
+            (debugMode? "\n" + toString() : "") +
             "\n*** EDDGridCopy " + datasetID + " constructor finished. TIME=" + 
-            (System.currentTimeMillis() - constructionStartMillis) + "\n"); 
+            (System.currentTimeMillis() - constructionStartMillis) + "ms\n"); 
 
+        //very last thing: saveDimensionValuesInFile
+        if (!dimensionValuesInMemory)
+            saveDimensionValuesInFile();
+
+    }
+
+    /**
+     * If the subclass is EDDGridFromFiles or EDDGridCopy, this returns
+     * the dirTable (or throws RuntimeException).  Other subclasses return null.
+     */
+    public Table getDirTable() {
+        return localEdd.getDirTable();
+    }
+
+    /**
+     * If the subclass is EDDGridFromFiles or EDDGridCopy, this returns
+     * the fileTable (or throws RuntimeException).  Other subclasses return null.
+     */
+    public Table getFileTable() {
+        return localEdd.getFileTable();
     }
 
     /** 
@@ -487,6 +546,8 @@ public class EDDGridCopy extends EDDGrid {
      * full user's request, but will be a partial request (for less than
      * EDStatic.partialRequestMaxBytes).
      * 
+     * @param tDirTable If EDDGridFromFiles, this MAY be the dirTable, else null. 
+     * @param tFileTable If EDDGridFromFiles, this MAY be the fileTable, else null. 
      * @param tDataVariables EDV[] with just the requested data variables
      * @param tConstraints  int[nAxisVariables*3] 
      *   where av*3+0=startIndex, av*3+1=stride, av*3+2=stopIndex.
@@ -498,10 +559,11 @@ public class EDDGridCopy extends EDDGrid {
      *   not modified.
      * @throws Throwable if trouble (notably, WaitThenTryAgainException)
      */
-    public PrimitiveArray[] getSourceData(EDV tDataVariables[], IntArray tConstraints) 
+    public PrimitiveArray[] getSourceData(Table tDirTable, Table tFileTable,
+        EDV tDataVariables[], IntArray tConstraints) 
         throws Throwable {
 
-        return localEdd.getSourceData(tDataVariables, tConstraints);
+        return localEdd.getSourceData(tDirTable, tFileTable, tDataVariables, tConstraints);
     }
 
     /**
@@ -563,7 +625,7 @@ public class EDDGridCopy extends EDDGrid {
             String2.log("\n*** .nc test das dds for entire dataset\n");
             tName = eddGrid.makeNewFileForDapQuery(null, null, "", EDStatic.fullTestCacheDirectory, 
                 eddGrid.className() + "_Entire", ".das"); 
-            results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+            results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
             //String2.log(results);
             expected = 
     "Attributes {\n" +
@@ -657,11 +719,13 @@ public class EDDGridCopy extends EDDGrid {
     "    String contributor_name \"Remote Sensing Systems, Inc\";\n" +
     "    String contributor_role \"Source of level 2 data.\";\n" +
     "    String Conventions \"COARDS, CF-1.6, ACDD-1.3\";\n" + 
-    "    String creator_email \"dave.foley@noaa.gov\";\n" +
+//    "    String creator_email \"erd.data@noaa.gov\";\n" +  //this should appear some day
+    "    String creator_email \"dave.foley@noaa.gov\";\n" +  
     "    String creator_name \"NOAA CoastWatch, West Coast Node\";\n" +
-    "    String creator_url \"http://coastwatch.pfel.noaa.gov\";\n" +
-    "    String date_created \"2008-08-29Z\";\n" +
-    "    String date_issued \"2008-08-29Z\";\n" +
+//    "    String creator_type \"group\";\n" +  //this may appear some day
+    "    String creator_url \"https://coastwatch.pfeg.noaa.gov\";\n" +
+    "    String date_created \"2008-08-29\";\n" +
+    "    String date_issued \"2008-08-29\";\n" +
     "    Float64 Easternmost_Easting 359.875;\n" +
     "    Float64 geospatial_lat_max 89.875;\n" +
     "    Float64 geospatial_lat_min -89.875;\n" +
@@ -681,21 +745,21 @@ today;
         tResults = results.substring(0, Math.min(results.length(), expected.length()));
         Test.ensureEqual(tResults, expected, "\nresults=\n" + results);
     
-//+ " http://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/QS/ux10/1day\n" +
+//+ " https://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/QS/ux10/1day\n" +
 //today + 
 
 expected = 
     " http://localhost:8080/cwexperimental/griddap/testGridCopy.das\";\n" + //different
-    "    String infoUrl \"http://coastwatch.pfel.noaa.gov/infog/QS_ux10_las.html\";\n" +
+    "    String infoUrl \"https://coastwatch.pfeg.noaa.gov/infog/QS_ux10_las.html\";\n" +
     "    String institution \"NOAA CoastWatch, West Coast Node\";\n" +
-    "    String keywords \"EARTH SCIENCE > Oceans > Ocean Winds > Surface Winds\";\n" +
+    "    String keywords \"Earth Science > Oceans > Ocean Winds > Surface Winds\";\n" +
     "    String keywords_vocabulary \"GCMD Science Keywords\";\n" +
     "    String license \"The data may be used and redistributed for free but is not intended for legal use, since it may contain inaccuracies. Neither the data Contributor, CoastWatch, NOAA, nor the United States Government, nor any of their employees or contractors, makes any warranty, express or implied, including warranties of merchantability and fitness for a particular purpose, or assumes any legal liability for the accuracy, completeness, or usefulness, of this information.\";\n" +
-    "    String naming_authority \"gov.noaa.pfel.coastwatch\";\n" +
+    "    String naming_authority \"gov.noaa.pfeg.coastwatch\";\n" +
     "    Float64 Northernmost_Northing 89.875;\n" +
     "    String origin \"Remote Sensing Systems, Inc\";\n" +
     "    String processing_level \"3\";\n" +
-    "    String project \"CoastWatch (http://coastwatch.noaa.gov/)\";\n" +
+    "    String project \"CoastWatch (https://coastwatch.noaa.gov/)\";\n" +
     "    String projection \"geographic\";\n" +
     "    String projection_type \"mapped\";\n" +
     "    String references \"RSS Inc. Winds: http://www.remss.com/ .\";\n" +
@@ -721,7 +785,7 @@ expected =
             //*** test getting dds for entire dataset
             tName = eddGrid.makeNewFileForDapQuery(null, null, "", EDStatic.fullTestCacheDirectory, 
                 eddGrid.className() + "_Entire", ".dds"); 
-            results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+            results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
             //String2.log(results);
             expected = 
     "Dataset {\n" +
@@ -766,11 +830,11 @@ expected =
             userDapQuery = "y_wind[(1.1999664e9)][0][(36.5)][(230):3:(238)]";
             tName = eddGrid.makeNewFileForDapQuery(null, null, userDapQuery, EDStatic.fullTestCacheDirectory, 
                 eddGrid.className() + "_Data1", ".csv"); 
-            results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+            results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
             //String2.log(results);
             expected = 
     //verified with 
-    //http://coastwatch.pfeg.noaa.gov/erddap/griddap/erdQSwind1day.csv?y_wind[(1.1999664e9)][0][(36.5)][(230):3:(238)]
+    //https://coastwatch.pfeg.noaa.gov/erddap/griddap/erdQSwind1day.csv?y_wind[(1.1999664e9)][0][(36.5)][(230):3:(238)]
     "time,altitude,latitude,longitude,y_wind\n" +
     "UTC,m,degrees_north,degrees_east,m s-1\n" +
     "2008-01-10T12:00:00Z,0.0,36.625,230.125,3.555585\n" +
@@ -792,11 +856,11 @@ expected =
             userDapQuery = "y_wind[(1.1991888e9):3:(1.1999664e9)][0][(36.5)][(230)]";
             tName = eddGrid.makeNewFileForDapQuery(null, null, userDapQuery, EDStatic.fullTestCacheDirectory, 
                 eddGrid.className() + "_Data1", ".csv"); 
-            results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+            results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
             //String2.log(results);
             expected = 
     //verified with 
-    //http://coastwatch.pfeg.noaa.gov/erddap/griddap/erdQSwind1day.csv?y_wind[(1.1991888e9):3:(1.1999664e9)][0][(36.5)][(230)]
+    //https://coastwatch.pfeg.noaa.gov/erddap/griddap/erdQSwind1day.csv?y_wind[(1.1991888e9):3:(1.1999664e9)][0][(36.5)][(230)]
     "time,altitude,latitude,longitude,y_wind\n" +
     "UTC,m,degrees_north,degrees_east,m s-1\n" +
     "2008-01-01T12:00:00Z,0.0,36.625,230.125,7.6282454\n" +
@@ -817,6 +881,48 @@ expected =
 
 
     /**
+     * The tests onlySince.
+     * 
+     */
+    public static void testOnlySince() throws Throwable {
+        String2.log("\n******* EDDGridCopy.testOnlySince *******\n");
+        testVerboseOn();
+        String name, tName, results, tResults, expected, userDapQuery, tQuery;
+        String error = "";
+        EDV edv;
+        String today = Calendar2.getCurrentISODateTimeStringZulu().substring(0, 14); //14 is enough to check hour. Hard to check min:sec.
+        EDDGrid eddGrid = null;
+        String tDatasetID = "testOnlySince";
+        String copyDatasetDir = EDStatic.fullCopyDirectory + tDatasetID + "/";
+
+        try {
+            //delete all existing files
+            File2.deleteAllFiles(copyDatasetDir);
+            eddGrid = (EDDGridCopy)oneFromDatasetsXml(null, tDatasetID);
+            String2.pressEnterToContinue("shouldn't get here");
+        } catch (Throwable t2) {
+            //construction will fail because no files have been copied
+        }
+        String2.log("Errors above are fine and to be expected.\n" +
+            "Downloading data...");
+        while (EDStatic.nUnfinishedTasks() > 0) {
+            String2.log("nUnfinishedTasks=" + EDStatic.nUnfinishedTasks());
+            Math2.sleep(5000);
+        }
+        //recreate edd to see new copied data files
+        eddGrid = (EDDGridCopy)oneFromDatasetsXml(null, tDatasetID);
+
+        //*** look at the time values
+        tName = eddGrid.makeNewFileForDapQuery(null, null, "time", EDStatic.fullTestCacheDirectory, 
+            eddGrid.className() + "_time", ".csv"); 
+        String2.log("\n" + String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName));
+        String2.pressEnterToContinue(
+            "The time values shown should only include times since " + 
+            Calendar2.epochSecondsToIsoStringTZ(
+            Calendar2.nowStringToEpochSeconds("now-3days")));
+    }
+
+    /**
      * This tests the methods in this class.
      *
      * @throws Throwable if trouble
@@ -825,9 +931,11 @@ expected =
         String2.log("\n****************** EDDGridCopy.test() *****************\n");
         testVerboseOn();
 
+/* for releases, this line should have open/close comment */
         //always done
         testBasic(true); //checkSourceData
         testBasic(false); 
+        testOnlySince();
         
         //not usually done
 

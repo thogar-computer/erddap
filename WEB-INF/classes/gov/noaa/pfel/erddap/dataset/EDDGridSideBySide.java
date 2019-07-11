@@ -90,6 +90,8 @@ public class EDDGridSideBySide extends EDDGrid {
         String tIso19115File = null;
         String tDefaultDataQuery = null;
         String tDefaultGraphQuery = null;
+        int tnThreads = -1; //interpret invalid values (like -1) as EDStatic.nGridThreads
+        boolean tDimensionValuesInMemory = true;
 
         //process the tags
         String startOfTags = xmlReader.allTags();
@@ -166,6 +168,10 @@ public class EDDGridSideBySide extends EDDGrid {
             else if (localTags.equals("</defaultDataQuery>")) tDefaultDataQuery = content; 
             else if (localTags.equals( "<defaultGraphQuery>")) {}
             else if (localTags.equals("</defaultGraphQuery>")) tDefaultGraphQuery = content; 
+            else if (localTags.equals( "<nThreads>")) {}
+            else if (localTags.equals("</nThreads>")) tnThreads = String2.parseInt(content); 
+            else if (localTags.equals( "<dimensionValuesInMemory>")) {}
+            else if (localTags.equals("</dimensionValuesInMemory>")) tDimensionValuesInMemory = String2.parseBoolean(content);
 
             else xmlReader.unexpectedTagException();
         }
@@ -183,7 +189,8 @@ public class EDDGridSideBySide extends EDDGrid {
         return new EDDGridSideBySide(tDatasetID, 
             tAccessibleTo, tGraphsAccessibleTo, tAccessibleViaWMS, 
             tMatchAxisNDigits, tOnChange, tFgdcFile, tIso19115File,
-            tDefaultDataQuery, tDefaultGraphQuery, tcds);
+            tDefaultDataQuery, tDefaultGraphQuery, tcds, 
+            tnThreads, tDimensionValuesInMemory);
 
     }
 
@@ -197,7 +204,7 @@ public class EDDGridSideBySide extends EDDGrid {
      *    roles which will have access to this dataset.
      *    <br>If null, everyone will have access to this dataset (even if not logged in).
      *    <br>If "", no one will have access to this dataset.
-     * @param tOnChange 0 or more actions (starting with "http://" or "mailto:")
+     * @param tOnChange 0 or more actions (starting with http://, https://, or mailto: )
      *    to be done whenever the dataset changes significantly
      * @param tFgdcFile This should be the fullname of a file with the FGDC
      *    that should be used for this dataset, or "" (to cause ERDDAP not
@@ -212,7 +219,7 @@ public class EDDGridSideBySide extends EDDGrid {
         int tMatchAxisNDigits, 
         StringArray tOnChange, String tFgdcFile, String tIso19115File, 
         String tDefaultDataQuery, String tDefaultGraphQuery, 
-        EDDGrid tChildDatasets[]) throws Throwable {
+        EDDGrid tChildDatasets[], int tnThreads, boolean tDimensionValuesInMemory) throws Throwable {
 
         if (verbose) String2.log("\n*** constructing EDDGridSideBySide " + tDatasetID); 
         long constructionStartMillis = System.currentTimeMillis();
@@ -236,6 +243,7 @@ public class EDDGridSideBySide extends EDDGrid {
         int nChildren = tChildDatasets.length;
         childStopsAt = new int[nChildren];
         matchAxisNDigits = tMatchAxisNDigits;
+        nThreads = tnThreads; //interpret invalid values (like -1) as EDStatic.nGridThreads
 
         //check the siblings and create childStopsAt
         EDDGrid firstChild = childDatasets[0];
@@ -337,8 +345,9 @@ public class EDDGridSideBySide extends EDDGrid {
         System.arraycopy(firstChild.axisVariables, 1, axisVariables, 1, nAV - 1);
         //but make new axisVariables[0] with newAxis0Values
         EDVGridAxis fav = firstChild.axisVariables[0];
-        axisVariables[0] = makeAxisVariable(0, fav.sourceName(), fav.destinationName(),
-                fav.sourceAttributes(), fav.addAttributes(), newAxis0Values); 
+        axisVariables[0] = makeAxisVariable(tDatasetID, 
+            0, fav.sourceName(), fav.destinationName(),
+            fav.sourceAttributes(), fav.addAttributes(), newAxis0Values); 
 
         //make combined dataVariables
         int nDv = childStopsAt[nChildren - 1] + 1;
@@ -359,9 +368,13 @@ public class EDDGridSideBySide extends EDDGrid {
 
         //finally
         if (verbose) String2.log(
-            (reallyVerbose? "\n" + toString() : "") +
+            (debugMode? "\n" + toString() : "") +
             "\n*** EDDGridSideBySide " + datasetID + " constructor finished. TIME=" + 
-            (System.currentTimeMillis() - constructionStartMillis) + "\n"); 
+            (System.currentTimeMillis() - constructionStartMillis) + "ms\n"); 
+
+        //very last thing: saveDimensionValuesInFile
+        if (!dimensionValuesInMemory)
+            saveDimensionValuesInFile();
 
     }
 
@@ -403,7 +416,7 @@ public class EDDGridSideBySide extends EDDGrid {
     
     /** 
      * creationTimeMillis indicates when this dataset was created.
-     * This overrides the EDD version in order to check if children need to be
+     * This overwrites the EDD version in order to check if children need to be
      * reloaded.
      * 
      * @return when this dataset was created
@@ -414,6 +427,24 @@ public class EDDGridSideBySide extends EDDGrid {
         for (int c = 0; c < childDatasets.length; c++)
             tCTM = Math.min(tCTM, childDatasets[c].creationTimeMillis());
         return tCTM;
+    }
+
+    /**
+     * This returns a list of childDatasetIDs.
+     * Most dataset types don't have any children. A few, like
+     * EDDGridSideBySide do, so they overwrite this method to return the IDs.
+     *
+     * @return a new list of childDatasetIDs. 
+     */
+    public StringArray childDatasetIDs() {
+        StringArray sa = new StringArray();
+        try {
+            for (int i = 0; i < childDatasets.length; i++)  
+                sa.add(childDatasets[i].datasetID());
+        } catch (Exception e) {
+            String2.log("Error caught in edd.childDatasetIDs(): " + MustBe.throwableToString(e));
+        }
+        return sa;
     }
 
     /**
@@ -434,6 +465,8 @@ public class EDDGridSideBySide extends EDDGrid {
      * full user's request, but will be a partial request (for less than
      * EDStatic.partialRequestMaxBytes).
      * 
+     * @param tDirTable If EDDGridFromFiles, this MAY be the dirTable, else null. 
+     * @param tFileTable If EDDGridFromFiles, this MAY be the fileTable, else null. 
      * @param tDataVariables EDV[] with just the requested data variables
      * @param tConstraints  int[nAxisVariables*3] 
      *   where av*3+0=startIndex, av*3+1=stride, av*3+2=stopIndex.
@@ -445,7 +478,8 @@ public class EDDGridSideBySide extends EDDGrid {
      *   not modified.
      * @throws Throwable if trouble (notably, WaitThenTryAgainException)
      */
-    public PrimitiveArray[] getSourceData(EDV tDataVariables[], IntArray tConstraints) 
+    public PrimitiveArray[] getSourceData(Table tDirTable, Table tFileTable,
+        EDV tDataVariables[], IntArray tConstraints) 
         throws Throwable {
 
         //simple approach (not most efficient for tiny request, but fine for big requests):
@@ -534,7 +568,7 @@ public class EDDGridSideBySide extends EDDGrid {
                 ttConstraints.set(0, cStart);
                 ttConstraints.set(1, cStride);
                 ttConstraints.set(2, cStop);
-                PrimitiveArray[] tResults = childDatasets[cn].getSourceData(
+                PrimitiveArray[] tResults = childDatasets[cn].getSourceData(null, null,
                     new EDV[]{tDataVariables[tdv]}, ttConstraints);
                 dvResults.append(tResults[nAv]); //append the first (and only) data variable's results
 
@@ -560,7 +594,7 @@ public class EDDGridSideBySide extends EDDGrid {
      */
     public static void testQSWind(boolean doGraphicsTests) throws Throwable {
 
-        String2.log("\n*** testQSWind");
+        String2.log("\n*** EDDGridSideBySide.testQSWind");
         testVerboseOn();
         String name, tName, userDapQuery, results, expected, error;
         String dapQuery;
@@ -580,7 +614,7 @@ public class EDDGridSideBySide extends EDDGrid {
         dapQuery = "x_wind[4:8][0][(-20)][(80)],y_wind[4:8][0][(-20)][(80)]";
         tName = qsWind8.makeNewFileForDapQuery(null, null, dapQuery, EDStatic.fullTestCacheDirectory, 
             qsWind8.className() + "1", ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         expected = 
 /* pre 2010-07-19 was
@@ -611,7 +645,7 @@ public class EDDGridSideBySide extends EDDGrid {
         dapQuery = "x_wind[4:8][0][(-20)][(80)]";
         tName = qsWind8.makeNewFileForDapQuery(null, null, dapQuery, EDStatic.fullTestCacheDirectory, 
             qsWind8.className() + "2", ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         expected = 
 /* pre 2010-10-26 was 
@@ -634,7 +668,7 @@ public class EDDGridSideBySide extends EDDGrid {
         dapQuery = "y_wind[4:8][0][(-20)][(80)]";
         tName = qsWind8.makeNewFileForDapQuery(null, null, dapQuery, EDStatic.fullTestCacheDirectory, 
             qsWind8.className() + "3", ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         expected = 
 /* pre 2010-10-26 was
@@ -656,7 +690,7 @@ public class EDDGridSideBySide extends EDDGrid {
 
         if (doGraphicsTests) {
             //graphics requests with no .specs 
-            String2.log("\n****************** EDDGridSideBySide test get vector map\n");
+            String2.log("\n*** EDDGridSideBySide test get vector map\n");
             String vecDapQuery =  //minimal settings
                 "x_wind[2][][(29):(50)][(225):(247)],y_wind[2][][(29):(50)][(225):(247)]"; 
             tName = qsWind8.makeNewFileForDapQuery(null, null, vecDapQuery, EDStatic.fullTestCacheDirectory, 
@@ -725,6 +759,7 @@ public class EDDGridSideBySide extends EDDGrid {
                 "&.draw=vectors&.vars=longitude|latitude|x_wind|y_wind&.color=0xFF9900",
                 EDStatic.fullTestCacheDirectory, qsWind8.className() + "_vectors", ".png"); 
             SSR.displayInBrowser("file://" + EDStatic.fullTestCacheDirectory + tName);
+        /* */
         }
     }
 
@@ -735,17 +770,17 @@ public class EDDGridSideBySide extends EDDGrid {
      * @throws Throwable if trouble
      */
     public static void testQSStress() throws Throwable {
-        String2.log("\n*** testQSWind");
+        String2.log("\n*** EDDGridSideBySide.testQSWind");
         testVerboseOn();
         String name, tName, userDapQuery, results, expected, error;
         String dapQuery;
-        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT(1.1306736E9), "2005-10-30T12:00:00", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(1.1306736E9), "2005-10-30T12:00:00Z", "");
 
         EDDGrid qs1 = (EDDGrid)oneFromDatasetsXml(null, "erdQSstress1day");
         dapQuery = "taux[0:11][0][(-20)][(40)],tauy[0:11][0][(-20)][(40)]";
         tName = qs1.makeNewFileForDapQuery(null, null, dapQuery, EDStatic.fullTestCacheDirectory, 
             qs1.className() + "sbsxy", ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         expected = 
 "time,altitude,latitude,longitude,taux,tauy\n" +
@@ -767,7 +802,7 @@ public class EDDGridSideBySide extends EDDGrid {
         dapQuery = "taux[0:2:10][0][(-20)][(40)],tauy[0:2:10][0][(-20)][(40)]";
         tName = qs1.makeNewFileForDapQuery(null, null, dapQuery, EDStatic.fullTestCacheDirectory, 
             qs1.className() + "sbsxy2a", ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         expected = 
 "time,altitude,latitude,longitude,taux,tauy\n" +
@@ -783,7 +818,7 @@ public class EDDGridSideBySide extends EDDGrid {
         dapQuery = "taux[1:2:11][0][(-20)][(40)],tauy[1:2:11][0][(-20)][(40)]";
         tName = qs1.makeNewFileForDapQuery(null, null, dapQuery, EDStatic.fullTestCacheDirectory, 
             qs1.className() + "sbsxy2b", ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         expected = 
 "time,altitude,latitude,longitude,taux,tauy\n" +
@@ -800,7 +835,7 @@ public class EDDGridSideBySide extends EDDGrid {
         dapQuery = "taux[0:2:6][0][(-20)][(40):(40.5)],tauy[0:2:6][0][(-20)][(40):(40.5)]";
         tName = qs1.makeNewFileForDapQuery(null, null, dapQuery, EDStatic.fullTestCacheDirectory, 
             qs1.className() + "sbsxy2c", ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         expected = 
 "time,altitude,latitude,longitude,taux,tauy\n" +
@@ -848,7 +883,7 @@ public class EDDGridSideBySide extends EDDGrid {
         dapQuery = "taux[(1.130328E9):(1.1309328E9)][0][(-20)][(40)]";
         tName = qsx1.makeNewFileForDapQuery(null, null, dapQuery, EDStatic.fullTestCacheDirectory, 
             qsz1.className() + "sbsx", ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         expected = 
 "time,altitude,latitude,longitude,taux\n" +
@@ -867,7 +902,7 @@ public class EDDGridSideBySide extends EDDGrid {
         dapQuery = "tauy[(1.130328E9):(1.1309328E9)][0][(-20)][(40)]";
         tName = qsy1.makeNewFileForDapQuery(null, null, dapQuery, EDStatic.fullTestCacheDirectory, 
             qsy1.className() + "sbsy", ".csv"); 
-        results = new String((new ByteArray(EDStatic.fullTestCacheDirectory + tName)).toArray());
+        results = String2.directReadFrom88591File(EDStatic.fullTestCacheDirectory + tName);
         //String2.log(results);
         expected = 
 "results=time,altitude,latitude,longitude,tauy\n" +
@@ -926,7 +961,7 @@ public class EDDGridSideBySide extends EDDGrid {
     /** This test making transparentPngs.
      */
     public static void testTransparentPng() throws Throwable {
-        String2.log("\n*** testTransparentPng");
+        String2.log("\n*** EDDGridSideBySide.testTransparentPng");
         testVerboseOn();
         String dir = EDStatic.fullTestCacheDirectory;
         String name, tName, userDapQuery, results, expected, error;
@@ -1002,8 +1037,8 @@ public class EDDGridSideBySide extends EDDGrid {
      */
     public static void test(boolean doGraphicsTests) throws Throwable {
 
-        String2.log("\n****************** EDDGridSideBySide.test() *****************\n");
-
+        String2.log("\n*** EDDGridSideBySide.test()\n");
+/* for releases, this line should have open/close comment */
         //usually done
         testQSWind(doGraphicsTests); 
         testQSStress();
@@ -1011,6 +1046,7 @@ public class EDDGridSideBySide extends EDDGrid {
 
         //usually not done
         //testOneTime();
+        /* */
 
 
         String2.log("\n*** EDDGridSideBySide.test finished.");

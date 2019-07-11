@@ -178,19 +178,19 @@ public abstract class EDDTableFromAsciiService extends EDDTable{
      *
      * @param tDatasetType  e.g., EDDTableFromAsciiServiceNOS
      * @param tDatasetID is a very short string identifier 
-     *   (required: just safe characters: A-Z, a-z, 0-9, _, -, or .)
+     *  (recommended: [A-Za-z][A-Za-z0-9_]* )
      *   for this dataset. See EDD.datasetID().
      * @param tAccessibleTo is a comma separated list of 0 or more
      *    roles which will have access to this dataset.
      *    <br>If null, everyone will have access to this dataset (even if not logged in).
      *    <br>If "", no one will have access to this dataset.
-     * @param tOnChange 0 or more actions (starting with "http://" or "mailto:")
+     * @param tOnChange 0 or more actions (starting with http://, https://, or mailto: )
      *    to be done whenever the dataset changes significantly
      * @param tFgdcFile This should be the fullname of a file with the FGDC
      *    that should be used for this dataset, or "" (to cause ERDDAP not
      *    to try to generate FGDC metadata for this dataset), or null (to allow
      *    ERDDAP to try to generate FGDC metadata for this dataset).
-     * @param tIso19115 This is like tFgdcFile, but for the ISO 19119-2/19139 metadata.
+     * @param tIso19115File This is like tFgdcFile, but for the ISO 19119-2/19139 metadata.
      * @param tAddGlobalAttributes are global attributes which will
      *   be added to (and take precedence over) the data source's global attributes.
      *   This may be null if you have nothing to add.
@@ -225,10 +225,10 @@ public abstract class EDDTableFromAsciiService extends EDDTable{
      *        describing how to interpret source time values 
      *        (which should always be numeric since they are a dimension of a grid)
      *        (e.g., "seconds since 1970-01-01T00:00:00").
-     *      <li> a org.joda.time.format.DateTimeFormat string
+     *      <li> a java.time.format.DateTimeFormatter string
      *        (which is compatible with java.text.SimpleDateFormat) describing how to interpret 
      *        string times  (e.g., the ISO8601TZ_FORMAT "yyyy-MM-dd'T'HH:mm:ssZ", see 
-     *        http://www.joda.org/joda-time/apidocs/org/joda/time/format/DateTimeFormat.html or 
+     *        https://docs.oracle.com/javase/8/docs/api/index.html?java/time/format/DateTimeFomatter.html or 
      *        https://docs.oracle.com/javase/8/docs/api/index.html?java/text/SimpleDateFormat.html)).
      *      </ul>
      * @param tReloadEveryNMinutes indicates how often the source should
@@ -285,7 +285,7 @@ public abstract class EDDTableFromAsciiService extends EDDTable{
         if (tLicense != null)
             combinedGlobalAttributes.set("license", 
                 String2.replaceAll(tLicense, "[standard]", EDStatic.standardLicense));
-        combinedGlobalAttributes.removeValue("null");
+        combinedGlobalAttributes.removeValue("\"null\"");
 
         //create structures to hold the sourceAttributes temporarily
         int ndv = tDataVariables.length;
@@ -389,9 +389,9 @@ public abstract class EDDTableFromAsciiService extends EDDTable{
 
         //finally
         if (verbose) String2.log(
-            (reallyVerbose? "\n" + toString() : "") +
+            (debugMode? "\n" + toString() : "") +
             "\n*** " + tDatasetType + " " + datasetID + " constructor finished. TIME=" + 
-            (System.currentTimeMillis() - constructionStartMillis) + "\n"); 
+            (System.currentTimeMillis() - constructionStartMillis) + "ms\n"); 
 
     }
 
@@ -419,24 +419,14 @@ public abstract class EDDTableFromAsciiService extends EDDTable{
      * @return a table where some of the PrimitiveArrays have data, some don't
      */
     public Table getTable(String encodedSourceUrl) throws Throwable {
-        BufferedReader in = getBufferedReader(encodedSourceUrl);
-        String s = in.readLine();
-        s = findBeforeData(in, s);
-        Table table = getTable(in, s);
-        in.close();
-        return table;
-    }
-
-    /** 
-     * getDataForDapQuery may use this to get the BufferedReader for the encodedSourceUrl.
-     *
-     * @throws Throwable if trouble, e.g., unable to connect to encodedSourceUrl
-     */
-    protected BufferedReader getBufferedReader(String encodedSourceUrl) throws Throwable {
-
-        if (verbose) String2.log(encodedSourceUrl);
-        InputStream is = SSR.getUrlInputStream(encodedSourceUrl); 
-        return new BufferedReader(new InputStreamReader(is));
+        BufferedReader in = SSR.getBufferedUrlReader(encodedSourceUrl);
+        try {
+            String s = in.readLine();
+            s = findBeforeData(in, s);
+            return getTable(in, s);
+        } finally {
+            in.close();
+        }
     }
 
 
@@ -507,8 +497,7 @@ public abstract class EDDTableFromAsciiService extends EDDTable{
      * @return a table where some of the PrimitiveArrays have data, some don't
      * @throws throwable if trouble
      */
-    protected Table getTable(BufferedReader in, 
-        String s) throws Throwable {
+    protected Table getTable(BufferedReader in, String s) throws Throwable {
 
         if (s != null && s.length() == 0)
             s = in.readLine();
@@ -561,7 +550,7 @@ public abstract class EDDTableFromAsciiService extends EDDTable{
             //String2.log(s);
         }
 
-        //String2.log(table.dataToCSVString());
+        //String2.log(table.dataToString());
         return table;
     }
 

@@ -73,18 +73,19 @@ public class SgtMap  {
     public static boolean reallyVerbose = false;
 
     /** The font family to use. */
-    public static String fontFamily = "Bitstream Vera Sans"; //"LucidaSansRegular", //"Luxi Sans", //"Dialog"; //"Lucida Sans"; //"SansSerif";
+    public static String fontFamily = "DejaVu Sans";  //"DejaVu Sans" "Bitstream Vera Sans"; //"LucidaSansRegular", //"Luxi Sans", //"Dialog"; //"Lucida Sans"; //"SansSerif";
     public static String fullPrivateDirectory = SSR.getTempDirectory();
     public static double defaultAxisLabelHeight = SgtUtil.DEFAULT_AXIS_LABEL_HEIGHT; 
     public static double defaultLabelHeight = SgtUtil.DEFAULT_LABEL_HEIGHT; 
 
     public static Color oceanColor  = new Color(128, 128, 128);
     public static Color landColor   = new Color(204, 204, 204);  //lynn uses 191
-    public static Color landMaskStrokeColor = Color.DARK_GRAY;
+    public static Color landMaskStrokeColor = Color.DARK_GRAY;  //is 64,64,64
     public static Color nationsColor = Color.DARK_GRAY;
-    public static Color statesColor = new Color(119, 0, 119); //192, 64, 192); //128, 32, 32);
+    public static Color statesColor = new Color(144, 144, 144); //119, 0, 119); //192, 64, 192); //128, 32, 32);
     public static Color riversColor = new Color(122, 170, 210);  //matches ocean.cpt and topography.cpt
-    public static Color lakesColor  = riversColor;  
+    public static Color lakesColor  = riversColor; 
+    public static boolean drawPoliticalBoundaries = true; //a kill switch for nation and state boundaries
     public final static int NO_LAKES_AND_RIVERS = 0;       //used for drawLakesAndRivers
     public final static int STROKE_LAKES_AND_RIVERS = 1;   //strokes lakes and rivers
     public final static int FILL_LAKES_AND_RIVERS = 2;     //fills+strokes lakes, strokes rivers
@@ -455,6 +456,11 @@ public class SgtMap  {
         //g2.setColor(Color.red);            
         //g2.drawRect(0, 0, imageWidthPixels-1, imageHeightPixels-1);
       
+        if (legendTitle1 == null) 
+            legendTitle1 = "";
+        if (legendTitle2 == null) 
+            legendTitle2 = "";
+
         //set the clip region
         g2.setClip(baseULXPixel, baseULYPixel, imageWidthPixels, imageHeightPixels);
         {
@@ -464,10 +470,10 @@ public class SgtMap  {
 
             if (gridGrid != null && contourGrid != null && gridGrid == contourGrid)
                 Test.error(String2.ERROR + " in SgtMap.makeMap: gridGrid == contourGrid!");
-            if (!Math2.isFinite(minX)) throw new SimpleException(String2.ERROR + " when making map: minLon wasn't set.");
-            if (!Math2.isFinite(maxX)) throw new SimpleException(String2.ERROR + " when making map: maxLon wasn't set.");
-            if (!Math2.isFinite(minY)) throw new SimpleException(String2.ERROR + " when making map: minLat wasn't set.");
-            if (!Math2.isFinite(maxY)) throw new SimpleException(String2.ERROR + " when making map: maxLat wasn't set.");
+            if (!Double.isFinite(minX)) throw new SimpleException(String2.ERROR + " when making map: minLon wasn't set.");
+            if (!Double.isFinite(maxX)) throw new SimpleException(String2.ERROR + " when making map: maxLon wasn't set.");
+            if (!Double.isFinite(minY)) throw new SimpleException(String2.ERROR + " when making map: minLat wasn't set.");
+            if (!Double.isFinite(maxY)) throw new SimpleException(String2.ERROR + " when making map: maxLat wasn't set.");
             if (reallyVerbose) String2.log("  minX=" + minX + " maxX=" + maxX + " minY=" + minY + " maxY=" + maxY);
 
             double axisLabelHeight = fontScale * defaultAxisLabelHeight;
@@ -527,7 +533,7 @@ public class SgtMap  {
                 maxBoldCharsPerLine = SgtUtil.maxBoldCharsPerLine(maxCharsPerLine);
 
                 double legendLineCount = 
-                    ((legendTitle1 == null && legendTitle2 == null)? -1 : 1); //for legend title   //???needs adjustment for larger font size
+                    String2.isSomething(legendTitle1 + legendTitle2)? 1 : -1; //for legend title   //???needs adjustment for larger font size
                             
                 if (plotGridData && gridBoldTitle != null) {
                     shortBoldLines = SgtUtil.makeShortLines(maxBoldCharsPerLine, gridBoldTitle, null, null);
@@ -648,9 +654,9 @@ public class SgtMap  {
             //but if transparent, turn antialiasing OFF (fuzzy pixels make a halo around things)
             Object originalAntialiasing = 
                 g2.getRenderingHint(RenderingHints.KEY_ANTIALIASING); 
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,                  
-                transparent? RenderingHints.VALUE_ANTIALIAS_OFF : 
-                             RenderingHints.VALUE_ANTIALIAS_ON); 
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, transparent?
+                RenderingHints.VALUE_ANTIALIAS_OFF :
+                RenderingHints.VALUE_ANTIALIAS_ON); 
 
             //draw legend basics
             if (!transparent) {
@@ -661,19 +667,13 @@ public class SgtMap  {
                 g2.drawRect(legendBoxULX, legendBoxULY, legendBoxWidth - 1, legendBoxHeight - 1);
 
                 //legend titles
-                if (legendTitle1 == null && legendTitle2 == null) {
-                    //no legend title to draw
-                } else {
-                    if (legendTitle1 == null) 
-                        legendTitle1 = "";
-                    if (legendTitle2 == null) 
-                        legendTitle2 = "";
+                if (String2.isSomething(legendTitle1 + legendTitle2)) {
                     if (legendPosition == SgtUtil.LEGEND_BELOW) {
                         //draw LEGEND_BELOW
                         legendTextY = SgtUtil.drawHtmlText(g2, legendTextX, legendTextY, 
                             0, fontFamily, labelHeightPixels * 3 / 2, false, 
-                            "<b><color=#2600aa>" + SgtUtil.encodeAsHtml(legendTitle1 + " " + 
-                                legendTitle2) + "</color></b>");
+                            "<strong><color=#2600aa>" + SgtUtil.encodeAsHtml(legendTitle1 + " " + 
+                                legendTitle2) + "</color></strong>");
                         legendTextY += labelHeightPixels / 2;
                     } else {
                         //draw LEGEND_RIGHT
@@ -681,11 +681,11 @@ public class SgtMap  {
                         if (legendTitle1.length() > 0)
                             legendTextY = SgtUtil.drawHtmlText(g2, tx, legendTextY, 
                                 0, fontFamily, labelHeightPixels * 5 / 4, false, 
-                                "<b><color=#2600aa>" + SgtUtil.encodeAsHtml(legendTitle1) + "</color></b>");
+                                "<strong><color=#2600aa>" + SgtUtil.encodeAsHtml(legendTitle1) + "</color></strong>");
                         if (legendTitle2.length() > 0)
                             legendTextY = SgtUtil.drawHtmlText(g2, tx, legendTextY, 
                                 0, fontFamily, labelHeightPixels * 5 / 4, false, 
-                                "<b><color=#2600aa>" + SgtUtil.encodeAsHtml(legendTitle2) + "</color></b>");
+                                "<strong><color=#2600aa>" + SgtUtil.encodeAsHtml(legendTitle2) + "</color></strong>");
                         legendTextY += labelHeightPixels * 3 / 2;
                     }
 
@@ -710,7 +710,7 @@ public class SgtMap  {
                         }
                         g2.drawImage(bi2, ulx, uly, tSize, tSize, null); //null=ImageObserver 
                         if (reallyVerbose) 
-                            String2.log("  draw logo time=" + (System.currentTimeMillis() - time));
+                            String2.log("  draw logo time=" + (System.currentTimeMillis() - time) + "ms");
                     }
                 }
             }
@@ -908,14 +908,14 @@ public class SgtMap  {
                         int ty = baseULYPixel + imageHeightPixels - legendInsideBorder - labelHeightPixels;
                         ty = SgtUtil.drawHtmlText(g2, colorBarBoxLeftX + colorBarBoxWidth / 2, 
                             ty, 1, fontFamily, labelHeightPixels, false,
-                            "<b>" + SgtUtil.encodeAsHtml(gridBoldTitle) + "</b>");
+                            "<strong>" + SgtUtil.encodeAsHtml(gridBoldTitle) + "</strong>");
                         SgtUtil.drawHtmlText(g2, colorBarBoxLeftX + colorBarBoxWidth / 2, 
                             ty, 1, fontFamily, labelHeightPixels, false, SgtUtil.encodeAsHtml(gridUnits));
 
                         //add legend text
                         legendTextY = SgtUtil.drawHtmlText(g2, legendTextX, legendTextY, 
                             1, fontFamily, labelHeightPixels, false, 
-                            "<b>" + SgtUtil.encodeAsHtml(gridBoldTitle) + "</b>");
+                            "<strong>" + SgtUtil.encodeAsHtml(gridBoldTitle) + "</strong>");
                         legendTextY = SgtUtil.drawHtmlText(g2, legendTextX, legendTextY, 
                             1, fontFamily, labelHeightPixels, false, SgtUtil.encodeAsHtml(gridUnits));
                         legendTextY = SgtUtil.drawHtmlText(g2, legendTextX, legendTextY, 
@@ -1003,7 +1003,7 @@ public class SgtMap  {
                         legendTextY += labelHeightPixels/2; //for demo line
                         legendTextY = SgtUtil.drawHtmlText(g2, legendTextX, legendTextY, 
                             1, fontFamily, labelHeightPixels, false, 
-                                "<b>" + SgtUtil.encodeAsHtml(contourBoldTitle) + "</b>");
+                                "<strong>" + SgtUtil.encodeAsHtml(contourBoldTitle) + "</strong>");
                         legendTextY = SgtUtil.drawHtmlText(g2, legendTextX, legendTextY, 
                             1, fontFamily, labelHeightPixels, false, SgtUtil.encodeAsHtml(contourUnits));
                         legendTextY = SgtUtil.drawHtmlText(g2, legendTextX, legendTextY, 
@@ -1083,7 +1083,7 @@ public class SgtMap  {
                 }
 
                 //*** draw the StateBOUNDARY
-                if (boundaryResolution < cRes && !transparent) {
+                if (drawPoliticalBoundaries && boundaryResolution < cRes && !transparent) {
                     CartesianGraph graph = new CartesianGraph("", xt, yt);
                     Layer layer = new Layer("stateBoundary", layerDimension2D);
                     layerNames.add(layer.getId());
@@ -1101,7 +1101,7 @@ public class SgtMap  {
                 }
 
                 //*** draw the NationalBOUNDARY 
-                if (!transparent) {
+                if (drawPoliticalBoundaries && !transparent) {
                     CartesianGraph graph = new CartesianGraph("", xt, yt);
                     Layer layer = new Layer("nationalBoundary", layerDimension2D);
                     layerNames.add(layer.getId());
@@ -1368,7 +1368,7 @@ public class SgtMap  {
                         //point legend text
                         legendTextY = SgtUtil.drawHtmlText(g2, legendTextX, legendTextY, 
                             1, fontFamily, labelHeightPixels, false, 
-                            "<b>" + SgtUtil.encodeAsHtml(gdl.boldTitle) + "</b>");
+                            "<strong>" + SgtUtil.encodeAsHtml(gdl.boldTitle) + "</strong>");
                         legendTextY = SgtUtil.drawHtmlText(g2, legendTextX, legendTextY, 
                             1, fontFamily, labelHeightPixels, false, 
                             SgtUtil.encodeAsHtml(gdl.title2));
@@ -1381,7 +1381,7 @@ public class SgtMap  {
                     }
                     if (reallyVerbose)
                         String2.log("  graphDataLayer" + i + " time=" +
-                            (System.currentTimeMillis() - tTime));
+                            (System.currentTimeMillis() - tTime) + "ms");
                 }
 
                 //*** draw a graph with the AXIS LINES and actually draw the background color
@@ -1469,7 +1469,7 @@ public class SgtMap  {
                 if (colorMap != null) 
                     colorMap.resetStats();
                 if (reallyVerbose) String2.log("  set up the graph time=" + 
-                    (System.currentTimeMillis() - time));
+                    (System.currentTimeMillis() - time) + "ms");
                 //String2.log("  before jPane.draw: " + Math2.memoryString());
                 time = System.currentTimeMillis();
                 jPane.draw(g2);  //comment out for memory leak tests
@@ -1530,7 +1530,7 @@ public class SgtMap  {
             if (reallyVerbose) {
                 if (reallyVerbose && colorMap != null) String2.log(colorMap.getStats());
                 if (reallyVerbose) String2.log("  SgtMap.makeMap draw the graph time=" + 
-                    (System.currentTimeMillis() - time));
+                    (System.currentTimeMillis() - time) + "ms");
                 //Math2.gcAndWait(); //Part of debug.  Before getMemoryString().  Outside of timing system.
                 //String2.log("  SgtMap.makeMap after jPane.draw: " + Math2.memoryString());
                 //String2.log("  SgtMap.makeMap after gc: " + Math2.memoryString());
@@ -1543,7 +1543,7 @@ public class SgtMap  {
 
             //display time to makeMap
             if (verbose) String2.log("}} SgtMap.makeMap done. TOTAL TIME=" + 
-                (System.currentTimeMillis() - startTime) + "\n");
+                (System.currentTimeMillis() - startTime) + "ms\n");
             g2.setClip(null); //clear the clip region
 
             //return the results
@@ -1704,9 +1704,13 @@ public class SgtMap  {
 
         //Coordinates in SGT:
         //   Graph - 'U'ser coordinates      (graph's axes' coordinates)
-        //   Layer - 'P'hysical coordinates  (e.g., psuedo-inches, 0,0 is lower left)
+        //   Layer - 'P'hysical coordinates  (e.g., pseudo-inches, 0,0 is lower left)
         //   JPane - 'D'evice coordinates    (pixels, 0,0 is upper left)
 
+        if (!drawPoliticalBoundaries) {
+            drawNationalBoundaries = false;
+            drawStateBoundaries = false;
+        }
       
         //set the clip region
         g2.setClip(null); //clear any previous clip region  //this is necessary!
@@ -1788,10 +1792,14 @@ public class SgtMap  {
                 long readTime = System.currentTimeMillis();
                 //this doesn't change the +/-180 status (just checks for odd situations).
                 //this does subset the data if more dense or over a bigger range then nec.
-                grid.makeLonPM180AndSubset(minX, maxX, minY, maxY, 
-                    graphWidthPixels, graphHeightPixels);
+//2017-10-23 This isn't needed (at least for ERDDAP, not so sure about CWBrowsers)
+//  and has a serious bug (see erdVH3chla8day in leaflet)
+//  that sometimes erroneously tries to change the pm180 status by making a huge array,
+//  that leads to out-of-memory.
+//                grid.makeLonPM180AndSubset(minX, maxX, minY, maxY, 
+//                    graphWidthPixels, graphHeightPixels);
                 if (reallyVerbose) String2.log("  SgtMap.makeCleanMap grid readGrd time=" + 
-                    (System.currentTimeMillis() - readTime));
+                    (System.currentTimeMillis() - readTime) + "ms");
                 DataHelper.scale(grid.data, gridScaleFactor * gridAltScaleFactor, gridAltOffset);
                 SimpleGrid simpleGrid = new SimpleGrid(grid.data, grid.lon, grid.lat, ""); //title
 
@@ -1908,7 +1916,7 @@ public class SgtMap  {
             if (reallyVerbose) {
                 if (colorMap != null) String2.log(colorMap.getStats());
                 String2.log("  SgtMap.makeCleanMap draw graph time=" + 
-                    (System.currentTimeMillis() - time));
+                    (System.currentTimeMillis() - time) + "ms");
                 //Math2.gcAndWait(); //Part of debug.  Before getMemoryString().  Outside of timing system.
                 //String2.log("  SgtMap.makeCleanMap after jPane.draw: " + Math2.memoryString());
                 //String2.log("  SgtMap.makeCleanMap after gc: " + Math2.memoryString());
@@ -1917,7 +1925,7 @@ public class SgtMap  {
             //display time to makeCleanMap
             if (verbose) String2.log("  SgtMap.makeCleanMap done. res=" + 
                 boundaryResolution + " Total TIME=" + 
-                (System.currentTimeMillis() - startTime));
+                (System.currentTimeMillis() - startTime) + "ms");
             g2.setClip(null); //clear the clip region
 
         }
@@ -2058,7 +2066,7 @@ public class SgtMap  {
         globalAttributes.set("title",                     BATHYMETRY_BOLD_TITLE);
         globalAttributes.set("summary",                   BATHYMETRY_SUMMARY);
         globalAttributes.set("keywords",                  "Oceans > Bathymetry/Seafloor Topography > Bathymetry");
-        globalAttributes.set("id",                        "SampledFrom" + etopoFileName);
+        globalAttributes.set("id",                        "ETOPO"); //2019-05-07 was "SampledFrom" + etopoFileName);
         globalAttributes.set("naming_authority",          FileNameUtility.getNamingAuthority());
         globalAttributes.set("keywords_vocabulary",       FileNameUtility.getKeywordsVocabulary());
         globalAttributes.set("cdm_data_type",             FileNameUtility.getCDMDataType());
@@ -2082,8 +2090,8 @@ public class SgtMap  {
         globalAttributes.set("geospatial_lat_resolution", Math.abs(grid.latSpacing));
         globalAttributes.set("geospatial_lon_units",      FileNameUtility.getLonUnits());
         globalAttributes.set("geospatial_lon_resolution", Math.abs(grid.lonSpacing));
-        //globalAttributes.set("time_coverage_start",       Calendar2.formatAsISODateTimeT(FileNameUtility.getStartCalendar(name)) + "Z");
-        //globalAttributes.set("time_coverage_end",         Calendar2.formatAsISODateTimeT(FileNameUtility.getEndCalendar(name)) + "Z");
+        //globalAttributes.set("time_coverage_start",       Calendar2.formatAsISODateTimeTZ(FileNameUtility.getStartCalendar(name)));
+        //globalAttributes.set("time_coverage_end",         Calendar2.formatAsISODateTimeTZ(FileNameUtility.getEndCalendar(name)));
         //globalAttributes.set("time_coverage_resolution", "P12H"));
         globalAttributes.set("standard_name_vocabulary",  FileNameUtility.getStandardNameVocabulary());
         globalAttributes.set("license",                   FileNameUtility.getLicense());
@@ -2401,7 +2409,7 @@ public class SgtMap  {
 
         //draw the state boundary
         LineAttribute lineAttribute;
-        if (boundaryResolution != CRUDE_RESOLUTION) {
+        if (drawPoliticalBoundaries && boundaryResolution != CRUDE_RESOLUTION) {
             graph = new CartesianGraph("", xt, yt);
             layer = new Layer("state", layerDimension2D);
             layerNames.add(layer.getId());
@@ -2419,18 +2427,20 @@ public class SgtMap  {
 
         //draw the national boundary
         graph = new CartesianGraph("", xt, yt);
-        layer = new Layer("national", layerDimension2D);
-        layerNames.add(layer.getId());
-        jPane.add(layer);      //calls layer.setPane(this);
-        layer.setGraph(graph); //calls graph.setLayer(this);
         graph.setClip(xUserRange.start, xUserRange.end,
                       yUserRange.start, yUserRange.end);
         graph.setClipping(true);
-        lineAttribute = new LineAttribute();
-        lineAttribute.setColor(nationsColor);
-        graph.setData(
-            nationalBoundaries.getSgtLine(boundaryResolution, minX, maxX, minY, maxY), 
-            lineAttribute); 
+        if (drawPoliticalBoundaries) {
+            layer = new Layer("national", layerDimension2D);
+            layerNames.add(layer.getId());
+            jPane.add(layer);      //calls layer.setPane(this);
+            layer.setGraph(graph); //calls graph.setLayer(this);
+            lineAttribute = new LineAttribute();
+            lineAttribute.setColor(nationsColor);
+            graph.setData(
+                nationalBoundaries.getSgtLine(boundaryResolution, minX, maxX, minY, maxY), 
+                lineAttribute); 
+        }
 
         //create the x axes
         Font myLabelFont = new Font(fontFamily, Font.PLAIN, 9); 
@@ -3312,7 +3322,7 @@ String2.log("err: " + errCatcher.getString());
             //Image2.saveAsJpeg(image, gridDir + imageName, 1f);
             //Image2.saveAsGif216(image, gridDir + imageName, false); //use dithering
             imageTime = System.currentTimeMillis() - imageTime;
-            String2.log("  imageTime=" + imageTime + "\n  imageName=" + gridDir + imageName);
+            String2.log("  imageTime=" + imageTime + "ms\n  imageName=" + gridDir + imageName);
 
             //make an html file with image and NcCDL info (if .nc or .grd)
             StringBuilder sb = new StringBuilder();
@@ -3321,7 +3331,7 @@ String2.log("err: " + errCatcher.getString());
                 "<head>\n" +
                 "  <title>" + gridDir + gridName + "</title>\n" +
                 "</head>\n" +
-                "<body bgcolor=\"white\" text=\"black\">\n" +
+                "<body style=\"background-color:white; color:black;\">\n" +
                 "  <img src=\"file://" + gridDir + imageName + "\">\n");
             if (gridExt.equals(".nc") || gridExt.equals(".grd"))
                 sb.append("<p><pre>\n" + NcHelper.readCDL(gridDir + gridName) + "\n</pre>\n");
@@ -3337,12 +3347,12 @@ String2.log("err: " + errCatcher.getString());
             if (!(gridDir + gridName).equals(args0))
                 File2.delete(gridDir + gridName);
 
-            String2.log("  SgtMap.main is finished. time=" + (System.currentTimeMillis() - time) + " ms\n" +
+            String2.log("  SgtMap.main is finished. time=" + (System.currentTimeMillis() - time) + "ms\n" +
                 Math2.memoryString());
         } catch (Exception e) {
             String2.log(MustBe.throwableToString(e));
             if (args != null && args.length > 0) 
-                String2.log(NcHelper.dumpString(args[0], true));
+                String2.log(NcHelper.ncdump(args[0], ""));
         }
         String2.pressEnterToContinue();
     }

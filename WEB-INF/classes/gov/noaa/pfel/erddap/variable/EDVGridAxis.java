@@ -8,12 +8,15 @@ import com.cohort.array.Attributes;
 import com.cohort.array.DoubleArray;
 import com.cohort.array.IntArray;
 import com.cohort.array.PrimitiveArray;
+import com.cohort.array.StringArray;
 import com.cohort.util.Calendar2;
 import com.cohort.util.Math2;
 import com.cohort.util.MustBe;
 import com.cohort.util.String2;
 import com.cohort.util.Test;
 
+import gov.noaa.pfel.coastwatch.griddata.NcHelper;
+import gov.noaa.pfel.erddap.dataset.EDD;
 import gov.noaa.pfel.erddap.util.EDStatic;
 
 
@@ -25,7 +28,8 @@ import gov.noaa.pfel.erddap.util.EDStatic;
  */
 public class EDVGridAxis extends EDV { 
 
-    protected PrimitiveArray sourceValues;
+    protected String parentDatasetID;
+    private PrimitiveArray sourceValues;
     protected boolean isAscending = false;  //for the sourceValues (dest may be flipped)
     protected boolean isEvenlySpaced = false;
     protected double averageSpacing = Double.NaN;
@@ -43,6 +47,9 @@ public class EDVGridAxis extends EDV {
      *
      * <p>Call setActualRangeFromDestinationMinMax() sometime after this returns.
      *
+     * @param tParentDatasetID This is needed if dimensionValuesInMemory is false,
+     *   so sourceValues sometimes need to be read from 
+     *   [cacheDirectory(tParentDatasetID)]/dimensionSourceValues.nc
      * @param tSourceName the name of the axis variable in the dataset source
      *    (usually with no spaces).
      *    Currently, this doesn't support fixedValue-style names.
@@ -61,7 +68,8 @@ public class EDVGridAxis extends EDV {
      *    There can't be any missing values (or NaN).
      * @throws Throwable if trouble
      */
-    public EDVGridAxis(String tSourceName, String tDestinationName,
+    public EDVGridAxis(String tParentDatasetID,
+        String tSourceName, String tDestinationName,
         Attributes tSourceAttributes, Attributes tAddAttributes, 
         PrimitiveArray tSourceValues) 
         throws Throwable {
@@ -72,18 +80,20 @@ public class EDVGridAxis extends EDV {
             Math.min(tSourceValues.getNiceDouble(0), tSourceValues.getNiceDouble(tSourceValues.size() - 1)),
             Math.max(tSourceValues.getNiceDouble(0), tSourceValues.getNiceDouble(tSourceValues.size() - 1)));
         
-        sourceValues = tSourceValues;
+        parentDatasetID = tParentDatasetID;
+        sourceValues = tSourceValues;  //but continue to work with stable tSourceValues
+        setActualRangeFromDestinationMinMax();
 
         //test if ascending
         //Note that e.g., altitude might be flipped, so destination might be descending. That's ok.
-        String error = sourceValues.isAscending(); 
+        String error = tSourceValues.isAscending(); 
         if (verbose && error.length() > 0)
             String2.log("  " + destinationName + ": " + error);
         isAscending = error.length() == 0;
 
         //if !isAscending, test that it is descending sorted
         if (!isAscending) {
-            String error2 = sourceValues.isDescending();
+            String error2 = tSourceValues.isDescending();
             if (error2.length() > 0) 
                 throw new RuntimeException("AxisVariable=" + destinationName + " isn't sorted.  " + 
                     error + "  " + error2);
@@ -91,7 +101,7 @@ public class EDVGridAxis extends EDV {
 
         //test for ties (after isAscending and isDescending)
         StringBuilder sb = new StringBuilder();
-        if (sourceValues.removeDuplicates(false, sb) > 0)
+        if (tSourceValues.removeDuplicates(false, sb) > 0)
             throw new RuntimeException("AxisVariable=" + destinationName + 
                 " has tied values:\n" + sb.toString());
 
@@ -105,10 +115,11 @@ public class EDVGridAxis extends EDV {
      * This resets isEvenlySpaced.
      */
     public void resetIsEvenlySpaced() {
-        String error = sourceValues.isEvenlySpaced();
+        PrimitiveArray tSourceValues = sourceValues(); //work with stable local reference
+        String error = tSourceValues.isEvenlySpaced();
         if (verbose && error.length() > 0)
             String2.log("  " + destinationName + ": " + error + "\n" + 
-                sourceValues.smallestBiggestSpacing());
+                tSourceValues.smallestBiggestSpacing());
         isEvenlySpaced = error.length() == 0;
     }
 
@@ -116,7 +127,8 @@ public class EDVGridAxis extends EDV {
      * based on destinationMin/Max and averageSpacing.
      */
     public void initializeAverageSpacingAndCoarseMinMax() {
-        int n = sourceValues.size();
+        PrimitiveArray tSourceValues = sourceValues(); //work with stable local reference
+        int n = tSourceValues.size();
         double rough;
         if (n >= 2) {  //averageSpacing may be negative (if axis is high to low)
             averageSpacing = (lastDestinationValue() - firstDestinationValue()) / (n - 1);
@@ -131,25 +143,19 @@ public class EDVGridAxis extends EDV {
 
     /** 
      * This overwrites EDV superclass method to use firstDestinationValue and lastDestinationValue.
-     * "actual_range" is defined in [CDC COARDS] 
-     * http://www.cdc.noaa.gov/cdc/conventions/cdc_netcdf_standard.shtml 
-     * as "actual data range for variable. Same type as unpacked values."
-     * Later, it says "The range values are used to indicate order of storage 
-     * (e.g., 90,-90 would indicate the latitudes started with 90 and ended with -90)."
+     * This is now defined in CF-1.7, with unpacked values, smallest and largest.
      */
     public void setActualRangeFromDestinationMinMax() {
 
         //actual_range is useful information for .das and will be replaced by actual_range of data subset.
+        combinedAttributes.remove("actual_min");
+        combinedAttributes.remove("actual_max");
         combinedAttributes.remove("data_min");
         combinedAttributes.remove("data_max");
-        if (Double.isNaN(destinationMin) && Double.isNaN(destinationMax)) {
-            combinedAttributes.remove("actual_range");
-        } else {
-            PrimitiveArray pa = PrimitiveArray.factory(destinationDataTypeClass(), 2, false);
-            pa.addDouble(firstDestinationValue());
-            pa.addDouble(lastDestinationValue());
-            combinedAttributes.set("actual_range", pa);
-        }
+        PrimitiveArray pa = PrimitiveArray.factory(destinationDataTypeClass(), 2, false);
+        pa.addDouble(Math.min(firstDestinationValue(), lastDestinationValue()));
+        pa.addDouble(Math.max(firstDestinationValue(), lastDestinationValue()));
+        combinedAttributes.set("actual_range", pa);
     }
 
     /**
@@ -158,8 +164,9 @@ public class EDVGridAxis extends EDV {
      * @return a string representation of this EDVGridAxis.
      */
     public String toString() {
+        PrimitiveArray tSourceValues = sourceValues(); //work with stable local reference
         return "EDVGridAxis/" + super.toString() + //has trailing newline
-              "  nValues=" + sourceValues.size() +
+              "  nValues=" + tSourceValues.size() +
             "\n  isAscending=" + isAscending +
             "\n  isEvenlySpaced=" + isEvenlySpaced +
             "\n  averageSpacing=" + averageSpacing +
@@ -178,7 +185,10 @@ public class EDVGridAxis extends EDV {
      */
     public void ensureValid(String errorInMethod) throws Throwable {
         super.ensureValid(errorInMethod);
-        Test.ensureTrue(sourceValues != null && sourceValues.size() > 0,
+        PrimitiveArray tSourceValues = sourceValues(); //work with stable local reference
+        Test.ensureTrue(String2.isSomething(parentDatasetID),
+            errorInMethod + "'parentDatasetID' wasn't specified.");
+        Test.ensureTrue(tSourceValues != null && tSourceValues.size() > 0,
             errorInMethod + "'sourceValues' is null or has 0 values.");
         //ensure no null values???
     }
@@ -200,7 +210,43 @@ public class EDVGridAxis extends EDV {
      * as stored in the source. 
      * Don't change these values.
      */
-    public PrimitiveArray sourceValues() {return sourceValues;}
+    public PrimitiveArray sourceValues() {
+        PrimitiveArray tSourceValues = sourceValues; //get stable reference, as is (may be null)
+        if (tSourceValues != null) 
+            return tSourceValues;
+
+        //<dimensionValuesInMemory> is false, so read from file
+        if (debugMode) String2.log(
+            ">> Reading stored dimension sourceValues for datasetID=" + 
+                parentDatasetID + " variable=" + destinationName);
+        StringArray varsRead = new StringArray();
+        try {
+            PrimitiveArray pas[] = NcHelper.readPAsInNc(
+                EDD.datasetDir(parentDatasetID) + EDD.DIMENSION_VALUES_FILENAME, 
+                new String[]{destinationName}, varsRead);
+            if (varsRead.size() != 1 || !varsRead.get(0).equals(destinationName))
+                throw new RuntimeException(String2.ERROR + ": unexpected varsRead=" + varsRead.toString());
+            sourceValues = pas[0];
+            return pas[0];
+        } catch (Exception e) {
+            String2.log(e.toString());
+            throw new RuntimeException(
+                "Couldn't read stored dimension sourceValues for datasetID=" + 
+                parentDatasetID + " variable=" + destinationName);
+        }
+
+    }
+
+    /** 
+     * When the dataset's dimensionValuesInMemory=false, the dataset
+     * calls this to set the sourceValues to null.
+     * Currently, this ignores the request if sourceValues.length < 100.
+     */
+    public void setSourceValuesToNull() {
+        PrimitiveArray tSourceValues = sourceValues; //get stable reference, as is (may already be null)
+        if (tSourceValues != null && tSourceValues.size() >= 100)
+            sourceValues = null;
+    }
 
     /**
      * This returns the PrimitiveArray with the destination values for this axis. 
@@ -211,7 +257,7 @@ public class EDVGridAxis extends EDV {
      * dest is altitude).
      */
     public PrimitiveArray destinationValues() {
-        return toDestination(sourceValues); //alt and time may modify the values, so use sourceValues.clone()
+        return toDestination(sourceValues()); //alt and time may modify the values, so use sourceValues.clone()
     }
 
     /**
@@ -223,17 +269,18 @@ public class EDVGridAxis extends EDV {
     public PrimitiveArray destinationValue(int which) {
         PrimitiveArray sourceVal = PrimitiveArray.factory(destinationDataTypeClass, 1, false);
 
-        sourceVal.addDouble(sourceValues.getNiceDouble(which)); 
+        sourceVal.addDouble(sourceValues().getNiceDouble(which)); 
         return toDestination(sourceVal); 
     }
 
     /**
      * This returns one of this axis' source values as a nice double destination value. 
-     * EDVTimeStampGridAxis subclass overrides this.
+     * EDVTimeStampGridAxis subclass overwrites this.
      */
     public double destinationDouble(int which) {
+        PrimitiveArray tSourceValues = sourceValues(); //work with stable local reference
         if (scaleAddOffset) {
-            double d = sourceValues.getNiceDouble(which) * scaleFactor + addOffset;
+            double d = tSourceValues.getNiceDouble(which) * scaleFactor + addOffset;
             if (destinationDataTypeClass == double.class)
                 return d;
             if (destinationDataTypeClass == float.class)
@@ -241,18 +288,19 @@ public class EDVGridAxis extends EDV {
             //int type
             return Math2.roundToInt(d);
         } else {
-            return sourceValues.getDouble(which);
+            return tSourceValues.getDouble(which);
         }
     }
 
     /**
      * This returns one of this axis' source values as a nice String destination value. 
      * For most EDVGridAxis, this returns destinationValues (which equal
-     * the String destination values). The Time subclass overrides this.
+     * the String destination values). The Time subclass overwrites this.
      */
     public String destinationString(int which) {
+        PrimitiveArray tSourceValues = sourceValues(); //work with stable local reference
         if (scaleAddOffset) {
-            double d = sourceValues.getNiceDouble(which) * scaleFactor + addOffset;
+            double d = tSourceValues.getNiceDouble(which) * scaleFactor + addOffset;
             if (destinationDataTypeClass == double.class)
                 return "" + d;
             if (destinationDataTypeClass == float.class)
@@ -260,7 +308,7 @@ public class EDVGridAxis extends EDV {
             //int type
             return "" + Math2.roundToInt(d);
         } else {
-            return sourceValues.getString(which);
+            return tSourceValues.getString(which);
         }
     }
 
@@ -269,7 +317,7 @@ public class EDVGridAxis extends EDV {
      * which will return nice Strings if you call pa.getString(i). 
      * Don't change these values.
      * For most EDVGridAxis, this returns destinationValues (which equal
-     * the String destination values). The Time subclass overrides this.
+     * the String destination values). The Time subclass overwrites this.
      * !!!For time, if lots of values (e.g., 10^6), this is SLOW (e.g., 30 seconds)!!!
      */
     public PrimitiveArray destinationStringValues() {return destinationValues();}
@@ -280,17 +328,18 @@ public class EDVGridAxis extends EDV {
      * This overwrites the superclass version so that it just presents valid values.
      * 
      * <p>Because there are always numbers for EDVGridAxes, this always returns a valid list.
-     * <b>If the values range from high to low, this returns a high to low list.
+     * <strong>If the values range from high to low, this returns a high to low list.
      */
     public String sliderCsvValues() throws Throwable {
         byte bar[] = sliderCsvValues;  //local pointer to avoid concurrency problems
         if (bar != null) 
-            return String2.utf8ToString(bar);
+            return String2.utf8BytesToString(bar);
         
         //one time: generate the sliderCsvValues  
         try {
             long eTime = System.currentTimeMillis();
-            int nSourceValues = sourceValues.size();
+            PrimitiveArray tSourceValues = sourceValues(); //work with stable local reference
+            int nSourceValues = tSourceValues.size();
             boolean isTimeStamp = this instanceof EDVTimeStampGridAxis;
             IntArray sliderIndices = new IntArray();
             sliderIndices.add(0);  //add first index
@@ -344,8 +393,8 @@ public class EDVGridAxis extends EDV {
             String csv = sb.toString();
             //String2.log(">>EDVGridAxis.sliderCsvValues nSourceValues=" + 
             //    nSourceValues + " nSliderValues=" + nValues + 
-            //    " time=" + (System.currentTimeMillis() - eTime));
-            sliderCsvValues = String2.getUTF8Bytes(csv); //do last
+            //    " time=" + (System.currentTimeMillis() - eTime) + "ms");
+            sliderCsvValues = String2.stringToUtf8Bytes(csv); //do last
             return csv;
         } catch (Throwable t) {
             EDStatic.rethrowClientAbortException(t);  //first thing in catch{}
@@ -380,13 +429,13 @@ public class EDVGridAxis extends EDV {
             return index;
 
         //it's a valid index
-        int safeSourceSize1 = Math.max(1, sourceValues.size() - 1);
+        int safeSourceSize1 = Math.max(1, sourceValues().size() - 1);
         return Math2.roundToInt((index * (EDV.SLIDER_PIXELS - 1.0)) / safeSourceSize1);
     }
 
     /**
      * This converts a destination double value to a string
-     * (time variable override this to make an iso string).
+     * (time variable overwrite this to make an iso string).
      * NaN returns "";
      *
      * @param destD
@@ -402,7 +451,7 @@ public class EDVGridAxis extends EDV {
 
     /**
      * This converts a destination String value to a destination double
-     * (time variable overrides this to catch iso 8601 strings).
+     * (time variable overwrites this to catch iso 8601 strings).
      * "" or null returns NaN.
      *
      * @param destS
@@ -423,7 +472,7 @@ public class EDVGridAxis extends EDV {
      * This returns the nice double representation of the last destination value for this axis.
      */
     public double lastDestinationValue() {
-        return destinationValue(sourceValues.size() - 1).getNiceDouble(0);
+        return destinationValue(sourceValues().size() - 1).getNiceDouble(0);
     }
 
     /** 
@@ -493,7 +542,7 @@ public class EDVGridAxis extends EDV {
      */
     public String spacingDescription() {
         boolean isTimeStamp = this instanceof EDVTimeStampGridAxis;
-        if (sourceValues.size() == 1) 
+        if (sourceValues().size() == 1) 
             return "(" + EDStatic.EDDGridJustOneValue + ")";
         String s = isTimeStamp? 
             Calendar2.elapsedTimeString(Math.rint(averageSpacing()) * 1000) : 
@@ -510,10 +559,11 @@ public class EDVGridAxis extends EDV {
      */
     public String htmlRangeTooltip() {
         String tUnits = units();
+        PrimitiveArray tSourceValues = sourceValues(); //work with stable local reference
         boolean isTimeStamp = this instanceof EDVTimeStampGridAxis;
         if (tUnits == null || isTimeStamp)
             tUnits = "";
-        if (sourceValues.size() == 1)
+        if (tSourceValues.size() == 1)
             return destinationName + " has 1 value: " + destinationToString(firstDestinationValue()) + 
                 " " + tUnits; 
 
@@ -521,7 +571,7 @@ public class EDVGridAxis extends EDV {
             Calendar2.elapsedTimeString(Math.rint(averageSpacing()) * 1000) : 
             "" + Math2.floatToDouble(averageSpacing()) + " " + tUnits;
         return 
-            destinationName + " has " + sourceValues.size() + " values<br>" +
+            destinationName + " has " + tSourceValues.size() + " values<br>" +
             "ranging from " + destinationToString(firstDestinationValue()) + 
                      " to " + destinationToString(lastDestinationValue()) + " " + tUnits + "<br>" +
             "with " + 
@@ -565,7 +615,7 @@ public class EDVGridAxis extends EDV {
             return -1;
 
         if (isAscending)
-            return sourceValues.binaryFindClosest(sourceD);
-        return sourceValues.linearFindClosest(sourceD);
+            return sourceValues().binaryFindClosest(sourceD);
+        return sourceValues().linearFindClosest(sourceD);
     }
 }

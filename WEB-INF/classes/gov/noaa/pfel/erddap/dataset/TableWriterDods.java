@@ -4,6 +4,7 @@
  */
 package gov.noaa.pfel.erddap.dataset;
 
+import com.cohort.array.PrimitiveArray;
 import com.cohort.util.Calendar2;
 import com.cohort.util.MustBe;
 import com.cohort.util.SimpleException;
@@ -60,11 +61,10 @@ public class TableWriterDods extends TableWriter {
      * The number of columns, the column names, and the types of columns 
      *   must be the same each time this is called.
      *
-     * <p>The table should have missing values stored as destinationMissingValues
-     * or destinationFillValues.
-     * This implementation doesn't change them.
-     *
-     * @param table with destinationValues
+     * @param table with destinationValues.
+     *   The table should have missing values stored as destinationMissingValues
+     *   or destinationFillValues.
+     *   This implementation doesn't change them.
      * @throws Throwable if trouble
      */
     public void writeSome(Table table) throws Throwable {
@@ -100,10 +100,14 @@ public class TableWriterDods extends TableWriter {
 
         //write the data  //DAP 2.0, 7.3.2.3
         //write elements of the sequence, in dds order
+        PrimitiveArray pas[] = new PrimitiveArray[nColumns];
+        for (int col = 0; col < nColumns; col++) 
+            pas[col] = table.getColumn(col);
+
         for (int row = 0; row < nRows; row++) {
             dos.writeInt(0x5A << 24); //start of instance
             for (int col = 0; col < nColumns; col++) 
-                table.getColumn(col).externalizeForDODS(dos, row);
+                pas[col].externalizeForDODS(dos, row);
         }
 
         //so data gets to user right away
@@ -133,7 +137,7 @@ public class TableWriterDods extends TableWriter {
         //diagnostic
         if (verbose)
             String2.log("TableWriterDods done. TIME=" + 
-                (System.currentTimeMillis() - time) + "\n");
+                (System.currentTimeMillis() - time) + "ms\n");
 
     }
 

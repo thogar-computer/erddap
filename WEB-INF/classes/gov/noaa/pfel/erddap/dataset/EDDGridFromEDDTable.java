@@ -82,6 +82,8 @@ public class EDDGridFromEDDTable extends EDDGrid {
         String tLocalSourceUrl = null;
         String tDefaultDataQuery = null;
         String tDefaultGraphQuery = null;
+        int tnThreads = -1; //interpret invalid values (like -1) as EDStatic.nGridThreads
+        boolean tDimensionValuesInMemory = true;
         EDDTable tEDDTable = null;
         int tGapThreshold = defaultGapThreshold;
 
@@ -153,6 +155,10 @@ public class EDDGridFromEDDTable extends EDDGrid {
             else if (localTags.equals("</defaultDataQuery>")) tDefaultDataQuery = content; 
             else if (localTags.equals( "<defaultGraphQuery>")) {}
             else if (localTags.equals("</defaultGraphQuery>")) tDefaultGraphQuery = content; 
+            else if (localTags.equals( "<nThreads>")) {}
+            else if (localTags.equals("</nThreads>")) tnThreads = String2.parseInt(content); 
+            else if (localTags.equals( "<dimensionValuesInMemory>")) {}
+            else if (localTags.equals("</dimensionValuesInMemory>")) tDimensionValuesInMemory = String2.parseBoolean(content);
             else if (localTags.equals( "<gapThreshold>")) {}
             else if (localTags.equals("</gapThreshold>")) tGapThreshold = String2.parseInt(content); 
 
@@ -174,7 +180,8 @@ public class EDDGridFromEDDTable extends EDDGrid {
             tDefaultDataQuery, tDefaultGraphQuery, tGlobalAttributes,
             ttAxisVariables,
             ttDataVariables,
-            tReloadEveryNMinutes, tUpdateEveryNMillis, tGapThreshold, tEDDTable);
+            tReloadEveryNMinutes, tUpdateEveryNMillis, tGapThreshold, tEDDTable,
+            tnThreads, tDimensionValuesInMemory);
     }
 
     /**
@@ -188,13 +195,13 @@ public class EDDGridFromEDDTable extends EDDGrid {
      * constructor.
      *
      * @param tDatasetID is a very short string identifier 
-     *   (required: just safe characters: A-Z, a-z, 0-9, _, -, or .)
+     *  (recommended: [A-Za-z][A-Za-z0-9_]* )
      *   for this dataset. See EDD.datasetID().
      * @param tAccessibleTo is a comma separated list of 0 or more
      *    roles which will have access to this dataset.
      *    <br>If null, everyone will have access to this dataset (even if not logged in).
      *    <br>If "", no one will have access to this dataset.
-     * @param tOnChange 0 or more actions (starting with "http://" or "mailto:")
+     * @param tOnChange 0 or more actions (starting with http://, https://, or mailto: )
      *    to be done whenever the dataset changes significantly
      * @param tFgdcFile This should be the fullname of a file with the FGDC
      *    that should be used for this dataset, or "" (to cause ERDDAP not
@@ -265,7 +272,7 @@ public class EDDGridFromEDDTable extends EDDGrid {
         Object tAxisVariables[][],
         Object tDataVariables[][],
         int tReloadEveryNMinutes, int tUpdateEveryNMillis, int tGapThreshold,
-        EDDTable tEDDTable)
+        EDDTable tEDDTable, int tnThreads, boolean tDimensionValuesInMemory)
         throws Throwable {
 
         if (verbose) String2.log(
@@ -296,6 +303,8 @@ public class EDDGridFromEDDTable extends EDDGrid {
         //The destination information from the eddTable 
         //becomes the source information for the eddGrid.
         eddTable = tEDDTable;
+        nThreads = tnThreads; //interpret invalid values (like -1) as EDStatic.nGridThreads
+        dimensionValuesInMemory = tDimensionValuesInMemory; 
 
         //quickRestart is handled by contained eddGrid
 
@@ -306,7 +315,7 @@ public class EDDGridFromEDDTable extends EDDGrid {
         if (tLicense != null)
             combinedGlobalAttributes.set("license", 
                 String2.replaceAll(tLicense, "[standard]", EDStatic.standardLicense));
-        combinedGlobalAttributes.removeValue("null");
+        combinedGlobalAttributes.removeValue("\"null\"");
         if (combinedGlobalAttributes.getString("cdm_data_type") == null)
             combinedGlobalAttributes.add("cdm_data_type", "Grid");
 
@@ -365,7 +374,8 @@ public class EDDGridFromEDDTable extends EDDGrid {
             }
 
             //make the axisVariable
-            axisVariables[av] = makeAxisVariable(av, tSourceName, tDestName,
+            axisVariables[av] = makeAxisVariable(datasetID, 
+                av, tSourceName, tDestName,
                 tSourceAtts, tAddAtts, tSourceValues);
 
             //ensure axis is ascending sorted
@@ -423,9 +433,13 @@ public class EDDGridFromEDDTable extends EDDGrid {
 
         //finally
         if (verbose) String2.log(
-            (reallyVerbose? "\n" + toString() : "") +
+            (debugMode? "\n" + toString() : "") +
             "\n*** EDDGridFromEDDTable " + datasetID + " constructor finished. TIME=" + 
-            (System.currentTimeMillis() - constructionStartMillis) + "\n"); 
+            (System.currentTimeMillis() - constructionStartMillis) + "ms\n"); 
+
+        //very last thing: saveDimensionValuesInFile
+        if (!dimensionValuesInMemory)
+            saveDimensionValuesInFile();
 
     }
 
@@ -476,6 +490,8 @@ public class EDDGridFromEDDTable extends EDDGrid {
      * full user's request, but will be a partial request (for less than
      * EDStatic.partialRequestMaxBytes).
      * 
+     * @param tDirTable If EDDGridFromFiles, this MAY be the dirTable, else null. 
+     * @param tFileTable If EDDGridFromFiles, this MAY be the fileTable, else null. 
      * @param tDataVariables EDV[] with just the requested data variables
      * @param tConstraints  int[nAxisVariables*3] 
      *   where av*3+0=startIndex, av*3+1=stride, av*3+2=stopIndex.
@@ -487,7 +503,8 @@ public class EDDGridFromEDDTable extends EDDGrid {
      *   not modified.
      * @throws Throwable if trouble (notably, WaitThenTryAgainException)
      */
-    public PrimitiveArray[] getSourceData(EDV tDataVariables[], IntArray tConstraints) 
+    public PrimitiveArray[] getSourceData(Table tDirTable, Table tFileTable,
+        EDV tDataVariables[], IntArray tConstraints) 
         throws Throwable {
 
         //loggedInAs isn't known here, but EDDTable uses it for row-by-row 
@@ -605,7 +622,7 @@ public class EDDGridFromEDDTable extends EDDGrid {
         //make a subrequest for each combination of outerAxes values
         TableWriterAll twa = new TableWriterAll(null, null, //metadata not kept
             cacheDirectory(), 
-            suggestFileName(loggedInAs, datasetID, ".twa")); //twa adds a random number
+            suggestFileName(loggedInAs, datasetID, ".twa")); 
         twa.ignoreFinish = true;
         int qn = 0;
         outerLoop:
@@ -659,75 +676,77 @@ public class EDDGridFromEDDTable extends EDDGrid {
         //go through the tabular results in TableWriterAll
         PrimitiveArray twaPA[] = new PrimitiveArray[nCols];
         DataInputStream twaDIS[] = new DataInputStream[nCols];
-        for (int col = 0; col < nCols; col++) {
-            twaPA[col] = twa.columnEmptyPA(col);
-            twaDIS[col] = twa.dataInputStream(col);
-        }
-
-        long nRows = twa.nRows();
-        int oAxisIndex[] = new int[nav]; //all 0's
-        int axisIndex[]  = new int[nav]; //all 0's
-        int dataIndex = 0; //index for the data results[] PAs
         int nMatches = 0;
-        rowLoop: 
-        for (long row = 0; row < nRows; row++) {
-            //read all of the twa values for this row
+        long nRows = twa.nRows();
+        try {
             for (int col = 0; col < nCols; col++) {
-                twaPA[col].clear();
-                twaPA[col].readDis(twaDIS[col], 1); //read 1 value
+                twaPA[col] = twa.columnEmptyPA(col);
+                twaDIS[col] = twa.dataInputStream(col);
             }
 
-            //see if this row matches a desired combo of axis values 
-            dataIndex = 0; //index for the data results[] PAs
-            System.arraycopy(axisIndex, 0, oAxisIndex, 0, nav);
-            for (int av = 0; av < nav; av++) {
+            int oAxisIndex[] = new int[nav]; //all 0's
+            int axisIndex[]  = new int[nav]; //all 0's
+            int dataIndex = 0; //index for the data results[] PAs
+            rowLoop: 
+            for (long row = 0; row < nRows; row++) {
+                //read all of the twa values for this row
+                for (int col = 0; col < nCols; col++) {
+                    twaPA[col].clear();
+                    twaPA[col].readDis(twaDIS[col], 1); //read 1 value
+                }
 
-                double avDouble = twaPA[av].getDouble(0);                
-                if (debugMode) String2.log("row=" + row + " av=" + av + " value=" + avDouble);
-                int navPA = results[av].size();
-                int insertAt;
-                int precision = avPrecision[av];
-                int oIndex = oAxisIndex[av];
-                if (precision == fullPrecision) {
-                    if (results[av].getDouble(oIndex) == avDouble) //same as last row?
-                        insertAt = oIndex;
-                    else
-                        insertAt = results[av].binarySearch(0, navPA - 1, avDouble);
-                } else {
-                    if (Math2.almostEqual(precision, results[av].getDouble(oIndex), avDouble)) {
-                        insertAt = oIndex;
+                //see if this row matches a desired combo of axis values 
+                dataIndex = 0; //index for the data results[] PAs
+                System.arraycopy(axisIndex, 0, oAxisIndex, 0, nav);
+                for (int av = 0; av < nav; av++) {
+
+                    double avDouble = twaPA[av].getDouble(0);                
+                    if (debugMode) String2.log("row=" + row + " av=" + av + " value=" + avDouble);
+                    int navPA = results[av].size();
+                    int insertAt;
+                    int precision = avPrecision[av];
+                    int oIndex = oAxisIndex[av];
+                    if (precision == fullPrecision) {
+                        if (results[av].getDouble(oIndex) == avDouble) //same as last row?
+                            insertAt = oIndex;
+                        else
+                            insertAt = results[av].binarySearch(0, navPA - 1, avDouble);
                     } else {
-                        insertAt = results[av].binaryFindFirstGAE(0, navPA - 1, avDouble,
-                            precision);
-                        if (insertAt >= navPA || //not close
-                            !Math2.almostEqual(precision, avDouble, results[av].getDouble(insertAt)))
-                            insertAt = -1;
+                        if (Math2.almostEqual(precision, results[av].getDouble(oIndex), avDouble)) {
+                            insertAt = oIndex;
+                        } else {
+                            insertAt = results[av].binaryFindFirstGAE(0, navPA - 1, avDouble,
+                                precision);
+                            if (insertAt >= navPA || //not close
+                                !Math2.almostEqual(precision, avDouble, results[av].getDouble(insertAt)))
+                                insertAt = -1;
+                        }
+                    }
+                    if (insertAt >= 0) {
+                        if (debugMode) String2.log("  matched index=" + insertAt);
+                        axisIndex[av] = insertAt;
+                        dataIndex += insertAt * resultAvValue[av];
+                    } else {
+                        continue rowLoop;
                     }
                 }
-                if (insertAt >= 0) {
-                    if (debugMode) String2.log("  matched index=" + insertAt);
-                    axisIndex[av] = insertAt;
-                    dataIndex += insertAt * resultAvValue[av];
-                } else {
-                    continue rowLoop;
+
+                //all axes have a match! so copy data values into results[]
+                nMatches++;
+                if (debugMode) 
+                    String2.log("  axisIndex=" + String2.toCSSVString(axisIndex) + 
+                        " dataIndex=" + dataIndex);
+                for (int dv = 0; dv < ndv; dv++) {
+                    int col = nav + dv;
+                    results[col].setFromPA(dataIndex, twaPA[col], 0);
                 }
             }
-
-            //all axes have a match! so copy data values into results[]
-            nMatches++;
-            if (debugMode) 
-                String2.log("  axisIndex=" + String2.toCSSVString(axisIndex) + 
-                    " dataIndex=" + dataIndex);
-            for (int dv = 0; dv < ndv; dv++) {
-                int col = nav + dv;
-                results[col].setFromPA(dataIndex, twaPA[col], 0);
-            }
+        } finally {
+            //release twa resources
+            for (int col = 0; col < nCols; col++) 
+                try {twaDIS[col].close();} catch (Exception e) {}
+            try {twa.releaseResources();} catch (Exception e) {}
         }
-
-        //release twa resources
-        for (int col = 0; col < nCols; col++) 
-            twaDIS[col].close();
-        twa.releaseResources();
 
         String2.log("EDDGridFromEDDTable nMatches=" + nMatches + 
             " out of TableWriterAll nRows=" + nRows);
@@ -753,8 +772,10 @@ public class EDDGridFromEDDTable extends EDDGrid {
         int tReloadEveryNMinutes, Attributes externalAddGlobalAttributes) 
         throws Throwable {
 
-        String2.log("\n*** EDDGridFromEDDTable.generateDatasetsXml\n  eddTableID=" + 
-            eddTableID);
+        String2.log("\n*** EDDGridFromEDDTable.generateDatasetsXml" +
+            "\neddTableID=" + eddTableID + 
+            " reloadEveryNMinutes=" + tReloadEveryNMinutes +
+            "\nexternalAddGlobalAttributes=" + externalAddGlobalAttributes);
         Table sourceAxisTable = new Table();  
         Table sourceDataTable = new Table();  
         Table addAxisTable = new Table();
@@ -799,14 +820,18 @@ public class EDDGridFromEDDTable extends EDDGrid {
                 sourceDataTable.addColumn(sourceDataTable.nColumns(), destName,
                     PrimitiveArray.factory(tClass, 1, false), sourceAtts);
                 addDataTable.addColumn(addDataTable.nColumns(), destName,
-                    PrimitiveArray.factory(tClass, 1, false), destAtts);
+                    makeDestPAForGDX(PrimitiveArray.factory(tClass, 1, false), sourceAtts), 
+                    destAtts);
+
+                //Don't call because presumably already good:
+                //add missing_value and/or _FillValue if needed
+                //addMvFvAttsIfNeeded(destName, destPA, sourceAtts, addAtts);
+
             }
         }
 
         //write the information
-        StringBuilder results = new StringBuilder(directionsForGenerateDatasetsXml());
-        results.append(
-            "-->\n\n");
+        StringBuilder results = new StringBuilder();
         results.append(
             "<dataset type=\"EDDGridFromEDDTable\" datasetID=\"" + 
                 suggestDatasetID(eddTableID + "/EDDGridFromEDDTable") + 
@@ -830,11 +855,11 @@ public class EDDGridFromEDDTable extends EDDGrid {
             "    -->\n\n");
         results.append(writeVariablesForDatasetsXml(sourceAxisTable, addAxisTable, 
             "axisVariable",        //assume LLAT already identified
-            false, false, false)); //includeDataType, tryToFindLLAT, questionDestinationName
+            false, false)); //includeDataType, questionDestinationName
         results.append("\n");
         results.append(writeVariablesForDatasetsXml(sourceDataTable, addDataTable, 
             "dataVariable", 
-            false, false, false)); //includeDataType, tryToFindLLAT, questionDestinationName
+            false, false)); //includeDataType, questionDestinationName
         results.append("\n" +
             "    <!-- *** Insert the entire <dataset> chunk for " + eddTableID + " here.\n" +
             "       If the original dataset will be accessible to users, change the\n" +
@@ -855,9 +880,6 @@ public class EDDGridFromEDDTable extends EDDGrid {
         String tid = "erdNph";
 
 String expected = 
-directionsForGenerateDatasetsXml() +
-"-->\n" +
-"\n" +
 "<dataset type=\"EDDGridFromEDDTable\" datasetID=\"erdNph_c2e8_7f71_e246\" active=\"true\">\n" +
 "    <reloadEveryNMinutes>10080</reloadEveryNMinutes>\n" +
 "    <gapThreshold>1000</gapThreshold>\n" +
@@ -875,7 +897,7 @@ directionsForGenerateDatasetsXml() +
 "        <att name=\"geospatial_lon_min\" type=\"double\">201.3</att>\n" +
 "        <att name=\"geospatial_lon_units\">degrees_east</att>\n" +
 "        <att name=\"id\">erdNph</att>\n" +
-"        <att name=\"infoUrl\">http://onlinelibrary.wiley.com/doi/10.1002/grl.50100/abstract</att>\n" +
+"        <att name=\"infoUrl\">https://onlinelibrary.wiley.com/doi/10.1002/grl.50100/abstract</att>\n" +
 "        <att name=\"institution\">NOAA ERD</att>\n" +
 "        <att name=\"keywords\">area, areal, california, ccs, center, centered, contour, current, data, extent, high, hpa, level, maximum, month, north, nph, pacific, pressure, sea, system, time, year</att>\n" +
 "        <att name=\"license\">The data may be used and redistributed for free but is not intended\n" +
@@ -886,10 +908,10 @@ directionsForGenerateDatasetsXml() +
 "particular purpose, or assumes any legal liability for the accuracy,\n" +
 "completeness, or usefulness, of this information.</att>\n" +
 "        <att name=\"Northernmost_Northing\" type=\"double\">39.3</att>\n" +
-"        <att name=\"reference\">Schroeder, Isaac D., Bryan A. Black, William J. Sydeman, Steven J. Bograd, Elliott L. Hazen, Jarrod A. Santora, and Brian K. Wells. &quot;The North Pacific High and wintertime pre-conditioning of California current productivity&quot;, Geophys. Res. Letters, VOL. 40, 541-546, doi:10.1002/grl.50100, 2013</att>\n" +
+"        <att name=\"references\">Schroeder, Isaac D., Bryan A. Black, William J. Sydeman, Steven J. Bograd, Elliott L. Hazen, Jarrod A. Santora, and Brian K. Wells. &quot;The North Pacific High and wintertime pre-conditioning of California current productivity&quot;, Geophys. Res. Letters, VOL. 40, 541-546, doi:10.1002/grl.50100, 2013</att>\n" +
 "        <att name=\"sourceUrl\">(local files)</att>\n" +
 "        <att name=\"Southernmost_Northing\" type=\"double\">23.3</att>\n" +
-"        <att name=\"standard_name_vocabulary\">CF Standard Name Table v29</att>\n" +
+"        <att name=\"standard_name_vocabulary\">CF Standard Name Table v55</att>\n" +
 "        <att name=\"subsetVariables\">time, year, month</att>\n" +
 "        <att name=\"summary\">Variations in large-scale atmospheric forcing influence upwelling dynamics and ecosystem productivity in the California Current System (CCS). In this paper, we characterize interannual variability of the North Pacific High over 40 years and investigate how variation in its amplitude and position affect upwelling and biology. We develop a winter upwelling &quot;pre-conditioning&quot; index and demonstrate its utility to understanding biological processes. Variation in the winter NPH can be well described by its areal extent and maximum pressure, which in turn is predictive of winter upwelling. Our winter pre-conditioning index explained 64&#37; of the variation in biological responses (fish and seabirds). Understanding characteristics of the NPH in winter is therefore critical to predicting biological responses in the CCS.</att>\n" +
 "        <att name=\"time_coverage_end\">2014-01-16</att>\n" +
@@ -1029,7 +1051,8 @@ directionsForGenerateDatasetsXml() +
 
             //GenerateDatasetsXml
             String gdxResults = (new GenerateDatasetsXml()).doIt(new String[]{
-                "-verbose", "EDDGridFromEDDTable", tid, "-1"},
+                "-verbose", "EDDGridFromEDDTable", tid, 
+                "-1"}, //default reloadEvery, 
                 false); //doIt loop?
             Test.ensureEqual(gdxResults, expected,
                 "Unexpected results from GenerateDatasetsXml.doIt.");
@@ -1055,7 +1078,7 @@ directionsForGenerateDatasetsXml() +
         String2.log("\nget .dds\n");
         tName = edd.makeNewFileForDapQuery(null, null, "", testDir, 
             edd.className() + "_Entire", ".dds"); 
-        results = new String((new ByteArray(testDir + tName)).toArray());
+        results = String2.directReadFrom88591File(testDir + tName);
         //String2.log(results);
         expected = 
 "Dataset {\n" +
@@ -1178,13 +1201,12 @@ directionsForGenerateDatasetsXml() +
         String2.log("\nget .das\n");
         tName = edd.makeNewFileForDapQuery(null, null, "", testDir, 
             edd.className() + "_Entire", ".das"); 
-        results = new String((new ByteArray(testDir + tName)).toArray());
+        results = String2.directReadFrom88591File(testDir + tName);
         //String2.log(results);
         expected = 
 "Attributes {\n" +
 "  time {\n" +
 "    String _CoordinateAxisType \"Time\";\n" +
-"    Float64 _FillValue NaN;\n" +
 "    Float64 actual_range 1.10184436e+9, 1.10978836e+9;\n" +
 "    String axis \"T\";\n" +
 "    String ioos_category \"Time\";\n" +
@@ -1332,13 +1354,12 @@ directionsForGenerateDatasetsXml() +
 "    String history \"Created by the NCDDC PISCO ADCP Profile to converter on 2009/00/11 15:00 CST.\n";
        Test.ensureEqual(results.substring(0, expected.length()), expected, "\nresults=\n" + results);
 
-//"2015-01-30T17:06:49Z http://data.nodc.noaa.gov/thredds/catalog/nmsp/wcos/catalog.xml\n" +
+//"2015-01-30T17:06:49Z https://data.nodc.noaa.gov/thredds/catalog/nmsp/wcos/catalog.xml\n" +
 //"2015-01-30T17:06:49Z http://localhost:8080/cwexperimental/griddap/testGridFromTable.das\";\n" +
 expected=
-    "String infoUrl \"http://www.ncddc.noaa.gov/activities/wcos\";\n" +
+    "String infoUrl \"ftp://ftp.nodc.noaa.gov/nodc/archive/arc0006/0002039/1.1/about/WCOS_project_document_phaseI_20060317.pdf\";\n" +
 "    String institution \"NOAA NMSP\";\n" +
-"    String keywords \"Oceans > Ocean Circulation > Ocean Currents,\n" +
-"adcp, atmosphere, circulation, coast, current, currents, data, depth, eastward, eastward_sea_water_velocity, eastward_sea_water_velocity status_flag, error, flag, height, identifier, intensity, nmsp, noaa, northward, northward_sea_water_velocity, northward_sea_water_velocity status_flag, observing, ocean, oceans, quality, sea, seawater, station, status, system, time, upward, upward_sea_water_velocity, upwards, velocity, water, wcos, west, west coast\";\n" +
+"    String keywords \"adcp, atmosphere, circulation, coast, current, currents, data, depth, Earth Science > Oceans > Ocean Circulation > Ocean Currents, eastward, eastward_sea_water_velocity, eastward_sea_water_velocity status_flag, error, flag, height, identifier, intensity, nmsp, noaa, northward, northward_sea_water_velocity, northward_sea_water_velocity status_flag, observing, ocean, oceans, quality, sea, seawater, station, status, system, time, upward, upward_sea_water_velocity, upwards, velocity, water, wcos, west, west coast\";\n" +
 "    String keywords_vocabulary \"GCMD Science Keywords\";\n" +
 "    String license \"The data may be used and redistributed for free but is not intended\n" +
 "for legal use, since it may contain inaccuracies. Neither the data\n" +
@@ -1348,9 +1369,9 @@ expected=
 "particular purpose, or assumes any legal liability for the accuracy,\n" +
 "completeness, or usefulness, of this information.\";\n" +
 "    Float64 Northernmost_Northing 34.04017;\n" +
-"    String sourceUrl \"http://data.nodc.noaa.gov/thredds/catalog/nmsp/wcos/catalog.xml\";\n" +
+"    String sourceUrl \"https://data.nodc.noaa.gov/thredds/catalog/nmsp/wcos/catalog.xml\";\n" +
 "    Float64 Southernmost_Northing 34.04017;\n" +
-"    String standard_name_vocabulary \"CF Standard Name Table v29\";\n" +
+"    String standard_name_vocabulary \"CF Standard Name Table v55\";\n" +
 "    String subsetVariables \"longitude, latitude\";\n" +
 "    String summary \"The West Coast Observing System (WCOS) project provides access to temperature and currents data collected at four of the five National Marine Sanctuary sites, including Olympic Coast, Gulf of the Farallones, Monterey Bay, and Channel Islands. A semi-automated end-to-end data management system transports and transforms the data from source to archive, making the data acessible for discovery, access and analysis from multiple Internet points of entry.\n" +
 "\n" +
@@ -1376,7 +1397,7 @@ expected=
             "Eastward[10:10:20][][][],Eastward_flag[10:10:20][][][]," +
             "Northward[10:10:20][][][],Northward_flag[10:10:20][][][]", 
             testDir, edd.className() + "_gap0", ".csv"); 
-        results = new String((new ByteArray(testDir + tName)).toArray());
+        results = String2.directReadFrom88591File(testDir + tName);
 /* from source eddTable
 station,longitude,latitude,time,depth,Eastward,Eastward_flag,Northward,Northward_flag
 ,degrees_east,degrees_north,UTC,m,m s-1,,m s-1,
@@ -1478,7 +1499,7 @@ BAYXXX,-120.31121,34.04017,2004-11-30T20:32:40Z,-1.8,NaN,9,NaN,9
             "Eastward[10:10:20][][][0:17:17],Eastward_flag[10:10:20][][][0:17:17]," +
             "Northward[10:10:20][][][0:17:17],Northward_flag[10:10:20][][][0:17:17]", 
             testDir, edd.className() + "_gap3", ".csv"); 
-        results = new String((new ByteArray(testDir + tName)).toArray());
+        results = String2.directReadFrom88591File(testDir + tName);
 expected=
 "time,latitude,longitude,depth,Eastward,Eastward_flag,Northward,Northward_flag\n" +
 "UTC,degrees_north,degrees_east,m,m s-1,,m s-1,\n" +
@@ -1500,7 +1521,7 @@ expected=
             "Eastward[10][][][2:9],Eastward_flag[10][][][2:9]," +
             "Northward[10][][][2:9],Northward_flag[10][][][2:9]", 
             testDir, edd.className() + "_nogap", ".csv"); 
-        results = new String((new ByteArray(testDir + tName)).toArray());
+        results = String2.directReadFrom88591File(testDir + tName);
 expected=
 "time,latitude,longitude,depth,Eastward,Eastward_flag,Northward,Northward_flag\n" +
 "UTC,degrees_north,degrees_east,m,m s-1,,m s-1,\n" +
@@ -1526,7 +1547,7 @@ expected=
 
         String2.log("\n****************** EDDGridFromEDDTable.test() *****************\n");
         // standard tests 
-        /* */
+/* for releases, this line should have open/close comment */
         testGenerateDatasetsXml(); 
         testBasic();
         /* */

@@ -19,8 +19,7 @@ import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.TimeZone;
 
-import org.joda.time.*;
-import org.joda.time.format.*;
+import java.time.format.DateTimeFormatter;
 
 /** 
  * This class holds information about a timestamp grid axis variable.
@@ -44,9 +43,12 @@ public class EDVTimeStampGridAxis extends EDVGridAxis {
     protected double sourceTimeBase = Double.NaN;   //set if sourceTimeIsNumeric
     protected double sourceTimeFactor = Double.NaN;
     protected boolean parseISOWithCalendar2;
-    protected DateTimeFormatter dateTimeFormatter;  //set if !sourceTimeIsNumeric
+    protected String dateTimeFormat; //only used if !sourceTimeIsNumeric, which currently is never
+    protected DateTimeFormatter dateTimeFormatter;  //currently never used: for generating source time if !sourceTimeIsNumeric
     protected String time_precision; //see Calendar2.epochSecondsToLimitedIsoStringT
     protected boolean superConstructorIsFinished = false;
+    protected String timeZoneString; //if not specified, will be Zulu
+    protected TimeZone timeZone; //if not specified, will be Zulu
 
     /**
      * The constructor.
@@ -65,6 +67,9 @@ public class EDVTimeStampGridAxis extends EDVGridAxis {
      * has been converted to destinationDataType with scaleFactor and addOffset 
      * applied.
      * 
+     * @param tParentDatasetID This is needed if dimensionValuesInMemory is false,
+     *   so sourceValues sometimes need to be read from 
+     *   [cacheDirectory(tParentDatasetID)]/dimensionSourceValues.nc
      * @param tSourceName the name of the axis variable in the dataset source
      *    (usually with no spaces).
      * @param tDestinationName should be "time" for *the* destination variable 
@@ -81,12 +86,14 @@ public class EDVTimeStampGridAxis extends EDVGridAxis {
      *    There must be at least one element.
      * @throws Throwable if trouble
      */
-    public EDVTimeStampGridAxis(String tSourceName, String tDestinationName,
+    public EDVTimeStampGridAxis(String tParentDatasetID, 
+        String tSourceName, String tDestinationName,
         Attributes tSourceAttributes, Attributes tAddAttributes,
         PrimitiveArray tSourceValues) 
         throws Throwable {
 
-        super(tSourceName, tDestinationName, tSourceAttributes, tAddAttributes, tSourceValues); 
+        super(tParentDatasetID, tSourceName, tDestinationName, 
+            tSourceAttributes, tAddAttributes, tSourceValues); 
         superConstructorIsFinished = true;
 
         //time_precision e.g., 1970-01-01T00:00:00Z
@@ -103,7 +110,7 @@ public class EDVTimeStampGridAxis extends EDVGridAxis {
         //currently, EDVTimeStampGridAxis doesn't support String sourceValues
         String errorInMethod = "datasets.xml/EDVTimeStampGridAxis constructor error for sourceName=" + 
             tSourceName + ":\n";
-        if (sourceValues instanceof StringArray)
+        if (tSourceValues instanceof StringArray)
             throw new RuntimeException(errorInMethod + 
                 "Currently, EDVTimeStampGridAxis doesn't support String source " + 
                 "values for the time axis.");
@@ -112,34 +119,49 @@ public class EDVTimeStampGridAxis extends EDVGridAxis {
         sourceTimeFormat = units();
         Test.ensureNotNothing(sourceTimeFormat, 
             errorInMethod + "'units' wasn't found."); //match name in datasets.xml
+
+        timeZoneString = combinedAttributes.getString("time_zone");
+        combinedAttributes.remove("time_zone");
+        if (!String2.isSomething(timeZoneString))
+            timeZoneString = "Zulu";
+        timeZone = TimeZone.getTimeZone(timeZoneString);
+
         if (Calendar2.isNumericTimeUnits(sourceTimeFormat)) {
             sourceTimeIsNumeric = true;
             double td[] = Calendar2.getTimeBaseAndFactor(sourceTimeFormat);
             sourceTimeBase = td[0];
             sourceTimeFactor = td[1];
+            if (!"Zulu".equals(timeZoneString) && !"UTC".equals(timeZoneString)) 
+                throw new RuntimeException(
+                    "Currently, ERDDAP doesn't support time_zone's other than Zulu " +
+                    "and UTC for numeric axis timestamp variables.");
+
         } else {
             sourceTimeIsNumeric = false;
             throw new RuntimeException(
-                "Currently, the source units for the time axis must include \" since \".");
+                "Currently, String time axes are not supported. " +
+                "The source units for the time axis must include \" since \".");
             /*  If Strings are ever supported...
+            //deal with timeZoneString! see EDVTimeStamp
             //ensure scale_factor=1 and add_offset=0
             if (scaleAddOffset)
                 throw new RuntimeException(errorInMethod + 
                     "For String source times, scale_factor and add_offset MUST NOT be used.");
 
-            if (sourceTimeFormat.equals(ISO8601T_FORMAT) ||
-                sourceTimeFormat.equals(ISO8601TZ_FORMAT)) {
+            dateTimeFormat = sourceTimeFormat;
+            if (dateTimeFormat.equals(ISO8601T_FORMAT) ||
+                dateTimeFormat.equals(ISO8601TZ_FORMAT)) {
                 if (verbose) String2.log("parseISOWithCalendar2=true");
-                dateTimeFormatter = ISODateTimeFormat.dateTimeNoMillis().withZone(DateTimeZone.UTC);
+                dateTimeFormatter = ISODateTimeFormat.dateTimeNoMillis().withZone(ZoneId.of(timeZoneString));
                 parseISOWithCalendar2 = true;
             } else if (sourceTimeFormat.equals(ISO8601T3_FORMAT) ||
                        sourceTimeFormat.equals(ISO8601T3Z_FORMAT)) {
                 if (verbose) String2.log("parseISOWithCalendar2=true");
-                dateTimeFormatter = ISODateTimeFormat.dateTime().withZone(DateTimeZone.UTC);
+                dateTimeFormatter = ISODateTimeFormat.dateTime().withZone(ZoneId.of(timeZoneString));
                 parseISOWithCalendar2 = true;                
             } else {
                 //future: support time zones  
-                dateTimeFormatter = DateTimeFormat.forPattern(sourceTimeFormat).withZone(DateTimeZone.UTC);
+                dateTimeFormatter = DateTimeFormatter.ofPattern(dateTimeFormat, timeZoneString);
                 parseISOWithCalendar2 = false;
             }
             */
@@ -181,21 +203,34 @@ public class EDVTimeStampGridAxis extends EDVGridAxis {
         //(simpler than EDVTimeStamp because always numeric and range known from axis values)
         destinationDataType = "double";
         destinationDataTypeClass = double.class;
-        int n = sourceValues.size();
-        destinationMin = sourceTimeToEpochSeconds(sourceValues.getNiceDouble(0)); 
-        destinationMax = sourceTimeToEpochSeconds(sourceValues.getNiceDouble(n - 1));
+        int n = tSourceValues.size();
+        setDestinationMinMaxFromSource(
+            tSourceValues.getNiceDouble(0), 
+            tSourceValues.getNiceDouble(n - 1));
         if (Double.isNaN(destinationMin))
             throw new RuntimeException("ERROR related to time values and/or time source units: " +
-                "[0]=" + sourceValues.getString(0) + " => NaN epochSeconds.");
+                "[0]=" + tSourceValues.getString(0) + " => NaN epochSeconds.");
         if (Double.isNaN(destinationMax))
             throw new RuntimeException("ERROR related to time values and/or time source units: " +
-                "[n-1]=" + sourceValues.getString(n-1) + " => NaN epochSeconds.");
+                "[n-1]=" + tSourceValues.getString(n-1) + " => NaN epochSeconds.");
 
         setActualRangeFromDestinationMinMax();    
         initializeAverageSpacingAndCoarseMinMax();
         if (reallyVerbose) String2.log("\nEDVTimeStampGridAxis created, " + 
             "sourceTimeFormat=" + sourceTimeFormat +
             " destMin=" + destinationMin + " destMax=" + destinationMax + "\n"); 
+    }
+
+    /** 
+     * This overwrites the EDV method of the same name in order to deal
+     * with numeric source time other than "seconds since 1970-01-01T00:00:00Z".
+     */
+    public void setDestinationMinMaxFromSource(double sourceMin, double sourceMax) {
+        //scaleAddOffset is allowed!! and applied by superclass' setDestinationMinMax!
+        //   ??? I that correct order???
+        setDestinationMinMax(
+            sourceTimeToEpochSeconds(sourceMin),
+            sourceTimeToEpochSeconds(sourceMax));
     }
 
     /**
@@ -265,7 +300,7 @@ public class EDVTimeStampGridAxis extends EDVGridAxis {
 
     /**
      * This converts a destination double value to a string
-     * (time variable override this to make an iso string).
+     * (time variable overwrite this to make an iso string).
      * NaN returns "".
      *
      * @param destD  epochSeconds
@@ -277,7 +312,7 @@ public class EDVTimeStampGridAxis extends EDVGridAxis {
 
     /**
      * This converts a destination String value to a destination double
-     * (time variable overrides this to catch iso 8601 strings).
+     * (time variable overwrites this to catch iso 8601 strings).
      * "" or null returns NaN.
      *
      * @param destS
@@ -337,7 +372,7 @@ public class EDVTimeStampGridAxis extends EDVGridAxis {
         //    String2.log("    EDVTimeStampGridAxis stBase=" + sourceTimeBase +
         //        " scale=" + scaleFactor + " addOffset=" + addOffset + 
         //        " stFactor=" + sourceTimeFactor + " sourceTime=" + sourceTime +
-        //        " result=" + sec + " = " + Calendar2.epochSecondsToIsoStringT(sec));
+        //        " result=" + sec + " = " + Calendar2.epochSecondsToIsoStringTZ(sec));
         return sec;
     }
 
@@ -366,10 +401,10 @@ public class EDVTimeStampGridAxis extends EDVGridAxis {
             double d = parseISOWithCalendar2?
                 //parse with Calendar2.parseISODateTime
                 Calendar2.isoStringToEpochSeconds(sourceTime) :
-                //parse with Joda
-                dateTimeFormatter.parseMillis(sourceTime) / 1000.0; //thread safe
+                //parse 
+                Calendar2.parseToEpochSeconds(sourceTime, dateTimeFormat, timeZone); //thread safe
             //String2.log("  EDVTimeStampGridAxis sourceTime=" + sourceTime + 
-            //    " epSec=" + d + " Calendar2=" + Calendar2.epochSecondsToIsoStringT(d));
+            //    " epSec=" + d + " Calendar2=" + Calendar2.epochSecondsToIsoStringTZ(d));
             return d;
         } catch (Throwable t) {
             if (verbose && sourceTime != null && sourceTime.length() > 0)
@@ -467,22 +502,23 @@ public class EDVTimeStampGridAxis extends EDVGridAxis {
      */
     public PrimitiveArray destinationValues() {
         //alt and time may modify the values, so use sourceValues.clone()
-        return toDestination((PrimitiveArray)sourceValues.clone()); 
+        return toDestination((PrimitiveArray)(sourceValues().clone())); 
     }
 
     /**
      * This returns one of this axis' source values as epochSeconds. 
      */
     public double destinationDouble(int which) {
+        PrimitiveArray tSourceValues = sourceValues(); //work with stable local reference
         return sourceTimeIsNumeric?
-            sourceTimeToEpochSeconds(sourceValues.getNiceDouble(which)) :
-            sourceTimeToEpochSeconds(sourceValues.getString(which));
+            sourceTimeToEpochSeconds(tSourceValues.getNiceDouble(which)) :
+            sourceTimeToEpochSeconds(tSourceValues.getString(which));
     }
 
     /**
      * This returns one of this axis' source values as a nice String destination value. 
      * For most EDVGridAxis, this returns destinationValues (which equal
-     * the String destination values). The Time subclass overrides this.
+     * the String destination values). The Time subclass overwrites this.
      */
     public String destinationString(int which) {
         return destinationToString(destinationDouble(which));
@@ -491,13 +527,13 @@ public class EDVTimeStampGridAxis extends EDVGridAxis {
     /** This returns a PrimitiveArray with the destination values for this axis. 
      * Don't change these values.
      * If destination=source, this may return the sourceValues PrimitiveArray. 
-     * The alt and time subclasses override this.
+     * The alt and time subclasses overwrite this.
      * The time subclass returns these as ISO 8601 'T' strings 
      * (to facilitate displaying options to users).
      * !!!For time, if lots of values (e.g., 10^6), this is SLOW (e.g., 30 seconds)!!!
      */
     public PrimitiveArray destinationStringValues() {
-        return toDestinationStrings(sourceValues);
+        return toDestinationStrings(sourceValues());
     }
 
     /**
@@ -532,7 +568,7 @@ public class EDVTimeStampGridAxis extends EDVGridAxis {
             return sourceTimeIsNumeric? "" + sourceMissingValue : "";
         if (sourceTimeIsNumeric)
             return "" + epochSecondsToSourceTimeDouble(epochSeconds);
-        return dateTimeFormatter.print(Math.round(epochSeconds * 1000)); //round to long
+        return Calendar2.format(epochSeconds, dateTimeFormatter); 
     }
 
     /**
@@ -563,7 +599,7 @@ public class EDVTimeStampGridAxis extends EDVGridAxis {
      * This determines if a variable is a TimeStamp variable by looking
      * for " since " (used for UDUNITS numeric times).
      * Currently, this does not look for String time units 
-     * ("yy" or "YY", a formatting string which has the year designator) 
+     * ("yyyy" or "YYYY", a formatting string which has the year designator) 
      * in the units attribute because this class currently doesn't support String times.
      */
     public static boolean hasTimeUnits(Attributes sourceAttributes, 
@@ -580,7 +616,7 @@ public class EDVTimeStampGridAxis extends EDVGridAxis {
      * This determines if a variable is a TimeStamp variable by looking
      * for " since " (used for UDUNITS numeric times).
      * Currently, this does not look for String time units 
-     * ("yy" or "YY", a formatting string which has the year designator) 
+     * ("yyyy" or "YYYY", a formatting string which has the year designator) 
      * in the units attribute because this class currently doesn't support String times.
      */
     public static boolean hasTimeUnits(String tUnits) {

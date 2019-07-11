@@ -104,7 +104,7 @@ public class RunLoadDatasets extends Thread {
             //********** Main loop
             try {
                 String2.log("\n*** RunLoadDatasets is starting a new MAJOR LoadDatasets thread at " + 
-                    Calendar2.getCurrentISODateTimeStringLocal());
+                    Calendar2.getCurrentISODateTimeStringLocalTZ());
 
                 //delete old files in cache
                 int nCacheFiles = File2.deleteIfOld(EDStatic.fullCacheDirectory, //won't throw exception
@@ -134,7 +134,7 @@ public class RunLoadDatasets extends Thread {
                 }
                 try {
                     String subject = "RunLoadDatasets(main loop) error at " + 
-                        Calendar2.getCurrentISODateTimeStringLocal();
+                        Calendar2.getCurrentISODateTimeStringLocalTZ();
                     String content = MustBe.throwableToString(t); 
                     String2.log(subject + ": " + content);
                     EDStatic.email(EDStatic.emailEverythingToCsv, subject, content);
@@ -159,7 +159,7 @@ public class RunLoadDatasets extends Thread {
                     if (loadDatasets != null && !loadDatasets.isAlive()) {
 
                         String2.log("\n*** RunLoadDatasets notes that LoadDatasets has finished running as of " + 
-                            Calendar2.getCurrentISODateTimeStringLocal());
+                            Calendar2.getCurrentISODateTimeStringLocalTZ());
 
                         //get rid of reference
                         loadDatasets = null;
@@ -176,69 +176,101 @@ public class RunLoadDatasets extends Thread {
                             break whileWait;
 
                         } else {
-                            //main load datasets finished early; we have free time; so check flag directory
-                            String[] listAr = new File(EDStatic.fullResetFlagDirectory).list();
-                            //if (listAr.length() > 0) String2.log("Flag files found: " + String2.toCSSVString(listAr));
-                            StringArray tNames = new StringArray(listAr);
 
-                            //check flag names
-                            for (int i = tNames.size() - 1; i >= 0; i--) { //work backwards since deleting some from list
-                                String ttName = tNames.get(i);
-                                if (File2.isDirectory(EDStatic.fullResetFlagDirectory + ttName)) {
-                                    //directory shouldn't be here; ignore it
-                                    tNames.remove(i);
-                                } else {
-                                    //It's a file.
-                                    //I don't want odd-named files lying around triggering useless reloads
-                                    //so delete the flag file.
-                                    File2.delete(EDStatic.fullResetFlagDirectory + ttName);
-                                    if (String2.isFileNameSafe(ttName)) {
-                                        if (ttName.matches(EDStatic.datasetsRegex)) {
-                                            //name is okay
-                                            //if edd exists, setCreationTimeTo0 so loadDatasets will reload it
-                                            //if edd doesn't exist (and is valid datasetID), loadDatasets will try to load it
-                                            //if datasetID isn't defined in datasets.xml, loadDatasets will ignore it 
+                            //main load datasets finished early; we have free time;
+                            //so check hardFlag and flag directories
+                            String fDir[] = {
+                                EDStatic.fullHardFlagDirectory,
+                                EDStatic.fullResetFlagDirectory};
+                            String fDirName[] = {"hardFlag", "flag"};
+
+                            for (int hs = 0; hs < 2; hs++) {
+
+                                StringArray tFlagNames = new StringArray(); 
+                                try {                                    
+                                    if (File2.isDirectory(fDir[hs])) {
+                                        tFlagNames = new StringArray(new File(fDir[hs]).list());
+                                    } else {
+                                        File2.makeDirectory(fDir[hs]); //throws exception
+                                    }
+                                } catch (Exception et) {
+                                    String2.log(MustBe.throwableToString(et));
+                                }
+
+                                //check flag names
+                                for (int i = tFlagNames.size() - 1; i >= 0; i--) { //work backwards since deleting some from list
+                                    String ttName = tFlagNames.get(i);
+                                    if (File2.isDirectory(fDir[hs] + ttName)) {
+                                        //It's a directory! It shouldn't be. Ignore it
+                                        tFlagNames.remove(i);
+                                    } else {
+                                        //It's a file.
+                                        //I don't want odd-named files lying around triggering useless reloads
+                                        //so delete the flag file.
+                                        File2.delete(fDir[hs] + ttName);
+
+                                        if (String2.isFileNameSafe(ttName)) {
                                             EDD edd = (EDD)(erddap.gridDatasetHashMap.get(ttName));
                                             if (edd == null)
                                                 edd = (EDD)(erddap.tableDatasetHashMap.get(ttName));
-                                            if (edd != null)
-                                                edd.setCreationTimeTo0();
 
-                                            //prepare ttName for regex: encode -, .  ('_' doesn't need encoding)
-                                            ttName = String2.replaceAll(ttName, "-", "\\x2D");
-                                            ttName = String2.replaceAll(ttName, ".", "\\.");
-                                            tNames.set(i, ttName);
+                                            //if hardFlag, delete cached dataset info
+                                            //  (whether dataset matches datasetsRegex or is live or not)
+                                            if (hs == 0) {
+                                                if (edd != null) {
+                                                    StringArray childDatasetIDs = edd.childDatasetIDs();
+                                                    for (int cd = 0; cd < childDatasetIDs.size(); cd++)
+                                                        EDD.deleteCachedDatasetInfo(childDatasetIDs.get(cd)); //delete the children's info
+                                                }
+                                                LoadDatasets.tryToUnload(erddap, ttName, new StringArray(), true); //needToUpdateLucene
+                                                EDD.deleteCachedDatasetInfo(ttName); //the important difference
+                                            }
+
+                                            if (ttName.matches(EDStatic.datasetsRegex)) {
+                                                //name is okay
+
+                                                //if edd exists, setCreationTimeTo0 so loadDatasets will reload it
+                                                //if edd doesn't exist (and is valid datasetID), loadDatasets will try to load it
+                                                //if datasetID isn't defined in datasets.xml, loadDatasets will ignore it 
+                                                if (edd != null)
+                                                    edd.setCreationTimeTo0();
+
+                                                //prepare ttName for regex: encode -, .  ('_' doesn't need encoding)
+                                                ttName = String2.replaceAll(ttName, "-", "\\x2D");
+                                                ttName = String2.replaceAll(ttName, ".", "\\.");
+                                                tFlagNames.set(i, ttName);
+
+                                            } else {
+                                                //file name doesn't match EDStatic.datasetsRegex, so ignore it
+                                                String2.log("RunloadDatasets is deleting " + ttName + 
+                                                    " from " + fDirName[hs] + " directory because it doesn't match EDStatic.datasetsRegex.");
+                                                tFlagNames.remove(i);  
+                                            }
 
                                         } else {
-                                            //file name doesn't match EDStatic.datasetsRegex, so ignore it
+                                            //file name may be valid for this OS, but tName isn't a valid erddap datasetID
+                                            //otherwise the file will stay in dir forever
                                             String2.log("RunloadDatasets is deleting " + ttName + 
-                                                " from flag directory because it doesn't match EDStatic.datasetsRegex.");
-                                            tNames.remove(i);  
+                                                " from " + fDirName[hs] + " directory because it isn't a valid datasetID.");
+                                            tFlagNames.remove(i);  
                                         }
-
-                                    } else {
-                                        //file name may be valid for this OS, but tName isn't a valid erddap datasetID
-                                        //otherwise the file will stay in dir forever
-                                        String2.log("RunloadDatasets is deleting " + ttName + 
-                                            " from flag directory because it isn't a valid datasetID.");
-                                        tNames.remove(i);  
                                     }
                                 }
-                            }
 
-                            //if files, run loadDatasets with just those datasetIDs
-                            if (tNames.size() > 0) {
-                                String tRegex = "(" + String2.toSVString(tNames.toArray(), "|", false) + ")";
-                                String2.log("\n*** RunLoadDatasets is starting a new FLAG LoadDatasets thread at " + 
-                                    Calendar2.getCurrentISODateTimeStringLocal());
-                                //...StartTimeMillis = System.currentTimeMillis();
-                                loadDatasets = new LoadDatasets(erddap, tRegex, null, false);
-                                //make a lower priority    
-                                //[commented out: why lower priority?  It may be causing infrequent problems with a dataset not available in a CWBrowser
-                                //-2 since on some OS's, adjacent priority levels map to same internal level.
-                                //loadDatasets.setPriority(Math.max(Thread.MIN_PRIORITY, Thread.currentThread().getPriority() - 2));
-                                EDStatic.runningThreads.put("loadDatasets", loadDatasets); 
-                                loadDatasets.start(); //starts the thread and calls run() 
+                                //if files, run loadDatasets with just those datasetIDs
+                                if (tFlagNames.size() > 0) {
+                                    String tRegex = "(" + String2.toSVString(tFlagNames.toArray(), "|", false) + ")";
+                                    String2.log("\n*** RunLoadDatasets is starting a new " + fDirName[hs] + " LoadDatasets thread at " + 
+                                        Calendar2.getCurrentISODateTimeStringLocalTZ());
+                                    //...StartTimeMillis = System.currentTimeMillis();
+                                    loadDatasets = new LoadDatasets(erddap, tRegex, null, false);
+                                    //make a lower priority    
+                                    //[commented out: why lower priority?  It may be causing infrequent problems with a dataset not available in a CWBrowser
+                                    //-2 since on some OS's, adjacent priority levels map to same internal level.
+                                    //loadDatasets.setPriority(Math.max(Thread.MIN_PRIORITY, Thread.currentThread().getPriority() - 2));
+                                    EDStatic.runningThreads.put("loadDatasets", loadDatasets); 
+                                    loadDatasets.start(); //starts the thread and calls run() 
+                                }
                             }
                         }
                     } 
@@ -259,7 +291,7 @@ public class RunLoadDatasets extends Thread {
                 }
                 try {
                     String subject = "RunLoadDatasets(flag loop) error at " + 
-                        Calendar2.getCurrentISODateTimeStringLocal();
+                        Calendar2.getCurrentISODateTimeStringLocalTZ();
                     String content = MustBe.throwableToString(t); 
                     String2.log(subject + ": " + content);
                     EDStatic.email(EDStatic.emailEverythingToCsv, subject, content);
@@ -308,7 +340,7 @@ public class RunLoadDatasets extends Thread {
                     String tError = "RunLoadDatasets is interrupting a stalled LoadDatasets thread (" +
                         Calendar2.elapsedTimeString(System.currentTimeMillis() - lastMajorLoadDatasetsStartTimeMillis) +
                         " > " + Calendar2.elapsedTimeString(EDStatic.loadDatasetsMaxMillis) + ") at " + 
-                        Calendar2.getCurrentISODateTimeStringLocal();
+                        Calendar2.getCurrentISODateTimeStringLocalTZ();
                     EDStatic.email(EDStatic.emailEverythingToCsv, 
                         "RunLoadDatasets Stalled", tError);
                     String2.log("\n*** " + tError);
@@ -329,7 +361,7 @@ public class RunLoadDatasets extends Thread {
                 }
                 try {
                     String subject = "RunLoadDatasets(loadDatasets.stop loop) error at " + 
-                        Calendar2.getCurrentISODateTimeStringLocal();
+                        Calendar2.getCurrentISODateTimeStringLocalTZ();
                     String content = MustBe.throwableToString(t); 
                     String2.log(subject + ": " + content);
                     EDStatic.email(EDStatic.emailEverythingToCsv, subject, content);
@@ -343,7 +375,7 @@ public class RunLoadDatasets extends Thread {
 
         //erddap is shutting down; deal with interruption
         String2.log("\n*** RunLoadDatasets noticed that it was interrupted at " + 
-            Calendar2.getCurrentISODateTimeStringLocal());
+            Calendar2.getCurrentISODateTimeStringLocalTZ());
         if (loadDatasets != null && loadDatasets.isAlive()) {
             EDStatic.stopThread(loadDatasets, 60);
             loadDatasets = null;
@@ -355,7 +387,5 @@ public class RunLoadDatasets extends Thread {
         }
         erddap = null;
     }
-
-
 
 }

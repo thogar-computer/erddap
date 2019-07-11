@@ -11,8 +11,11 @@ import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
 import java.awt.Toolkit;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -20,11 +23,15 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.PushbackInputStream;
+import java.io.Reader;
 import java.io.Writer;
 import java.lang.ref.WeakReference;
+import java.lang.reflect.Method;
 import java.net.URLDecoder;
+import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
@@ -44,6 +51,8 @@ import java.util.Set;
 import java.util.Vector;
 import java.util.WeakHashMap;
 
+import org.apache.commons.codec.binary.Base64;
+
 /**
  * A class with static String methods that add to native String methods.
  * All are static methods. 
@@ -60,6 +69,7 @@ public class String2 {
      * This is the original definition, referenced by many other classes.
      */
     public static String ERROR = "ERROR";
+    public static String WARNING = "WARNING";
 
     //public static Logger log = Logger.getLogger("com.cohort.util");
     private static boolean logToSystemOut = true;
@@ -77,6 +87,15 @@ public class String2 {
      *  <code>System.getProperty("line.separator");</code>
      */
     public static String lineSeparator = System.getProperty("line.separator");
+
+//    public final static String  CHARSET = "charset";       //the name  of the charset att
+    public final static String  ISO_8859_1 = "ISO-8859-1"; //the value of the charset att and usable in Java code
+    public final static String  ISO_8859_1_LC = ISO_8859_1.toLowerCase();
+    public final static Charset ISO_8859_1_CHARSET = Charset.forName(ISO_8859_1);
+    public final static String ENCODING = "_Encoding";    //the name  of the _Encoding att
+    public final static String UTF_8 = "UTF-8";           //a   value of the _Encoding att and usable in Java code
+    public final static String UTF_8_LC = UTF_8.toLowerCase();
+    public final static String JSON = "JSON";          
 
     /** Returns true if the current Operating System is Windows. */
     public static String OSName = System.getProperty("os.name");
@@ -106,6 +125,50 @@ public class String2 {
         "\\p{L}[\\p{L}0-9'._%+-]{0,127}@[\\p{L}0-9.-]{1,127}\\.[A-Za-z]{2,4}";
     public final static Pattern EMAIL_PATTERN = Pattern.compile(EMAIL_REGEX);
 
+
+    public final static String ACDD_CONTACT_TYPES[] = {"person", "group", "institution", "position"}; //ACDD 1.3
+
+    //in the order they are used...
+    public final static String ACDD_PERSON_REGEX1 = "(DHYRENBACH|JFPIOLLE|JLH|ZHIJIN)"; 
+    public final static String ACDD_GROUP_REGEX = 
+        ".*(Center|CMEMS|GHRSST|Group|ICOADS|MEaSUREs|OBPG|Office|project|Project|SSALTO|Team).*";
+    public final static String ACDD_INSTITUTION_REGEX1 = 
+        ".*(Environment Canada|Remote Sensing Systems|University).*";
+    public final static String ACDD_INSTITUTION_REGEX2 = ".*[A-Z]{3,}.*";  //3 or more adjacent capital letters anywhere
+    public final static String ACDD_INSTITUTION_REGEX3 = "([A-Za-z][a-z]+ ){3,}[A-Za-z][a-z]+.*";  //start with 4 or more words (including "of")
+    /** Catch most (not all) people's names, 
+        e.g., Dr. Kenneth R. Jones, Ken R. Jones, Ken R Jones, Ken Jones, K Jones, Mary McCarthy       
+        Don't match other things (e.g., institutions with 3 word names). 
+        See tests in TestUtil.testString2. */
+    public final static String ACDD_PERSON_REGEX2 = 
+        "(Dr\\.? |Prof\\.? |)[A-Z](\\.|[a-z]*) ([A-Z]\\.? |)(Ma?c|)[A-Z][a-z]+(, .+|)"; 
+
+    public final static String NCCSV_VERSION        = "NCCSV-1.0";
+    public final static String NCCSV_BINARY_VERSION = "NCCSV_BINARY-1.0";
+    public final static String NCCSV_GLOBAL         = "*GLOBAL*";
+    public final static String NCCSV_DATATYPE       = "*DATA_TYPE*";
+    public final static String NCCSV_SCALAR         = "*SCALAR*";
+    public final static String NCCSV_END_METADATA   = "*END_METADATA*";
+    public final static String NCCSV_END_DATA       = "*END_DATA*";
+
+    public final static Pattern NCCSV_BYTE_ATT_PATTERN   = Pattern.compile("-?\\d{1,3}b");
+    public final static Pattern NCCSV_SHORT_ATT_PATTERN  = Pattern.compile("-?\\d{1,5}s");
+    public final static Pattern NCCSV_INT_ATT_PATTERN    = Pattern.compile("-?\\d{1,10}i");
+    public final static Pattern NCCSV_LONG_ATT_PATTERN   = Pattern.compile("-?\\d{1,19}L");
+    public final static Pattern NCCSV_FLOAT_ATT_PATTERN  = Pattern.compile(
+        // -(    1      .? 1?      |  .1        )  e    -      10    |NaN f
+        "(-?(\\d{1,15}\\.?\\d{0,15}|\\.\\d{1,15})([eE][+-]?\\d{1,2})?|NaN)f");
+    public final static Pattern NCCSV_DOUBLE_ATT_PATTERN = Pattern.compile(
+        // -(    1      .? 1?      |  .1        )  e   +-      100   |NaN  d  
+        "(-?(\\d{1,25}\\.?\\d{0,25}|\\.\\d{1,25})([eE][+-]?\\d{1,3})?|NaN)d");
+    public final static Pattern NCCSV_CHAR_ATT_PATTERN   = Pattern.compile(
+        //  ' char    |  \special              | "" | \uffff             '
+        "\"?'([ -~^\"]|\\\\[bfnrt/\\\'\\\"\\\\]|\"\"|\\\\u[0-9a-fA-F]{4})'\"?"); 
+
+    /* This is to test: does an NCSV string generated by Java Look Like A (LLA) number? */
+    public final static Pattern NCCSV_LLA_NUMBER_PATTERN = Pattern.compile(
+        "(-?\\d[0-9.eE+-]*|NaN)(b|s|L|f|)"); //Java always writes a leading digit, e.g., 0.1, not .1
+
     /** These are NOT thread-safe.  Always use them in synchronized blocks ("synchronized(gen....) {}").*/
     private static DecimalFormat genStdFormat6 = new DecimalFormat("0.######");
     private static DecimalFormat genEngFormat6 = new DecimalFormat("##0.#####E0");
@@ -125,7 +188,8 @@ public class String2 {
     }
 
     //EDStatic may change this
-    public static String unitTestDataDir = "/erddapTest/";
+    public static String unitTestDataDir    = "/erddapTest/";
+    public static String unitTestBigDataDir = "/erddapTestBig/";
 
     /**
      * This returns the string which sorts higher.
@@ -395,6 +459,40 @@ public class String2 {
     }
 
     /**
+     * This goes beyond equalsIgnoreCase by looking after punctuation removed.
+     *
+     * @param s1
+     * @param s2
+     * @return true if find is loosely in s. Return false if s or find !isSomething.
+     */
+    public static boolean looselyEquals(String s1, String s2) {
+        if (s1 == null || s2 == null) 
+            return false;
+
+        int s1Length = s1.length();
+        StringBuilder s1sb = new StringBuilder();
+        for (int i = 0; i < s1Length; i++) {
+            char ch = s1.charAt(i);
+            if (Character.isLetterOrDigit(ch))
+                s1sb.append(Character.toLowerCase(ch));
+        }
+        if (s1sb.length() == 0)
+            return false;
+
+        int s2Length = s2.length();
+        StringBuilder s2sb = new StringBuilder();
+        for (int i = 0; i < s2Length; i++) {
+            char ch = s2.charAt(i);
+            if (Character.isLetterOrDigit(ch))
+                s2sb.append(Character.toLowerCase(ch));
+        }
+        if (s2sb.length() == 0)
+            return false;
+
+        return s1sb.toString().equals(s2sb.toString());
+    }
+
+    /**
      * Finds the first instance of s at or after fromIndex (0.. ) in sb.
      *
      * @param sb a StringBuilder
@@ -481,8 +579,9 @@ public class String2 {
     /**
      * This returns the first section of s (starting at fromIndex) 
      * which matches regex.
+     * !!! Note that . in the regex doesn't match line terminators in s !!!
      *
-     * @param s the source String
+     * @param s the source String.
      * @param regex the regular expression, see java.util.regex.Pattern.
      * @param fromIndex the starting index in s
      * @return the section of s which matches regex, or null if not found
@@ -499,6 +598,7 @@ public class String2 {
     /**
      * This returns all the sections of s that match regex.
      * It assumes that the extracted parts don't overlap.
+     * !!! Note that . in the regex doesn't match line terminators in s !!!
      *
      * @param s the source String
      * @param regex the regular expression, see java.util.regex.Pattern.
@@ -530,11 +630,25 @@ public class String2 {
      *    1 for first capture group, 2 for second, etc.)
      * @return the value of the specified capture group,
           or null if the s doesn't match the regex
-     * @throws RuntimeException if trouble
+     * @throws RuntimeException if trouble, e.g., invalid regex syntax
      */
     public static String extractCaptureGroup(String s, String regex, int captureGroupNumber) {
-        Pattern p = Pattern.compile(regex);
-        Matcher m = p.matcher(s);
+        return extractCaptureGroup(s, Pattern.compile(regex), captureGroupNumber);
+    }
+
+    /**
+     * This returns the specified capture group from s. 
+     *
+     * @param s the source String
+     * @param regexPattern the regexPattern must match the entire string
+     * @param captureGroupNumber the number of the capture group (0 for entire regex,
+     *    1 for first capture group, 2 for second, etc.)
+     * @return the value of the specified capture group,
+          or null if the s doesn't match the regex
+     * @throws RuntimeException if trouble, e.g., invalid regex syntax
+     */
+    public static String extractCaptureGroup(String s, Pattern regexPattern, int captureGroupNumber) {
+        Matcher m = regexPattern.matcher(s);
         if (m.matches()) 
             return m.group(captureGroupNumber);
         else return null; 
@@ -600,7 +714,7 @@ public class String2 {
      * This indexOf is a little different: it finds the first instance in s of any char in car.
      *
      * @param s a string 
-     * @param car the chars you want to find any of (perhaps from charListString.toCharArray())
+     * @param car the chars you want to find any of 
      * @param fromIndex the index number of the position to start the search
      * @return The first instance in s of any char in car. If not found, it returns -1.
      */
@@ -608,6 +722,23 @@ public class String2 {
         int sLength = s.length();
         for (int index = Math.max(fromIndex, 0); index < sLength; index++) {
             if (indexOf(car, s.charAt(index)) >= 0)
+                return index;
+        }
+        return -1;
+    }
+    
+    /**
+     * This indexOf is a little different: it finds the first instance in s of any char in car.
+     *
+     * @param s a string 
+     * @param car the chars you want to find any of 
+     * @param fromIndex the index number of the position to start the search
+     * @return The first instance in s of any char in car. If not found, it returns -1.
+     */
+    public static int indexOf(String s, String car, int fromIndex) {
+        int sLength = s.length();
+        for (int index = Math.max(fromIndex, 0); index < sLength; index++) {
+            if (car.indexOf(s.charAt(index)) >= 0)
                 return index;
         }
         return -1;
@@ -661,6 +792,65 @@ public class String2 {
         return indexOf(dArray, d, 0);
     }
 
+    /** This calls directReadFromFile with charset= UTF_8 */
+    public static String directReadFromUtf8File(String fileName) 
+        throws Exception {
+        return directReadFromFile(fileName, UTF_8);
+    }
+
+    /** This calls directReadFromFile with charset= ISO_8859_1 */
+    public static String directReadFrom88591File(String fileName) 
+        throws Exception {
+        return directReadFromFile(fileName, ISO_8859_1);
+    }
+
+    /**
+     * This reads the bytes of the file with the specified charset.
+     * This does not alter the characters (e.g., the line endings).
+     * 
+     * <P>This method is generally appropriate for small and medium-sized
+     * files. For very large files or files that need additional processing,
+     * it may be better to write a custom method to
+     * read the file line-by-line, processing as it goes.
+     *
+     * @param fileName is the (usually canonical) path (dir+name) for the file
+     * @param charset e.g., ISO-8859-1, UTF-8, or "" or null for the default (ISO-8859-1)
+     * @return a String with the decoded contents of the file.
+     * @throws Exception if trouble
+     */
+    public static String directReadFromFile(String fileName, String charset) 
+        throws Exception {
+
+        //declare the BufferedReader variable
+        //declare the results variable: String results[] = {"", ""}; 
+        //BufferedReader and results are declared outside try/catch so 
+        //that they can be accessed from within either try/catch block.
+        long time = System.currentTimeMillis();
+        InputStream fis = null;
+        Reader isr = null;
+        StringBuilder sb = new StringBuilder(8192);
+        try {
+
+            fis = File2.getDecompressedBufferedInputStream(fileName);
+            isr = new BufferedReader(new InputStreamReader(fis, 
+                charset == null || charset.length() == 0? ISO_8859_1 : charset));
+
+            //get the text from the file
+            char buffer[] = new char[8192];
+            int nRead;
+            while ((nRead = isr.read(buffer)) >= 0)  //-1 = end-of-file
+                sb.append(buffer, 0, nRead);
+            return sb.toString();
+        } finally {
+            try {
+                if (isr != null)
+                    isr.close();
+                else if (fis != null)
+                    fis.close();
+            } catch (Exception e) {
+            }
+        }
+    }
 
     /**
      * This is a variant of readFromFile that uses the default character set 
@@ -679,8 +869,7 @@ public class String2 {
     }
 
     /**
-     * This reads the text contents of the specified file.
-     * This assumes the file uses the default character encoding.
+     * This reads the text contents of the specified text file.
      * 
      * <P>This method uses try/catch to ensure that all possible
      * exceptions are caught and returned as the error String
@@ -688,7 +877,7 @@ public class String2 {
      * 
      * <P>This method is generally appropriate for small and medium-sized
      * files. For very large files or files that need additional processing,
-     * it may be more efficient to write a custom method to
+     * it may be better to write a custom method to
      * read the file line-by-line, processing as it goes.
      *
      * @param fileName is the (usually canonical) path (dir+name) for the file
@@ -712,7 +901,7 @@ public class String2 {
         //BufferedReader and results are declared outside try/catch so 
         //that they can be accessed from within either try/catch block.
         long time = System.currentTimeMillis();
-        FileInputStream fis = null;
+        InputStream is = null;
         InputStreamReader isr = null;
         BufferedReader bufferedReader = null;
         String results[] = {"", ""};
@@ -726,9 +915,9 @@ public class String2 {
             maxAttempt = Math.max(1, maxAttempt);
             for (int attempt = 1; attempt <= maxAttempt; attempt++) {
                 try {
-                    fis = new FileInputStream(fileName);
-                    isr = new InputStreamReader(fis, 
-                        charset == null || charset.length() == 0? "ISO-8859-1" : charset);
+                    is = File2.getDecompressedBufferedInputStream(fileName);
+                    isr = new InputStreamReader(is, 
+                        charset == null || charset.length() == 0? ISO_8859_1 : charset);
                 } catch (Exception e) {
                     if (attempt == maxAttempt) {
                         log(ERROR + ": String2.readFromFile was unable to read " + fileName);
@@ -765,12 +954,12 @@ public class String2 {
             results[errorIndex] = MustBe.throwable("fileName=" + fileName, e);
         }
 
-        //close the bufferedReader
+        //close whatever got opened
         try {
             //close the highest level file object available
             if (bufferedReader != null) bufferedReader.close();
             else if (isr       != null) isr.close();
-            else if (fis       != null) fis.close();
+            else if (is        != null) is.close();
 
         } catch (Exception e) {
             if (results[errorIndex].length() == 0)
@@ -780,7 +969,7 @@ public class String2 {
 
         //return results
         //log("  String2.readFromFile " + fileName + " time=" + 
-        //    (System.currentTimeMillis() - time));
+        //    (System.currentTimeMillis() - time) + "ms");
         return results;
     }
 
@@ -805,36 +994,48 @@ public class String2 {
         int maxAttempt) throws Exception {
 
         long time = System.currentTimeMillis();
+        InputStream is = null;
         InputStreamReader isr = null;
-        for (int i = 0; i < maxAttempt; i++) {
-            try {
-                isr = new InputStreamReader(new FileInputStream(fileName), 
-                    charset == null || charset.length() == 0? "ISO-8859-1" : charset);
-                break; //success
-            } catch (RuntimeException e) {
-                if (i == maxAttempt - 1)
-                    throw e;
-                Math2.sleep(1);
+        try {
+            for (int i = 0; i < maxAttempt; i++) {
+                try {
+                    is = File2.getDecompressedBufferedInputStream(fileName);
+                    isr = new InputStreamReader(is, 
+                        charset == null || charset.length() == 0? ISO_8859_1 : charset);
+                    break; //success
+                } catch (RuntimeException e) {
+                    if (is != null) {
+                        is.close();
+                        is = null;
+                    }
+                    if (i == maxAttempt - 1)
+                        throw e;
+                    Math2.sleep(100);
+                }
             }
+            BufferedReader bufferedReader = new BufferedReader(isr);
+            try {
+                ArrayList<String> al = new ArrayList();                         
+                String s = bufferedReader.readLine();
+                while (s != null) { //null = end-of-file
+                    al.add(s);
+                    s = bufferedReader.readLine();
+                }
+                return al.toArray(new String[0]);
+            } finally {
+                bufferedReader.close();
+                isr = null;
+            }
+        } finally {
+            if (isr != null)
+                isr.close();
         }
-        BufferedReader bufferedReader = new BufferedReader(isr);
-        ArrayList<String> al = new ArrayList();                         
-        String s = bufferedReader.readLine();
-        while (s != null) { //null = end-of-file
-            al.add(s);
-            s = bufferedReader.readLine();
-        }
-
-        bufferedReader.close();
-        isr.close();
-        return al.toArray(new String[0]);
     }
 
     /*
     Here is a skeleton for more direct control of reading text from a file: 
-        BufferedReader bufferedReader = null;
+        BufferedReader bufferedReader = new BufferedReader(new FileReader(fileName));                      
         try {
-            bufferedReader = new BufferedReader(new FileReader(fileName));                      
             String s;
             while ((s = bufferedReader.readLine()) != null) { //null = end-of-file
                 //do something with s
@@ -919,8 +1120,9 @@ public class String2 {
             //This uses a BufferedWriter wrapped around a FileWriter
             //to write the information to the file.
             Writer w = charset == null || charset.length() == 0?
-                new FileWriter(fileName, append) :
-                new OutputStreamWriter(new FileOutputStream(fileName, append), charset);
+                new FileWriter(fileName, append) :  //buffered below
+                new OutputStreamWriter(
+                    new BufferedOutputStream(new FileOutputStream(fileName, append)), charset);
             bufferedWriter = new BufferedWriter(w);
                          
             //convert \n to operating-system-specific lineSeparator
@@ -944,10 +1146,8 @@ public class String2 {
 
         //make sure bufferedWriter is closed
         try {
-            if (bufferedWriter != null) {
+            if (bufferedWriter != null) 
                 bufferedWriter.close();
-
-            }
         } catch (Exception e) {
             if (error.length() == 0)
                 error = e.toString(); 
@@ -971,6 +1171,20 @@ public class String2 {
         return "Java " + javaVersion + mrjVersion + " (" + Math2.JavaBits + " bit, " +
             System.getProperty("java.vendor") + ") on " +
             OSName + " (" + System.getProperty("os.version") + ").";
+    }
+
+    /**
+     * This returns true for A..Z, a..z.
+     *
+     * @param c a char
+     * @return true if c is a letter
+     */
+    public static final boolean isAsciiLetter(int c) {
+        if (c <  'A') return false;
+        if (c <= 'Z') return true;
+        if (c <  'a') return false;
+        if (c <= 'z') return true;
+        return false;
     }
 
     /**
@@ -1050,7 +1264,26 @@ public class String2 {
      * @return true if c is a digit
      */
     public static final boolean isDigit(int c) {
-        return ((c >= '0') && (c <= '9'));
+        return (c >= '0') && (c <= '9');
+    }
+
+    /**
+     * 0..9.
+     * Non-Latin numeric characters are not included (see Java Lang Spec pg 14).
+     *
+     * @param s a string
+     * @return true if c is a digit
+     */
+    public static final boolean allDigits(String s) {
+        if (s == null)
+            return false;
+        int n = s.length();
+        if (n == 0)
+            return false;
+        for (int po = 0; po < n; po++)
+            if (!isDigit(s.charAt(po)))
+                return false;
+        return true;
     }
 
     /**
@@ -1159,7 +1392,7 @@ public class String2 {
      * @return true if c is a whitespace character
      */
     public static final boolean isWhite(int c) {
-        return (c >= '\u0001') && (c <= ' ');
+        return ((c >= '\u0001') && (c <= ' ')) || c == '\u00a0'; //nbsp
     }
 
     /**
@@ -1168,7 +1401,7 @@ public class String2 {
      * <UL>
      * <LI> This is used, for example, to limit characters entering CoText.
      * <LI> Currently, this accepts the ch if
-     *   <TT>(ch&gt;=32 &amp;&amp; ch&lt;127) || (ch&gt;=161 &amp;&amp; ch&lt;=255)</TT>.
+     *   <tt>(ch&gt;=32 &amp;&amp; ch&lt;127) || (ch&gt;=161 &amp;&amp; ch&lt;=255)</tt>.
      * <LI> tab(#9) is not included.  It should be caught separately
      *   and dealt with (expand to spaces?).  The problem is that
      *   tabs are printed with a wide box (non-character symbol)
@@ -1346,7 +1579,7 @@ public class String2 {
     /** 
      * This returns true if the dir starts with http://, https://, ftp://, sftp://,
      * or smb://.
-     * This is like isRemote, but returns true for "file://...".
+     * This is like isRemote, but returns false for "file://...".
      * 
      * @return true if the dir is remote (e.g., a URL other than file://)
      *   If dir is null or "", this returns false.
@@ -1360,7 +1593,8 @@ public class String2 {
 
 
     /**
-     * This indicates if s has just file-name-safe characters (0-9, A-Z, a-z, _, -, .).
+     * This indicates if s has length &gt;= 1 and 
+     *   has just file-name-safe characters (0-9, A-Z, a-z, _, -, .).
      * Note, this does not check for filenames that are too long
      * (Windows has a path+fileName max length of 255 chars).
      *
@@ -1408,7 +1642,7 @@ public class String2 {
             sb.append(isFileNameSafe(ch)? ch : '_');
         }
         while (sb.indexOf("__") >= 0)
-            String2.replaceAll(sb, "__", "_");
+            replaceAll(sb, "__", "_");
 
         return sb.toString();
     }
@@ -1504,7 +1738,7 @@ public class String2 {
      * <li>subsequent characters must be (iso8859Letter|_|0-9).
      * </ul>
      * Note that Java allows Unicode characters, but this does not.
-     * See also the safer encodeVariableNameSafe(String s).
+     * See also the safer encodeMatlabNameSafe(String s).
      * Note, this does not check for names that are too long
      * (many system have an 80 or 255 char limit).
      *
@@ -1550,7 +1784,7 @@ public class String2 {
 
 
     /**
-     * This counts all occurrences of <TT>findS</TT> in sb.
+     * This counts all occurrences of <tt>findS</tt> in sb.
      * if (sb == null || findS == null || findS.length() == 0) return 0;
      * 
      * @param sb the source StringBuilder
@@ -1569,7 +1803,7 @@ public class String2 {
     }
 
     /**
-     * This counts all occurrences of <TT>findS</TT> in s.
+     * This counts all occurrences of <tt>findS</tt> in s.
      * if (s == null || findS == null || findS.length() == 0) return 0;
      * 
      * @param s the source string
@@ -1588,8 +1822,8 @@ public class String2 {
     }
 
     /**
-     * Replaces all occurences of <TT>oldS</TT> in sb with <TT>newS</TT>.
-     * If <TT>oldS</TT> occurs inside <TT>newS</TT>, it won't be replaced
+     * Replaces all occurences of <tt>oldS</tt> in sb with <tt>newS</tt>.
+     * If <tt>oldS</tt> occurs inside <tt>newS</tt>, it won't be replaced
      *   recursively (obviously).
      * 
      * @param sb the source StringBuilder
@@ -1601,8 +1835,8 @@ public class String2 {
     }
 
     /**
-     * Replaces all occurences of <TT>oldS</TT> in sb with <TT>newS</TT>.
-     * If <TT>oldS</TT> occurs inside <TT>newS</TT>, it won't be replaced
+     * Replaces all occurences of <tt>oldS</tt> in sb with <tt>newS</tt>.
+     * If <tt>oldS</tt> occurs inside <tt>newS</tt>, it won't be replaced
      *   recursively (obviously).
      * When searching sb for oldS, this ignores the case of sb and oldS.
      * 
@@ -1615,20 +1849,21 @@ public class String2 {
     }
 
     /**
-     * Replaces all occurences of <TT>oldS</TT> in sb with <TT>newS</TT>.
-     * If <TT>oldS</TT> occurs inside <TT>newS</TT>, it won't be replaced
+     * Replaces all occurences of <tt>oldS</tt> in sb with <tt>newS</tt>.
+     * If <tt>oldS</tt> occurs inside <tt>newS</tt>, it won't be replaced
      *   recursively (obviously).
      * 
      * @param sb the StringBuilder
      * @param oldS the string to be searched for
      * @param newS the string to replace oldS
      * @param ignoreCase   If true, when searching sb for oldS, this ignores the case of sb and oldS.
+     * @return the number of replacements made.
      */
-    public static void replaceAll(StringBuilder sb, String oldS, String newS, boolean ignoreCase) {
+    public static int replaceAll(StringBuilder sb, String oldS, String newS, boolean ignoreCase) {
         int sbL = sb.length();
         int oldSL = oldS.length();
         if (oldSL == 0)
-            return;
+            return 0;
         int newSL = newS.length();
         StringBuilder testSB = sb;
         String testOldS = oldS;
@@ -1640,10 +1875,12 @@ public class String2 {
         }
         int po = testSB.indexOf(testOldS);
         //System.out.println("testSB=" + testSB.toString() + " testOldS=" + testOldS + " po=" + po); //not String2.log
-        if (po < 0) return;
+        if (po < 0) return 0;
         StringBuilder sb2 = new StringBuilder(sbL / 5 * 6); //a little bigger
         int base = 0;
+        int n = 0;
         while (po >= 0) {
+            n++;
             sb2.append(sb.substring(base, po));
             sb2.append(newS);
             base = po + oldSL;
@@ -1654,12 +1891,37 @@ public class String2 {
         sb2.append(sb.substring(base));
         sb.setLength(0);
         sb.append(sb2);
+        return n;
     }
 
     /**
-     * Returns a string where all occurences of <TT>oldS</TT> have
-     *   been replaced with <TT>newS</TT>.
-     * If <TT>oldS</TT> occurs inside <TT>newS</TT>, it won't be replaced
+     * This repeatedly replaces all oldS with newS.
+     * e.g., replace "++" with "+" in "++++" will yield "+".
+     *
+     * @return sb for convenience
+     */
+    public static StringBuilder repeatedlyReplaceAll(StringBuilder sb, String oldS, String newS, boolean ignoreCase) {        
+        while (replaceAll(sb, oldS, newS, ignoreCase) > 0) {}
+        return sb;
+    }
+
+    /**
+     * This repeatedly replaces all oldS with newS.
+     * e.g., replace "++" with "+" in "++++" will yield "+".
+     *
+     */
+    public static String repeatedlyReplaceAll(String s, String oldS, String newS, boolean ignoreCase) {        
+        StringBuilder sb = new StringBuilder(s);
+        while (replaceAll(sb, oldS, newS, ignoreCase) > 0) {}
+        return sb.toString();
+    }
+
+
+
+    /**
+     * Returns a string where all occurences of <tt>oldS</tt> have
+     *   been replaced with <tt>newS</tt>.
+     * If <tt>oldS</tt> occurs inside <tt>newS</tt>, it won't be replaced
      *   recursively (obviously).
      *
      * @param s the main string
@@ -1675,9 +1937,9 @@ public class String2 {
     }
 
     /**
-     * Returns a string where all occurences of <TT>oldS</TT> have
-     *   been replaced with <TT>newS</TT>.
-     * If <TT>oldS</TT> occurs inside <TT>newS</TT>, it won't be replaced
+     * Returns a string where all occurences of <tt>oldS</tt> have
+     *   been replaced with <tt>newS</tt>.
+     * If <tt>oldS</tt> occurs inside <tt>newS</tt>, it won't be replaced
      *   recursively (obviously).
      * When finding oldS in s, their case is irrelevant.
      *
@@ -1732,18 +1994,16 @@ public class String2 {
      * leading and trailing whitespace.
      * Also, spaces after { or ( and before ) or } will be removed.
      *
-     * @param s 
-     * @return s, but with the spaces combined
-     *    (or null if s is null)
+     * @param sb 
      */
-    public static String whitespacesToSpace(String s) {
-        if (s == null)
-            return null;
-        s = s.trim(); //this removes whitespace, not just ' '
+    public static void whitespacesToSpace(StringBuilder sb) {
+        if (sb == null)
+            return;
+        String s = sb.toString().trim(); //this removes whitespace, not just ' '
         int sLength = s.length();
-        if (sLength <= 2) //first and last chars must be non-space
-            return s; 
-        StringBuilder sb = new StringBuilder(sLength);
+        sb.setLength(0);
+        if (sLength == 0)
+            return;
         sb.append(s.charAt(0));
         for (int po = 1; po < sLength; po++) {
             char ch = s.charAt(po);
@@ -1758,12 +2018,20 @@ public class String2 {
                 sb.append(ch);
             }
         }
+    }
+
+    /* A variant that takes and returns a string */
+    public static String whitespacesToSpace(String s) {
+        if (s == null)
+            return null;
+        StringBuilder sb = new StringBuilder(s);
+        whitespacesToSpace(sb);
         return sb.toString();
     }
 
     /**
-     * Returns a string where all occurences of <TT>oldCh</TT> have
-     *   been replaced with <TT>newCh</TT>.
+     * Returns a string where all occurences of <tt>oldCh</tt> have
+     *   been replaced with <tt>newCh</tt>.
      * This doesn't throw exceptions if bad values.
      */
     public static String replaceAll(String s, char oldCh, char newCh) {
@@ -1780,8 +2048,8 @@ public class String2 {
     }
 
     /**
-     * Returns the same StringBuilder, where all occurences of <TT>oldCh</TT> have
-     *   been replaced with <TT>newCh</TT>.
+     * Returns the same StringBuilder, where all occurences of <tt>oldCh</tt> have
+     *   been replaced with <tt>newCh</tt>.
      *
      * @return the same StringBuilder, for convenience.
      */
@@ -1796,7 +2064,31 @@ public class String2 {
     }
 
     /**
-     * This adds 0's to the left of the string until there are <TT>nDigits</TT>
+     * This converts many common &gt;255 Unicode characters to the similar
+     * plain text character.
+     *
+     * @return sb for convenience
+     */
+    public static StringBuilder commonUnicodeToPlainText(StringBuilder sb) {
+        replaceAll(sb, '\u2013', '-');  //endash 
+        replaceAll(sb, '\u2014', '-');  //emdash   --?
+        replaceAll(sb, '\u2018', '\''); //left quote
+        replaceAll(sb, '\u2019', '\''); //right quote
+        replaceAll(sb, '\u201c', '\"'); //left double quote
+        replaceAll(sb, '\u201d', '\"'); //right double quote
+        replaceAll(sb, '\u2212', '-');  //math minus sign
+        replaceAll(sb, '\u03bc', 'µ');  //mu
+        replaceAll(sb, "\u2264", "<="); 
+        replaceAll(sb, "\u2265", ">="); 
+        return sb;
+    }
+
+    public static String commonUnicodeToPlainText(String s) {
+        return commonUnicodeToPlainText(new StringBuilder(s)).toString();
+    }
+
+    /**
+     * This adds 0's to the left of the string until there are <tt>nDigits</tt>
      *   to the left of the decimal point (or nDigits total if there isn't
      *   a decimal point).
      * If the number is too big, nothing is added or taken away.
@@ -1820,31 +2112,124 @@ public class String2 {
     }
 
     /**
+     * The converts a string[] into a JSON array of strings.
+     *
+     * @param sa
+     * @return e.g., ["aa", "bb", "cc"].
+     *     If sa is null, this returns null (as a String).
+     */
+    public static String toJsonArray(String sa[]) {
+        if (sa == null)
+            return "null";
+        int saLength = sa.length;
+        StringBuilder sb = new StringBuilder(10 * saLength);
+        int start = 0;
+        for (int i = 0; i < saLength; i++) {
+            sb.append(i == 0? "[" : ",");
+            sb.append(toJson(sa[i]));
+        }
+        sb.append("]");
+        return sb.toString();
+    }
+
+
+
+    /**
+     * This makes a JSON version of a float. 
+     *
+     * @param f
+     * @return "null" if not finite. Return an integer if it ends with ".0".
+     *    Else returns the number as a string.
+     */
+    public static String toJson(float f) {
+        if (!Float.isFinite(f))
+            return "null";
+        String s = "" + f;
+        return s.endsWith(".0")? s.substring(0, s.length() - 2) : s;
+    }
+
+    /**
+     * This makes a JSON version of a number. 
+     *
+     * @param d
+     * @return "null" if not finite. Return an integer if it ends with ".0".
+     *    Else returns the number as a string.
+     */
+    public static String toJson(double d) {
+        if (!Double.isFinite(d))
+            return "null";
+        String s = "" + d;
+        return s.endsWith(".0")? s.substring(0, s.length() - 2) : s;
+    }
+
+    /**
      * This makes a JSON version of a string 
      * (\\, \f, \n, \r, \t and \" are escaped with a backslash character
      * and double quotes are added before and after).
      * null is returned as null.
+     * This variant encodes char #127 and above.
      *
      * @param s
      * @return the JSON-encoded string surrounded by "'s.
      */
     public static String toJson(String s) {
+        return toJson(s, 127, true);
+    }
+
+    /**
+     * This variant doesn't encode high characters.
+     *
+     * @param s
+     * @return the JSON-encoded string surrounded by "'s.
+     */
+    public static String toJson65536(String s) {
+        return toJson(s, 65536, true);
+    }
+
+    /**
+     * This makes a JSON version of a string 
+     * (\\, \f, \n, \r, \t and \" are escaped with a backslash character
+     * and double quotes are added before and after).
+     * null is returned as null.
+     * This variant encodes char #127 and above as \\uhhhh.
+     *
+     * @param s The String to be encoded.
+     * @param firstUEncodedChar The first char to be \\uhhhh encoded, 
+     *   commonly 127, 256, or 65536.
+     * @return the JSON-encoded string surrounded by "'s.
+     */
+    public static String toJson(String s, int firstUEncodedChar) {
+        return toJson(s, firstUEncodedChar, true);
+    }
+
+    /** 
+     * This is a variant of toJson that lets you encode newlines or not. 
+     * 
+     * @param s The String to be encoded.
+     * @param firstUEncodedChar The first char to be \\uhhhh encoded, 
+     *   commonly 127, 256, or 65536.
+     * @return the JSON-encoded string surrounded by "'s.
+     */
+    public static String toJson(String s, int firstUEncodedChar, boolean encodeNewline) {
         if (s == null)
             return "null";
         int sLength = s.length();
-        StringBuilder sb = new StringBuilder(sLength / 5 * 6);
+        StringBuilder sb = new StringBuilder((sLength / 5 + 1) * 6);
         sb.append('\"');
         int start = 0;
         for (int i = 0; i < sLength; i++) {
             char ch = s.charAt(i);
-            if (ch < 32 || ch > 255) {
+            //using 127 (not 255) means the output is 7bit ASCII and file encoding is irrelevant
+            if (ch < 32 || ch >= firstUEncodedChar) { 
                 sb.append(s.substring(start, i));  
                 start = i + 1;
                 if      (ch == '\f') sb.append("\\f");
-                else if (ch == '\n') sb.append("\\n");
+                else if (ch == '\n') sb.append(encodeNewline? "\\n" : "\n");
                 else if (ch == '\r') sb.append("\\r");
                 else if (ch == '\t') sb.append("\\t");
-                else sb.append("\\u" + String2.zeroPad(Integer.toHexString(ch), 4)); 
+                else if (ch == '\b') {} //remove it
+                //  / can be encoded as \/ but there is no need and it looks odd
+                else sb.append("\\u" + zeroPad(Integer.toHexString(ch), 4)); 
             } else if (ch == '\\') {
                 sb.append(s.substring(start, i));  
                 start = i + 1;
@@ -1860,19 +2245,47 @@ public class String2 {
         return sb.toString();
     }
 
-   
+    /** This encodes one char to the Json encoding. */
+    public static String charToJsonString(char ch, int firstUEncodedChar, boolean encodeNewline) {
+        //using 127 (not 255) means the output is 7bit ASCII and file encoding is irrelevant
+        if (ch < 32 || ch >= firstUEncodedChar) { 
+            if      (ch == '\f') return "\\f";
+            else if (ch == '\n') return encodeNewline? "\\n" : "\n";
+            else if (ch == '\r') return "\\r";
+            else if (ch == '\t') return "\\t";
+            else if (ch == '\b') return ""; //remove it
+            //  / can be encoded as \/ but there is no need and it looks odd
+            return "\\u" + zeroPad(Integer.toHexString(ch), 4); 
+        } 
+        if (ch == '\\') 
+            return "\\\\";
+        if (ch == '\"') 
+            return "\\\"";
+        // else normal character
+        return "" + ch;
+    }
+
+    /**
+     * This is like the other fromJson, but returns "" instead of null.
+     */
+    public static String fromJsonNotNull(String s) {
+        s = fromJson(s);
+        return s == null? "" : s;
+    }
+
     /**
      * This returns the unJSON version of a JSON string 
-     * (surrounding "'s (if any) are removed and \\, \f, \n, \r, \t and \" are unescaped).
+     * (surrounding "'s (if any) are removed and \\, \f, \n, \r, \t, \/, and \" are unescaped).
      * This is very liberal in what it accepts, including all common C escaped characters:
      * http://msdn.microsoft.com/en-us/library/h21280bw%28v=vs.80%29.aspx
-     * null and "null" are returned as null.
+     * "null" returns the String "null". null returns null.
+     * This won't throw an exception.
      *
      * @param s  it may be enclosed by "'s, or not.
      * @return the decoded string
      */
     public static String fromJson(String s) {
-        if (s == null || s.equals("null"))
+        if (s == null)
             return null;
         if (s.length() >= 2 && s.charAt(0) == '"' && s.charAt(s.length() - 1) == '"')
             s = s.substring(1, s.length() - 1);
@@ -1889,13 +2302,14 @@ public class String2 {
                 po++; 
                 start = po + 1;
                 ch = s.charAt(po);
-                if      (ch == 'f') sb.append('\f');
-                else if (ch == 'n') sb.append('\n');
-                else if (ch == 'r') sb.append('\r');
-                else if (ch == 't') sb.append('\t');
-                else if (ch == '?') sb.append('?');
-                else if (ch == '\\')sb.append('\\');
-                else if (ch == '"') sb.append('\"');
+                if      (ch == 'f')  sb.append('\f');
+                else if (ch == 'n')  sb.append('\n');
+                else if (ch == 'r')  sb.append('\r');
+                else if (ch == 't')  sb.append('\t');
+                else if (ch == '?')  sb.append('?');
+                else if (ch == '\\') sb.append('\\');
+                else if (ch == '/')  sb.append('/');
+                else if (ch == '"')  sb.append('\"');
                 else if (ch == '\'') sb.append('\'');
                 else if (ch == 'a' || ch == 'b' || ch == 'v') {
                     //delete a=bell, b=backspace, v=vertTab
@@ -1952,6 +2366,124 @@ public class String2 {
         return sb.toString();
     }
     
+    /**
+     * This converts an NCCSV encoded char to a true char  
+     * (surrounding "'s and ''s (if any) are removed and \\, \f, \n, \r, \t, \/, and \" are unescaped).
+     * This is very liberal in what it accepts, including all common C escaped characters:
+     * http://msdn.microsoft.com/en-us/library/h21280bw%28v=vs.80%29.aspx
+     *
+     * @param s  it may be enclosed by "'s and ''s, or not.
+     * @return the decoded char (or '?' if trouble) as a 1-char string.
+     */
+    public static char fromNccsvChar(String s) {
+        if (s == null)
+            return '?';
+        //String2.log(">> String2.fromNccsvChar  in=" + annotatedString(s));
+        if (s.length() >= 2 && s.charAt(0) == '"' && s.charAt(s.length() - 1) == '"') 
+            s = s.substring(1, s.length() - 1);
+        if (s.length() >= 2 && s.charAt(0) == '\'' && s.charAt(s.length() - 1) == '\'') 
+            s = s.substring(1, s.length() - 1);
+        s = s.equals("\"\"")? "\"" : fromJson(s);
+        //String2.log(">> String2.fromNccsvChar out=" + annotatedString(s));
+        return s.length() > 0? s.charAt(0) : '?'; 
+    }
+
+    /**
+     * This converts an NCCSV string to a true string  
+     * (surrounding "'s (if any) are removed and \\, \f, \n, \r, \t, \/, and \" are unescaped).
+     * This is very liberal in what it accepts, including all common C escaped characters:
+     * http://msdn.microsoft.com/en-us/library/h21280bw%28v=vs.80%29.aspx
+     * This won't throw an exception.
+     *
+     * @param s  it may be enclosed by "'s, or not.
+     * @return the decoded string
+     */
+    public static String fromNccsvString(String s) {
+        return replaceAll(fromJson(s), "\"\"", "\"");
+    }
+
+    /**
+     * This encodes one char for an NCCSV char or String, without surrounding quotes.
+     */
+    public static String toNccsvChar(char ch) {
+        if (ch == '\\') return "\\\\";
+        if (ch == '\b') return "\\b"; //trouble
+        if (ch == '\f') return "\\f";
+        if (ch == '\n') return "\\n";
+        if (ch == '\r') return "\\r";
+        if (ch == '\t') return "\\t";
+        if (ch == '\"') return "\"\"";
+        if (ch < ' ' || ch > '~') return "\\u" + zeroPad(Integer.toHexString(ch), 4); 
+        return "" + ch;
+    }
+
+    /**
+     * This encodes one String as an NCCSV data String, with surrounding double quotes
+     * only if necessary.
+     */
+    public static String toNccsvDataString(String s) {
+        //encode the string
+        if (s == null || s.length() == 0)
+            return "";
+        int n = s.length();
+        StringBuilder sb = new StringBuilder(n * 2);
+        for (int i = 0; i < n; i++)
+            sb.append(toNccsvChar(s.charAt(i)));
+
+        //surround in "'s?
+        if (s.startsWith(" ") ||
+            s.endsWith(" ") ||
+            s.indexOf(',') >= 0 || 
+            s.indexOf('"') >= 0 ||
+            s.equals("null"))
+            return "\"" + sb.toString() + "\"";
+        return sb.toString();
+    }
+
+    /**
+     * This encodes one String as an NCCSV att String, with surrounding double quotes
+     * only if necessary.
+     */
+    public static String toNccsvAttString(String s) {
+        //encode the string
+        int n = s.length();
+        StringBuilder sb = new StringBuilder(n * 2);
+        for (int i = 0; i < n; i++)
+            sb.append(toNccsvChar(s.charAt(i)));
+
+        //surround in "'s?
+        if (s.startsWith(" ") ||
+            s.endsWith(" ") ||
+            s.indexOf(',') >= 0 || 
+            s.indexOf('"') >= 0 ||
+            s.equals("null") ||
+            NCCSV_CHAR_ATT_PATTERN.matcher(s).matches() ||  //Looks Like A char
+            NCCSV_LLA_NUMBER_PATTERN.matcher(s).matches())  //Looks Like A number
+            return "\"" + sb.toString() + "\"";
+        return sb.toString();
+    }
+
+    /**
+     * This writes one string to an NCCSV DOS.
+     */
+/* project not finished or tested
+    public static void writeNccsvDos(DataOutputStream dos, String s) throws IOException {
+        byte bar[] = stringToUtf8Bytes(s);
+        dos.writeInt(bar.length);
+        dos.write(bar, 0, bar.length);
+    }
+*/
+    /**
+     * This encodes special characters in s if needed so that 
+     * s can be stored as an item in a tsv string.
+     */
+    public static String toTsvString(String s) {
+        if (s == null || s.length() == 0)
+            return "";  //json would return "null"
+        s = toJson(s);
+        return s.substring(1, s.length() - 1); //remove enclosing quotes
+    }
+
     /**
      * This takes a multi-line string (with \\r, \\n, \\r\\n line separators)
      *   and converts it into an ArrayList strings.
@@ -2312,7 +2844,7 @@ public class String2 {
         for (int i = 0; i < n; i++) {
             if (i > 0)
                 sb.append(", ");
-            sb.append((int)ar[i]);  //safe char to int type conversion
+            sb.append(toNccsvDataString("" + ar[i]));  //safe char to int type conversion
         }
         return sb.toString();
     }
@@ -2323,7 +2855,7 @@ public class String2 {
      * Negative numbers are twos compliment, e.g., -4 -&gt; 0xfffffffc.
      */
     public static String to0xHexString(int i, int nHexDigits) {
-        return "0x" + String2.zeroPad(Integer.toHexString(i), nHexDigits);
+        return "0x" + zeroPad(Integer.toHexString(i), nHexDigits);
     }
 
     /**
@@ -2758,8 +3290,10 @@ public class String2 {
             return null;
         int sLength = s.length();
         byte[] ba = new byte[sLength];
-        for (int i = 0; i < sLength; i++)
-            ba[i] = (byte)s.charAt(i);
+        for (int i = 0; i < sLength; i++) {
+            char c = s.charAt(i);  //2016-11-29 I added: char>255 -> '?', it's better than just low 8 bits
+            ba[i] = (byte)(c < 256? c : '?'); 
+        }
         return ba;
     }
 
@@ -2775,8 +3309,10 @@ public class String2 {
             return null;
         int sbLength = sb.length();
         byte[] ba = new byte[sbLength];
-        for (int i = 0; i < sbLength; i++)
-            ba[i] = (byte)sb.charAt(i);
+        for (int i = 0; i < sbLength; i++) {
+            char c = sb.charAt(i);  //2016-11-29 I added: char>255 -> 255, it's better than just low 8 bits
+            ba[i] = (byte)(c < 256? c : 255); 
+        }
         return ba;
     }
 
@@ -2815,10 +3351,37 @@ public class String2 {
     }
 
     /**
+     * This finds the first element in Object[]  (starting at element startAt)
+     * where ar[i]==o.
+     *
+     * @param ar the array of Objects
+     * @param o the String to be found
+     * @param startAt the first element of ar to be checked.
+     *    If startAt &lt; 0, this starts with startAt = 0.
+     *    If startAt &gt;= ar.length, this returns -1.
+     * @return the element number of ar which is equal to s (or -1 if ar is null, or s is null or not found)
+     */
+    public static int indexOfObject(Object[] ar, Object o, int startAt) {
+        if (ar == null || o == null)
+            return -1;
+        int n = ar.length;
+        for (int i = Math.max(0, startAt); i < n; i++)
+            if (ar[i] != null && ar[i] == o)  
+                return i;
+        return -1;
+    }
+
+    /** A variant of indexOfObject() that uses startAt=0. */
+    public static int indexOfObject(Object[] ar, Object o) {
+        return indexOfObject(ar, o, 0);
+    }
+
+
+    /**
      * This finds the first element in Object[] 
      * where the ar[i].toString value equals to s.
      *
-     * @param ar the array of Objects
+     * @param ar the array of Objects (Strings?)
      * @param s the String to be found
      * @return the element number of ar which is equal to s (or -1 if ar is null, or s is null or not found)
      */
@@ -2966,10 +3529,21 @@ public class String2 {
     }
 
     /**
+     * This variant of lineStartsWith startsAt index=0.
+     *
+     * @param ar the array of objects, e.g., including LATITUDE
+     * @param s the String to be found, e.g., Lat
+     * @return the element number of ar which starts with s (or -1 if not found)
+     */
+    public static int lineStartsWithIgnoreCase(Object[] ar, String s) {
+        return lineStartsWithIgnoreCase(ar, s, 0);
+    }
+
+    /**
      * This is like lineStartsWith, but ignores case.
      *
-     * @param ar the array of objects
-     * @param s the String to be found
+     * @param ar the array of objects, e.g., including LATITUDE
+     * @param s the String to be found, e.g., Lat
      * @param startAt the first element of ar to be checked.
      *    If startAt &lt; 0, this starts with startAt = 0.
      * @return the element number of ar which starts with s (or -1 if not found)
@@ -3107,7 +3681,7 @@ public class String2 {
         if (fullFileName.length() == 0) {
             if (oLogFileName != null && oLogFileName.length() > 0)
                 log("*** closed logFile=" + oLogFileName + " at " + 
-                    Calendar2.getCurrentISODateTimeStringLocal());
+                    Calendar2.getCurrentISODateTimeStringLocalTZ());
             return;
         }
 
@@ -3115,7 +3689,7 @@ public class String2 {
         //always synchronize on logFileLock
         synchronized(logFileLock) { 
             try {
-                logFile = new BufferedWriter(new FileWriter(fullFileName, append));
+                logFile = new BufferedWriter(new FileWriter(fullFileName, append)); //default charset
                 logFileSize = Math2.narrowToInt((new File(fullFileName)).length());
                 logFileName = fullFileName; //log file created, so assign logFileName
             } catch (Throwable t) {
@@ -3125,7 +3699,7 @@ public class String2 {
             }
         }
 
-log("logFileMaxSize=" + logFileMaxSize);
+        log("logFileMaxSize=" + logFileMaxSize);
     }
 
     /**
@@ -3156,7 +3730,7 @@ log("logFileMaxSize=" + logFileMaxSize);
      */
     public static void returnLoggingToSystemOut() {
         try {
-            String2.setupLog(true, false, "", false, logFileDefaultMaxSize);
+            setupLog(true, false, "", false, logFileDefaultMaxSize);
         } catch (Throwable t2) {
             System.out.println(MustBe.throwableToString(t2));
         }
@@ -3525,7 +4099,7 @@ and zoom and pan with controls in
         int nFinite = 0;
         double da[] = new double[n];
         for (int i = 0; i < n; i++)
-            if (Math2.isFinite(dar[i]))
+            if (Double.isFinite(dar[i]))
                 da[nFinite++] = dar[i];
 
         //copy to a new array
@@ -3756,7 +4330,7 @@ and zoom and pan with controls in
      * DON'T USE THIS; RELY ON THE FIXES AVAILABLE FOR JAVA: 
      * EITHER THE LATEST VERSION OF JAVA OR THE 
      * JAVA UPDATER TO FIX THE BUG ON EXISTING OLDER JAVA INSTALLATIONS
-     * http://www.oracle.com/technetwork/java/javase/fpupdater-tool-readme-305936.html
+     * https://www.oracle.com/technetwork/java/javase/fpupdater-tool-readme-305936.html
      *
      * <p>This returns true if s is a value that causes Java to hang. 
      * Avoid java hang.     2011-02-09 
@@ -3841,9 +4415,11 @@ and zoom and pan with controls in
 
         try {
             s = s.replace(',', '.');   //!!! this is inconsistent with parseDouble
-            return Float.parseFloat(s);
+            float f = Float.parseFloat(s);
+            //String2.log(">> parseFloat " + s + " -> " + f);
+            return f;
         } catch (Exception e) {
-            //String2.log("parseFloat exception: " + s);
+            log(">> parseFloat exception: " + s);
             return Float.NaN;
         }
     }
@@ -4165,43 +4741,63 @@ and zoom and pan with controls in
         String fullOutFileName, String search, String replace) 
         throws Exception {       
              
-        String2.log("simpleSearchAndReplace in=" + fullInFileName +
+        log("simpleSearchAndReplace in=" + fullInFileName +
             " out=" + fullOutFileName + " search=" + search + " replace=" + replace);
         String tOutFileName = fullOutFileName + Math2.random(Integer.MAX_VALUE);
         BufferedReader bufferedReader = new BufferedReader(new FileReader(fullInFileName));
-        BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(tOutFileName));
         try {
-                             
-            //convert the text, line by line
-            //This uses bufferedReader.readLine() to repeatedly
-            //read lines from the file and thus can handle various 
-            //end-of-line characters.
-            String s = bufferedReader.readLine();
-            while (s != null) { //null = end-of-file
-                bufferedWriter.write(replaceAll(s, search, replace));
-                bufferedWriter.write(lineSeparator);
-                s = bufferedReader.readLine();
-            }
-
-            bufferedReader.close();
-            bufferedWriter.close();
-
-            if (fullInFileName.equals(fullOutFileName))
-                File2.rename(fullInFileName, fullInFileName + ".original");
-            File2.rename(tOutFileName, fullOutFileName);
-            if (fullInFileName.equals(fullOutFileName))
-                File2.delete(fullInFileName + ".original");
-
-        } catch (Exception e) {
+            BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(tOutFileName));
             try {
+                                 
+                //convert the text, line by line
+                //This uses bufferedReader.readLine() to repeatedly
+                //read lines from the file and thus can handle various 
+                //end-of-line characters.
+                String s = bufferedReader.readLine();
+                while (s != null) { //null = end-of-file
+                    bufferedWriter.write(replaceAll(s, search, replace));
+                    bufferedWriter.write(lineSeparator);
+                    s = bufferedReader.readLine();
+                }
+
                 bufferedReader.close();
+                bufferedReader = null;
                 bufferedWriter.close();
-            } catch (Exception e2) {
+                bufferedWriter = null;
+
+                if (fullInFileName.equals(fullOutFileName))
+                    File2.rename(fullInFileName, fullInFileName + ".original");
+                File2.rename(tOutFileName, fullOutFileName);
+                if (fullInFileName.equals(fullOutFileName))
+                    File2.delete(fullInFileName + ".original");
+
+            } catch (Exception e) {
+                try {
+                    if (bufferedWriter != null) {
+                        bufferedWriter.close();
+                        bufferedWriter = null;
+                    }
+                } catch (Exception e2) {
+                }
+                try {
+                    if (bufferedReader != null) {
+                        bufferedReader.close();
+                        bufferedReader = null;
+                    }
+                } catch (Exception e2) {
+                }
+                File2.delete(tOutFileName);
+                throw e;
+            }
+        } catch (Exception e3) {
+            try {
+                if (bufferedReader != null) 
+                    bufferedReader.close();
+            } catch (Exception e4) {
             }
             File2.delete(tOutFileName);
-            throw e;
+            throw e3;
         }
-
     }
 
     /**
@@ -4220,22 +4816,25 @@ and zoom and pan with controls in
         throws Exception {
          
         BufferedReader bufferedReader = new BufferedReader(new FileReader(fullInFileName));
-        BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(fullOutFileName));
-                         
-        //get the text from the file
-        //This uses bufferedReader.readLine() to repeatedly
-        //read lines from the file and thus can handle various 
-        //end-of-line characters.
-        String s = bufferedReader.readLine();
-        while (s != null) { //null = end-of-file
-            bufferedWriter.write(s.replaceAll(search, replace));
-            bufferedWriter.write(String2.lineSeparator);
-            s = bufferedReader.readLine();
+        try {
+            BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(fullOutFileName));
+            try {                   
+                //get the text from the file
+                //This uses bufferedReader.readLine() to repeatedly
+                //read lines from the file and thus can handle various 
+                //end-of-line characters.
+                String s = bufferedReader.readLine();
+                while (s != null) { //null = end-of-file
+                    bufferedWriter.write(s.replaceAll(search, replace));
+                    bufferedWriter.write(lineSeparator);
+                    s = bufferedReader.readLine();
+                }
+            } finally {
+                bufferedWriter.close();
+            }
+        } finally {
+            bufferedReader.close();
         }
-
-        bufferedReader.close();
-        bufferedWriter.close();
-
     }
 
 
@@ -4276,7 +4875,7 @@ and zoom and pan with controls in
     public static String genEFormat6(double d) {
 
         //!finite
-        if (!Math2.isFinite(d))
+        if (!Double.isFinite(d))
             return "" + d;
 
         //almost 0
@@ -4325,7 +4924,7 @@ and zoom and pan with controls in
     public static String genEFormat10(double d) {
 
         //!finite
-        if (!Math2.isFinite(d))
+        if (!Double.isFinite(d))
             return "" + d;
 
         //almost 0
@@ -4413,7 +5012,7 @@ and zoom and pan with controls in
      * This removes white space characters at the beginning and end of a StringBuilder.
      *
      * @param sb a StringBuilder
-     * @return the same pointer to the StringBuilder
+     * @return the same pointer to the StringBuilder for convenience
      */
     public static StringBuilder trim(StringBuilder sb) {
         int po = 0;
@@ -4438,7 +5037,7 @@ and zoom and pan with controls in
             return s;
         int sLength = s.length();
         int po = 0;
-        while (po < sLength && String2.isWhite(s.charAt(po))) 
+        while (po < sLength && isWhite(s.charAt(po))) 
             po++;
         return po > 0? s.substring(po) : s;
     }
@@ -4455,7 +5054,7 @@ and zoom and pan with controls in
             return s;
         int sLength = s.length();
         int po = sLength;
-        while (po > 0 && String2.isWhite(s.charAt(po - 1))) 
+        while (po > 0 && isWhite(s.charAt(po - 1))) 
             po--;
         return po < sLength? s.substring(0, po) : s;
     }
@@ -4486,9 +5085,9 @@ and zoom and pan with controls in
             //classPath is a URL! so spaces are encoded as %20 on Windows!
             //UTF-8: see https://en.wikipedia.org/wiki/Percent-encoding#Current_standard
             try {
-                classPath = URLDecoder.decode(classPath, "UTF-8");  
+                classPath = URLDecoder.decode(classPath, UTF_8);  
             } catch (Throwable t) {
-                String2.log(MustBe.throwableToString(t));
+                log(MustBe.throwableToString(t));
             }
         }
 
@@ -4500,36 +5099,41 @@ and zoom and pan with controls in
      *
      * @param prompt
      * @return the String the user entered
-     * @throws Exception if trouble
+     * @throws RuntimeException if trouble
      */
-    public static String getStringFromSystemIn(String prompt) throws Exception {
-        flushLog();
-        System.out.print(prompt);
-        BufferedReader inReader = new BufferedReader(new InputStreamReader(System.in));
-        return inReader.readLine();
+    public static String getStringFromSystemIn(String prompt) {
+        try {
+            flushLog();
+            System.out.print(prompt);
+            BufferedReader inReader = new BufferedReader(new InputStreamReader(System.in));
+            return inReader.readLine();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     /** 
      * A variant of getStringFromSystemIn that adds "\nPress ^C to stop or Enter to continue..."
      * to the prompt.
      *
-     * @throws Exception if trouble
+     * @throws RuntimeException if trouble
      */
-    public static String pressEnterToContinue(String prompt) throws Exception {
+    public static String pressEnterToContinue(String prompt) {
         if (prompt == null)
             prompt = "";
         return getStringFromSystemIn(prompt + 
-            (prompt.length() == 0 || prompt.endsWith("\n")? "" : "\n") +
-            "Press ^C to stop or Enter to continue...");
+                (prompt.length() == 0 || prompt.endsWith("\n")? "" : "\n") +
+                "Press ^C to stop or Enter to continue...");
     }
-     
+
+   
     /** 
      * A variant of pressEnterToContinue with "Press ^C to stop or Enter to continue..."
      * as the prompt.
      *
-     * @throws Exception if trouble
+     * @throws RuntimeException if trouble
      */
-    public static String pressEnterToContinue() throws Exception {
+    public static String pressEnterToContinue() {
         return pressEnterToContinue("");
     }
      
@@ -4722,14 +5326,14 @@ and zoom and pan with controls in
     }
 
     /**
-     * This returns the index of the first non-utf-8 character.
+     * This returns the index of the first non-Unicode character.
      * Currently, valid characters are #32 - #126, #160+.
      *
      * @param s
-     * @param alsoOK a string with characters (e.g., \n, \t) which are also valid
+     * @param alsoOK a string with characters (e.g., \r, \n, \t) which are also valid
      * @return the index of the first non-utf-8 character, or -1 if all valid.
      */
-    public static int findInvalidUtf8(String s, String alsoOK) {
+    public static int findInvalidUnicode(String s, String alsoOK) {
         int n = s.length();
         for (int i = 0; i < n; i++) {
             char ch = s.charAt(i);
@@ -4747,30 +5351,168 @@ and zoom and pan with controls in
     }
 
     /**
-     * This returns the UTF-8 encoding of the string (or null if trouble).
-     * The inverse of this is utf8ToString.
+     * This makes s valid Unicode by converting invalid characters (e.g., #128)
+     * with \\uhhhh (literally 2 backslashes, so no info is lost). 
+     * The invalid characters are often Windows charset characters #127 - 159.
+     *
+     * @param s
+     * @param alsoOK a string with characters (e.g., \r, \n, \t) which are also valid
+     * @return the valid Unicode string.
      */
-    public static byte[] getUTF8Bytes(String s) {
+    public static String makeValidUnicode(String s, String alsoOK) {
+        if (s == null)
+            return "";
+        int n = s.length();
+        StringBuilder sb = new StringBuilder(n + 128);
+        for (int i = 0; i < n; i++) {
+            char ch = s.charAt(i);
+            if (alsoOK.indexOf(ch) >= 0) 
+                sb.append(ch);
+            else if (ch < 32) 
+                sb.append("\\u" + zeroPad(Integer.toHexString(ch), 4));
+            else if (ch < 127) 
+                sb.append(ch);
+            else if (ch < 160)
+                sb.append("\\u" + zeroPad(Integer.toHexString(ch), 4));
+            else sb.append(ch);   //160+ is valid                         
+        }
+        return sb.toString();
+    }
+
+    /**
+     * This converts the char to an ISO-8859-1 (ISO_8859_1) char. 
+     * This converts any char in 127-159 and &gt;255 into '?'.
+     *
+     * @param ch the char to be converted
+     * @return an ISO_8859_1-only char.
+     */
+    public static char toIso88591Char(char ch) {  
+        if (ch < 127) return ch;
+        if (ch < 160) return '?';
+        if (ch < 256) return ch;
+        return               '?';
+    }
+
+    /**
+     * This converts the chars to ISO-8859-1 (ISO_8859_1) chars. 
+     * This converts any char in 127-159 and &gt;255 into '?'.
+     *
+     * @param car[] the char[] to be converted
+     * @return car for convenience.
+     */
+    public static char[] toIso88591Chars(char car[]) {  
+        int n = car.length;
+        for (int i = 0; i < n; i++) {            
+            char ch = car[i];
+            if      (ch < 127) {              }
+            else if (ch < 160) {car[i] = '?'; }
+            else if (ch < 256) {              }
+            else               {car[i] = '?'; }
+        }
+        return car;
+    }
+
+    /**
+     * A little weird: This returns the ISO-8859-1 (ISO_8859_1) encoding of the 
+     * string as a String (using only the lower byte of each 2-byte char),
+     * so a unicode string can be stored in a 1-byte/char string. 
+     * This converts any char in 127-159 and &gt;255 into '?'.
+     *
+     * @param s the string to be converted
+     * @return an ISO_8859_1-only string (perhaps the same string).
+     *   If s==null, this returns "".
+     */
+    public static String toIso88591String(String s) {  
+        //return ISO_8859_1_CHARSET.decode( //makes a CharBuffer
+        //    ISO_8859_1_CHARSET.encode(s)).toString(); //makes a ByteBuffer
+
+        if (s == null)
+            return "";
+        boolean returnS = true;
+        int n = s.length();
+        StringBuilder sb = new StringBuilder(n);
+        for (int i = 0; i < n; i++) {
+            char ch = s.charAt(i);
+            if      (ch < 127) { sb.append(ch);                   }
+            else if (ch < 160) { sb.append('?'); returnS = false; }
+            else if (ch < 256) { sb.append(ch);                   }
+            else               { sb.append('?'); returnS = false; }
+        }
+        return returnS? s : sb.toString();
+    }
+
+    /** This converts all of the Strings to ISO_8859_1 encoding. 
+     *
+     * @return sar for convenience
+     */
+    public static String[] toIso88591Strings(String sar[]) {
+        int n = sar.length;
+        for (int i = 0; i < n; i++) 
+            sar[i] = toIso88591String(sar[i]);
+        return sar;
+    }
+
+    /**
+     * This returns the UTF-8 encoding of the string (or null if trouble).
+     * The inverse of this is utf8BytesToString.
+     * This won't throw an exception and returns ERROR (as bytes) if trouble.
+     */
+    public static byte[] stringToUtf8Bytes(String s) {
         try {
-            return s.getBytes("UTF-8");             
-        } catch (Exception e) {
-            String2.log(ERROR + " in String2.getUTF8Bytes(" + s + "): " + e.toString());
-            return null;
+            return s.getBytes(UTF_8);   
+        } catch (Exception e) {  //danger is invalid encoding name -- won't happen
+            log("Caught " + ERROR + " in String2.stringToUtf8Bytes(" + s + "): " + 
+                MustBe.throwableToString(e));
+            return new byte[]{59, 92, 92, 79, 92}; //ERROR
         }
     }
 
     /**
-     * This returns a string from the UTF-8 encoded byte[] (or null if trouble).
-     * The inverse of this is getUTF8Bytes.
+     * This returns a string from the UTF-8 encoded byte[] (or ERROR if trouble).
+     * The inverse of this is stringToUtf8Bytes.
+     * This won't throw an exception and returns ERROR if trouble.
      */
-    public static String utf8ToString(byte[] bar) {
+    public static String utf8BytesToString(byte[] bar) {
         try {
-            return new String(bar, "UTF-8");             
-        } catch (Exception e) {
-            String2.log(ERROR + " in String2.utf8ToString: " + e.toString());
-            return null;
+            return new String(bar, UTF_8); 
+            //alternatively, you could use (char)bar[i]
+        } catch (Exception e) { //danger is invalid UTF-8
+            log("Caught " + ERROR + " in String2.utf8BytesToString(" + toCSSVString(bar) + "): " + 
+                MustBe.throwableToString(e));
+            return ERROR; 
         }
     }
+
+    /**
+     * A little weird: This returns the UTF-8 encoding of the string as a String 
+     * (using only the lower byte of each 2-byte char),
+     * so a unicode string can be stored in a 1-byte/char string. 
+     * This won't throw an exception and returns ERROR (as bytes) if trouble.
+     */
+    public static String stringToUtf8String(String s) {
+        try {
+            return new String(s.getBytes(UTF_8), 0);  //0=highByte  this is deprecated but useful
+        } catch (Exception e) {
+            log("Caught " + ERROR + " in String2.stringToUtf8String(" + s + "): " + 
+                MustBe.throwableToString(e));
+            return ERROR; 
+        }
+    }
+
+    /**
+     * A little weird: This returns the unicode string from a UTF-8 encoded String.
+     * This won't throw an exception and returns ERROR (as bytes) if trouble.
+     */
+    public static String utf8StringToString(String s) {
+        try {
+            return new String(toByteArray(s), UTF_8);             
+        } catch (Exception e) {
+            log("Caught " + ERROR + " in String2.utf8StringToString(" + s + "): " + 
+                MustBe.throwableToString(e));
+            return ERROR; 
+        }
+    }
+
 
     /**
      * This creates the jump table (int[256]) for a given 'find' stringUtf8
@@ -4862,7 +5604,7 @@ and zoom and pan with controls in
     } 
 
     /**
-     * This returns the MD5 hash digest of getUTF8Bytes(password) as a String of 32 lowercase hex digits.
+     * This returns the MD5 hash digest of stringToUtf8Bytes(password) as a String of 32 lowercase hex digits.
      * Lowercase because the digest authentication standard uses lower case; so mimic them.
      * And lowercase is easier to type.
      * 
@@ -4875,20 +5617,20 @@ and zoom and pan with controls in
     }
 
     /**
-     * This returns the hash digest of getUTF8Bytes(password) as a String of lowercase hex digits.
+     * This returns the hash digest of stringToUtf8Bytes(password) as a String of lowercase hex digits.
      * Lowercase because the digest authentication standard uses lower case; so mimic them.
      * And lowercase is easier to type.
      * 
      * @param algorithm one of the FILE_DIGEST_OPTIONS
      * @param password  the text to be digested
-     * @return the SHA256 hash digest of the password (256 lowercase hex digits, as a String),
+     * @return the algorithm's hash digest of the password (many lowercase hex digits, as a String),
      *   or null if password is null or there is trouble.
      */
     public static String passwordDigest(String algorithm, String password) {
         try {
             if (password == null) return null;
             MessageDigest md = MessageDigest.getInstance(algorithm);
-            md.update(getUTF8Bytes(password));
+            md.update(stringToUtf8Bytes(password));
             byte bytes[] = md.digest();
             int nBytes = bytes.length;
             StringBuilder sb = new StringBuilder(nBytes * 2);
@@ -4897,13 +5639,14 @@ and zoom and pan with controls in
                     (int)bytes[i] & 0xFF), 2));   //safe, (int) and 0xFF make it unsigned byte
             return sb.toString();
         } catch (Throwable t) {
-            String2.log(MustBe.throwableToString(t));
+            log(MustBe.throwableToString(t));
             return null;
         }
     }
 
-    public static final String FILE_DIGEST_OPTIONS[]    = {"MD5",  "SHA-1", "SHA-256"};
-    public static final String FILE_DIGEST_EXTENSIONS[] = {".md5", ".sha1", ".sha256"};
+    /** Java only guarantees that the first 3 of these will be supported. */
+    public static final String FILE_DIGEST_OPTIONS[]    = {"MD5",  "SHA-1", "SHA-256", "SHA-384", "SHA-512" };
+    public static final String FILE_DIGEST_EXTENSIONS[] = {".md5", ".sha1", ".sha256", ".sha384", ".sha512"}; //Bagit likes these (after the '.')
 
     /**
      * This returns a hash digest of fullFileName (read as bytes)
@@ -4911,28 +5654,43 @@ and zoom and pan with controls in
      * Lowercase because the digest authentication standard uses lower case; so mimic them.
      * And lowercase is easier to type.
      * 
-     * @param algorithm one of the FILE_DIGEST_OPTIONS ("MD5", "SHA-1", "SHA-256").
+     * @param useBase64 If true, this returns the digest as a base64 string.
+     *   If false, this returns the digest as a hex string.
+     * @param algorithm one of the FILE_DIGEST_OPTIONS ("MD5", "SHA-1", "SHA-256", ...).
      * @param fullFileName  the name of the file to be digested
      * @return the hash digest of the file
-     *   (for MD5, 32 lowercase hex digits as a String),
-     *   or null if fullFileName is null or there is trouble.
+     *   (for MD5, 32 lowercase hex digits as a String)
+     * @throws Exception if real trouble
      */
-    public static String fileDigest(String algorithm, String fullFileName) 
+    public static String fileDigest(boolean useBase64, String algorithm, String fullFileName) 
         throws Exception {
         MessageDigest md = MessageDigest.getInstance(algorithm);
-        FileInputStream fis = new FileInputStream(fullFileName);
-        byte buffer[] = new byte[8192];
-        int nBytes;
-        while ((nBytes = fis.read(buffer)) > 0) 
-            md.update(buffer, 0, nBytes);
-        fis.close();
+        //below not File2.getDecompressedBufferedInputStream() because want file digest of archive
+        InputStream fis = new BufferedInputStream(new FileInputStream(fullFileName));
+        try {
+            byte buffer[] = new byte[8192];
+            int nBytes;
+            while ((nBytes = fis.read(buffer)) >= 0) 
+                md.update(buffer, 0, nBytes);
+        } finally {
+            fis.close();
+        }
         byte bytes[] = md.digest();
-        nBytes = bytes.length;
-        StringBuilder sb = new StringBuilder(nBytes * 2);
-        for (int i = 0; i < nBytes; i++)
-            sb.append(zeroPad(Integer.toHexString(
-                (int)bytes[i] & 0xFF), 2));   //safe, (int) and 0xFF make it unsigned byte
-        return sb.toString();
+        if (useBase64) {
+            return new String(Base64.encodeBase64(bytes));
+        } else {
+            int nBytes = bytes.length;
+            StringBuilder sb = new StringBuilder(nBytes * 2);
+            for (int i = 0; i < nBytes; i++)
+                sb.append(zeroPad(Integer.toHexString(
+                    (int)bytes[i] & 0xFF), 2));   //safe, (int) and 0xFF make it unsigned byte
+            return sb.toString();
+        }
+    }
+
+    /* This variant returns the digest as a hex string. */
+    public static String fileDigest(String algorithm, String fullFileName) throws Exception {
+        return fileDigest(false, algorithm, fullFileName);
     }
 
     /** 
@@ -4995,7 +5753,7 @@ and zoom and pan with controls in
         if (d == 0)
             return new int[]{0, 0};
 
-        if (!Math2.isFinite(d))
+        if (!Double.isFinite(d))
             return new int[]{1, Integer.MAX_VALUE};
 
         String s = "" + d; //-12.0 or 6.6260755E-24
@@ -5079,12 +5837,12 @@ and zoom and pan with controls in
             }
             char ch = s.charAt(i);
 
-            if (ch != 'x' && String2.isFileNameSafe(ch)) {
+            if (ch != 'x' && isFileNameSafe(ch)) {
                 sb.append(ch);
             } else if (ch <= 255) {
-                sb.append("x" + String2.zeroPad(Integer.toHexString(ch), 2));
+                sb.append("x" + zeroPad(Integer.toHexString(ch), 2));
             } else {
-                sb.append("xx" + String2.zeroPad(Integer.toHexString(ch), 4));
+                sb.append("xx" + zeroPad(Integer.toHexString(ch), 4));
             }
         }
 
@@ -5097,6 +5855,9 @@ and zoom and pan with controls in
      * <li>first character must be A-Z, a-z, _.
      * <li>subsequent characters must be A-Z, a-z, _, 0-9.
      * </ul>
+     * 2016-06-16: DEPRECATED.
+     *   I THINK THAT RESTRICTION CLAIM ISN'T TRUE. BUT LEAVE THIS AS IS.
+     *   RECOMMEND: USE NEW encodeMatlabNameSafe FOR NEW USES.
      * <br>'x' and non-safe characters are CONVERTED to 'x' plus their 
      *   2 lowercase hexadecimalDigit number or "xx" + their 4 hexadecimalDigit number.
      * <br>See posix fully portable file names at https://en.wikipedia.org/wiki/Filename .
@@ -5126,15 +5887,121 @@ and zoom and pan with controls in
             }
             char ch = s.charAt(i);
 
-            if (ch != 'x' && String2.isFileNameSafe(ch) && ch != '-' && ch != '.' &&
+            //THIS ISN'T RIGHT because isFileNameSafe now allows high ASCII letters! BUT LEAVE IT AS IS.
+            if (ch != 'x' && isFileNameSafe(ch) && ch != '-' && ch != '.' &&
                 (i > 0 || ((ch >= 'A' && ch <= 'Z') || (ch >='a' && ch <='z') || (ch == '_')))) {
                 sb.append(ch);
             } else if (ch <= 255) {
-                sb.append("x" + String2.zeroPad(Integer.toHexString(ch), 2));
+                sb.append("x" + zeroPad(Integer.toHexString(ch), 2));
             } else {
-                sb.append("xx" + String2.zeroPad(Integer.toHexString(ch), 4));
+                sb.append("xx" + zeroPad(Integer.toHexString(ch), 4));
             }
         }
+
+        return sb.toString();
+    }
+
+    /**
+     * This is like encodeFileNameSafe, but further restricts the name to
+     * <ul>
+     * <li>first character must be A-Z, a-z.
+     * <li>subsequent characters must be A-Z, a-z, _, 0-9.
+     * </ul>
+     * <br>'x' and non-safe characters are CONVERTED to 'x' plus their 
+     *   2 lowercase hexadecimalDigit number or "xx" + their 4 hexadecimalDigit number.
+     * <br>See posix fully portable file names at https://en.wikipedia.org/wiki/Filename .
+     * <br>When the encoding is more than 25 characters, this stops encoding and 
+     *   adds "xh" and the hash code for the entire original string,
+     *   so the result will always be less than ~41 characters.
+     * <br>This meets MatLab restrictions:
+     *   https://www.mathworks.com/help/matlab/ref/matlab.lang.makevalidname.html
+     *
+     * <p>THIS WON'T BE CHANGED. FILE NAMES CREATED FOR EDDGridFromFile and EDDTableFromFile 
+     *  DEPEND ON SAME ENCODING OVER TIME.
+     *
+     * @param s  
+     * @return s with all of the non-variableNameSafe characters changed.
+     *    <br>If s is null, this returns "x_1".
+     *    <br>If s is "", this returns "x_0".
+     */
+    public static String encodeMatlabNameSafe(String s) {
+        if (s == null)
+            return "x_1";
+        int n = s.length();
+        if (n == 0)
+            return "x_0";
+        StringBuilder sb = new StringBuilder(4 * Math.min(50, n) / 3);
+        for (int i = 0; i < n; i++) {
+            if (sb.length() >= 25) {
+                sb.append("xh" + md5Hex12(s)); //was Math2.reduceHashCode(s.hashCode()));
+                break;
+            }
+            char ch = s.charAt(i);
+
+            if (ch == 'x') {
+                sb.append("x" + zeroPad(Integer.toHexString(ch), 2));
+            } else if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')) { //1st chars
+                sb.append(ch);
+            } else if (i > 0 && ((ch >= '0' && ch <= '9') || ch == '_')) { //subsequent chars
+                sb.append(ch);
+            } else if (ch <= 255) {  //others
+                sb.append("x" + zeroPad(Integer.toHexString(ch), 2));
+            } else { //others
+                sb.append("xx" + zeroPad(Integer.toHexString(ch), 4));
+            }
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * This is like encodeMatlabNameSafe, but simpler and won't always retain all the info.
+     * <ul>
+     * <li>first character must be A-Z, a-z.
+     * <li>subsequent characters must be A-Z, a-z, _, 0-9.
+     * </ul>
+     * <br>non-safe characters are some safe variant.
+     * <br>See posix fully portable file names at https://en.wikipedia.org/wiki/Filename .
+     * <br>When the encoding is more than 25 characters, this stops encoding and 
+     *   adds "xh" and the hash code for the entire original string,
+     *   so the result will always be less than ~41 characters.
+     * <br>This meets MatLab restrictions:
+     *   https://www.mathworks.com/help/matlab/ref/matlab.lang.makevalidname.html
+     *
+     * <p>THIS WON'T BE CHANGED. SOME datasetIDs DEPEND ON SAME ENCODING OVER TIME.
+     *
+     * @param s  
+     * @return s with all of the non-variableNameSafe characters changed.
+     *    <br>If s is null, this returns "null_".
+     *    <br>If s is "", this returns "nothing_".
+     */
+    public static String simpleMatlabNameSafe(String s) {
+        if (s == null)
+            return "null_";
+        int n = s.length();
+        if (n == 0)
+            return "nothing_";
+        s = modifyToBeASCII(s);
+        StringBuilder sb = new StringBuilder(4 * Math.min(50, n) / 3);
+        for (int i = 0; i < n; i++) {
+            if (sb.length() >= 25) {
+                sb.append("_" + md5Hex12(s)); //was Math2.reduceHashCode(s.hashCode()));
+                break;
+            }
+            char ch = s.charAt(i);
+
+            if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')) { //1st chars
+                sb.append(ch);
+            } else if (sb.length() > 0 && ch >= '0' && ch <= '9') { //subsequent chars
+                sb.append(ch);
+            //all other chars get converted to '_'
+            //but '_' can't be first char and no two '_' in a row
+            } else if (sb.length() > 0 && sb.charAt(sb.length() - 1) != '_') { 
+                sb.append('_');
+            }
+        }
+        if (sb.length() == 0)
+            sb.append("a_");
 
         return sb.toString();
     }
@@ -5154,7 +6021,7 @@ and zoom and pan with controls in
             if (t != null && t.isDataFlavorSupported(DataFlavor.stringFlavor)) 
                 return (String)t.getTransferData(DataFlavor.stringFlavor);
         } catch (Throwable th) {
-            String2.log(ERROR + " while getting the string from the clipboard:\n" +
+            log(ERROR + " while getting the string from the clipboard:\n" +
                 MustBe.throwableToString(th));
         }
         return null;
@@ -5170,12 +6037,27 @@ and zoom and pan with controls in
             Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
             clipboard.setContents(new StringSelection(s), null);
         } catch (Throwable t) {
-            String2.log(ERROR + " while putting the string on the clipboard:\n" +
+            log(ERROR + " while putting the string on the clipboard:\n" +
                 MustBe.throwableToString(t));
         }
     }
 
 
+
+    /**
+     * This replaces each of the substrings with the canonical String.
+     * If any is null, it is left as null.
+     *
+     * @return the same array, for convenience. null returns null.
+     */
+    public static String[] canonical(String sar[]) {
+        if (sar == null)
+            return null;
+        int n = sar.length;
+        for (int i = 0; i < n; i++)
+            sar[i] = canonical(sar[i]);
+        return sar;
+    }
 
     /** 
      * This is like String.intern(), but uses a WeakHashMap so the canonical strings 
@@ -5216,7 +6098,7 @@ and zoom and pan with controls in
                 //not a reference to the parent string, see TestUtil.testString2canonical2()
                 canonical = new String(s); //in case s is from s2.substring, copy to be just the characters
                 tCanonicalMap.put(canonical, new WeakReference(canonical));
-                //String2.log("new canonical string: " + canonical);
+                //log("new canonical string: " + canonical);
             }
             return canonical;
         }
@@ -5242,35 +6124,6 @@ and zoom and pan with controls in
     }
 
 
-
-    /** If quoted=true, this puts double quotes around a string, if needed.
-     * In any case, carriageReturn/newline characters/combos are replaced by 
-     * char #166 (pipe with gap).
-     *
-     * @param quoted if true, if a String value starts or ends with a space 
-     *    or has a double quote or comma, 
-     *    the value will be surrounded in double quotes
-     *    and internal double quotes become two double quotes.
-     * @return the revised string
-     */
-    public static String quoteIfNeeded(boolean quoted, String s) {
-        //this is Bob's unprecedented solution to dealing with newlines
-        //¦ is (char)166 (#166), so distinct from pipe, (char)124
-        int po = s.indexOf('\n');
-        if (po >= 0) {
-            s = replaceAll(s, '\n', (char)166); //'¦'  (#166)
-            s = replaceAll(s, "\r", "");
-        } else {
-            s = replaceAll(s, '\r', (char)166); //'¦'  (#166)
-            s = replaceAll(s, "\n", ""); 
-        }
-        if (quoted) {
-            if (s.indexOf('"') >= 0 || s.indexOf(',') >= 0 ||
-                (s.length() > 0 && (s.charAt(0) == ' ' || s.charAt(s.length() - 1) == ' '))) 
-                s = "\"" + replaceAll(s, "\"", "\"\"") + "\"";
-        }
-        return s;
-    }
 
     /* *
      * This makes a medium-deep clone of an ArrayList by calling clone() of
@@ -5299,7 +6152,7 @@ and zoom and pan with controls in
     } */
 
     /** This changes the characters case to title case (only letters after non-letters are
-     * capitalized).  This is simplistic.
+     * capitalized).  This is simplistic (it doesn't know about acronyms or pH or ...).
      */
     public static String toTitleCase(String s) {
         if (s == null)
@@ -5372,6 +6225,42 @@ and zoom and pan with controls in
         return sb.toString();
     }
 
+    /** 
+     * This converts "camelCase99String" to "Camel Case 99 String"
+     * 
+     * @param s the camel case string.
+     * @return the string with spaces before capital letters.
+     *   null returns null.
+     *   "" returns "".
+     */
+    public static String camelCaseToTitleCase(String s) {
+
+        //change 
+        //  but don't space out an acronym, e.g., E T O P O
+        //  and don't split hyphenated words, e.g.,   Real-Time
+        if (s == null)
+            return null;
+        int n = s.length();
+        if (n <= 1)
+            return s;
+        StringBuilder sb = new StringBuilder(n + 10);
+        sb.append(Character.toUpperCase(s.charAt(0)));
+        for (int i = 1; i < n; i++) {
+            char chi1 = s.charAt(i - 1);
+            char chi  = s.charAt(i);
+            if (Character.isLetter(chi)) {
+                if (chi1 == Character.toLowerCase(chi1) && Character.isLetterOrDigit(chi1) &&
+                    chi  != Character.toLowerCase(chi )) 
+                    sb.append(' ');
+            } else if (Character.isDigit(chi)) {
+                if (chi1 == Character.toLowerCase(chi1) && Character.isLetter(chi1)) 
+                    sb.append(' ');
+            }
+            sb.append(chi);
+        }
+        return sb.toString();
+    }
+
     /**
      * This returns true if the string contains only ISO 8859-1 characters (i.e., 0 - 255).
      */
@@ -5385,6 +6274,42 @@ and zoom and pan with controls in
     /** This returns true if s isn't null and s.trim().length() &gt; 0. */
     public static boolean isSomething(String s) {
         return s != null && s.trim().length() > 0;
+    }
+
+    /** This returns true if s isn't null, "", "-", "null", "nd", "N/A", "...", "???", etc. */
+    public static boolean isSomething2(String s) {
+        //Some datasets have "" for an attribute.
+
+        //Some datasets have comment="..." ,e.g.,
+        //http://edac-dap.northerngulfinstitute.org/thredds/dodsC/ncom/region1/ncom_glb_reg1_2010013000.nc.das
+        //which then prevents title from being generated
+
+        //some have "-", e.g.,
+        //http://dm1.caricoos.org/thredds/dodsC/content/wrf_archive/wrfout_d01_2009-09-25_12_00_00.nc.das
+        if (s == null || s.length() == 0)
+            return false;
+        s = s.trim().toLowerCase();
+        if (s.length() == 0) //may be now (not before) because of trim()
+            return false;
+
+        //"nd" (used by BCO-DMO) and "other" (since it is often part of a vocabulary) 
+        //are purposely not on the list.
+
+        //if lots of words, switch to hash set.
+        char ch = s.charAt(0);
+        if (s.length() == 1) {
+            return ".-?".indexOf(ch) < 0;
+        } else if (ch == 'n') {
+            return !(s.equals("n/a")  || s.equals("na") || 
+                     s.equals("nd") ||
+                     s.equals("none") || s.equals("none.") || 
+                     s.equals("not applicable") || 
+                     s.equals("null"));
+        } else if (ch == 'u') {
+            return !(s.equals("unknown") || s.equals("unspecified"));
+        } else {
+            return !(s.equals("...") || s.equals("???"));
+        }
     }
 
 
@@ -5412,6 +6337,33 @@ and zoom and pan with controls in
             b;
     }
 
+    /**
+     * This cleverly concatenates the 2 strings (with separator, as appropriate).
+     * 
+     * @param a may be null or "" or something
+     * @param separator will only be used if a and b are something.
+     * @param b may be null or "" or something
+     * @return a.trim(), a.trim()+separator+b.trim(), b.trim(), or ""
+     */
+    public static String ifSomethingConcat(String a, String separator, String b) {
+        if (isSomething(a)) 
+             return isSomething(b)? a.trim() + separator + b.trim() : a.trim();
+        else return isSomething(b)? b.trim() : "";
+    }
+
+    /**
+     * This cleverly concatenates the 2 strings (with separator, as appropriate).
+     * Afterwards, a will have a, a+separator+b.trim(), b.trim(), or ""
+     * 
+     * @param a may be null or "" or something
+     * @param separator will only be used if a and b are something.
+     * @param b may be null or "" or something
+     */
+    public static void ifSomethingConcat(StringBuilder a, String separator, String b) {
+        if (a.length() > 0) 
+             a.append(isSomething(b)? separator + b.trim() : "");
+        else a.append(isSomething(b)? b.trim() : "");
+    }
 
     /** 
      * Given an Amazon AWS S3 URL, this returns the bucketName.
@@ -5460,6 +6412,18 @@ and zoom and pan with controls in
     }
 
     /** 
+     * This provides an startsWith() method for StringBuilder, which has none!
+     *
+     * @return true if sb starts with pre (including if pre=""), otherwise returns false (including
+     *    if sb or pre is null).
+     */
+    public static boolean startsWith(StringBuilder sb, String pre) {
+        if (sb == null || pre == null || pre.length() > sb.length())
+            return false;
+        return sb.substring(0, pre.length()).equals(pre);
+    }
+
+    /** 
      * This provides an endsWith() method for StringBuilder, which has none!
      *
      * @return true if sb ends with suffix (including if suffix=""), otherwise returns false (including
@@ -5482,6 +6446,64 @@ and zoom and pan with controls in
             sb.append('\n');
         return sb;
     }
+
+    /**
+     * Validate ACDD contact type (case insensitive search, case sensitive return),
+     * or return null no match.
+     */
+     public static String validateAcddContactType(String value) {
+        int which = caseInsensitiveIndexOf(ACDD_CONTACT_TYPES, value); 
+        return which < 0? null : ACDD_CONTACT_TYPES[which];
+     }
+
+
+    /**
+     * Guess the ACDD contact type, or return null if new pretty sure.
+     */
+     public static String guessAcddContactType(String name) {
+        //guess publisher_type        
+        //order of tests is important
+        //position is rare
+        if (name.matches(ACDD_PERSON_REGEX1)) 
+            return "person";
+        if (name.matches(ACDD_GROUP_REGEX)) 
+            return "group";
+        if (name.matches(ACDD_INSTITUTION_REGEX1)) 
+            return "institution";
+        if (name.matches(ACDD_INSTITUTION_REGEX2))
+            return "institution";
+        if (name.matches(ACDD_PERSON_REGEX2)) 
+            return "person";
+        //if not pretty sure, don't specify
+        return null;
+     }
+
+     /**
+      * Convert plain text to simple regex by backslash encoding
+      * all special regex chars.
+      */
+     public static String plainTextToRegex(String s) {
+         int n = s.length();
+         StringBuilder sb = new StringBuilder(n + 32);
+         for (int i = 0; i < n; i++) {
+             char ch = s.charAt(i);
+             if ("\\^$.?*+|{}[]()".indexOf(ch) >= 0)  // , -
+                 sb.append('\\');
+             sb.append(ch);
+         }
+         return sb.toString();
+     }
+
+     /**
+      * This lists the methods for a given object's class.
+      */
+     public static void listMethods(Object v) {
+        Class tClass = v.getClass();
+        Method[] methods = tClass.getMethods();
+        for (int i = 0; i < methods.length; i++) {
+            String2.log("public method #" + i + ": " + methods[i]);
+        }
+     }
 
 
 } //End of String2 class.

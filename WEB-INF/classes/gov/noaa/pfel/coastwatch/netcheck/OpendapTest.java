@@ -224,7 +224,7 @@ public class OpendapTest extends NetCheckTest {
             //check mustRespondWithinSeconds
             //String2.log("opendap time=" + time);
             StringBuilder errorSB = new StringBuilder();
-            if (Math2.isFinite(mustRespondWithinSeconds) && time > mustRespondWithinSeconds * 1000) {
+            if (Double.isFinite(mustRespondWithinSeconds) && time > mustRespondWithinSeconds * 1000) {
                 errorSB.append("  " + String2.ERROR + ": response time (" + (time/1000.0) + 
                     " s) was too slow (mustRespondWithinSeconds = " + 
                     mustRespondWithinSeconds + ").\n");
@@ -307,7 +307,7 @@ public class OpendapTest extends NetCheckTest {
         time = System.currentTimeMillis();
         opendapTest = new OpendapTest(
             "THREDDS OPeNDAP AGssta", //</title>
-            "http://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/AG/ssta/3day", //</url>
+            "https://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/AG/ssta/3day", //</url>
             "AGssta", //</variableName>
             "-1.0e32", //</missingValue>
             "1970-01-01", //</offsetDate>
@@ -320,14 +320,14 @@ public class OpendapTest extends NetCheckTest {
         error = opendapTest.test();
         Test.ensureEqual(error, "", String2.ERROR + " in OpendapTest.unitTest:\n" + error);
         String2.log("netcheck.OpendapTest THREDDS AGssta 3day finished successfully   time=" + 
-            (System.currentTimeMillis() - time));
+            (System.currentTimeMillis() - time) + "ms");
 
         //test of THREDDS opendap  CMusfc hday
         String2.log("\n*** netcheck.OpendapTest THREDDS CMusfc hday");
         time = System.currentTimeMillis();
         opendapTest = new OpendapTest(
             "THREDDS OPeNDAP CMusfc", //</title>
-            "http://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/CM/usfc/hday", //</url>
+            "https://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/CM/usfc/hday", //</url>
             "CMusfc", //</variableName>
             "-1.0e32", //</missingValue>
             "1970-01-01", //</offsetDate>
@@ -340,14 +340,14 @@ public class OpendapTest extends NetCheckTest {
         error = opendapTest.test();
         Test.ensureEqual(error, "", String2.ERROR + " in OpendapTest.unitTest:\n" + error);
         String2.log("netcheck.OpendapTest THREDDS CMusfc hday finished successfully   time=" + 
-            (System.currentTimeMillis() - time));
+            (System.currentTimeMillis() - time) + "ms");
 
         //test of THREDDS opendap  GAssta hday
         String2.log("\n*** netcheck.OpendapTest THREDDS GAssta hday");
         time = System.currentTimeMillis();
         opendapTest = new OpendapTest(
             "THREDDS OPeNDAP GAssta", //</title>
-            "http://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/GA/ssta/hday", //</url>
+            "https://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/GA/ssta/hday", //</url>
             "GAssta", //</variableName>
             "-1.0e32", //</missingValue>
             "1970-01-01", //</offsetDate>
@@ -360,14 +360,14 @@ public class OpendapTest extends NetCheckTest {
         error = opendapTest.test();
         Test.ensureEqual(error, "", String2.ERROR + " in OpendapTest.unitTest:\n" + error);
         String2.log("netcheck.OpendapTest THREDDS GAssta hday finished successfully   time=" + 
-            (System.currentTimeMillis() - time));
+            (System.currentTimeMillis() - time) + "ms");
 
         //test of THREDDS opendap MBchla 1day
         String2.log("\n*** netcheck.OpendapTest THREDDS MBchla 1day");
         time = System.currentTimeMillis();
         opendapTest = new OpendapTest(
             "THREDDS OPeNDAP MBchla", //</title>
-            "http://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/MB/chla/1day", //</url>
+            "https://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/MB/chla/1day", //</url>
             "MBchla", //</variableName>
             "-1.0e32", //</missingValue>
             "1970-01-01", //</offsetDate>
@@ -380,7 +380,7 @@ public class OpendapTest extends NetCheckTest {
         error = opendapTest.test();
         Test.ensureEqual(error, "", String2.ERROR + " in OpendapTest.unitTest:\n" + error);
         String2.log("netcheck.OpendapTest THREDDS MBchla 1day finished successfully   time=" + 
-            (System.currentTimeMillis() - time));
+            (System.currentTimeMillis() - time) + "ms");
 
 
         //test of THREDDS opendap QScurl 8day
@@ -388,7 +388,7 @@ public class OpendapTest extends NetCheckTest {
         time = System.currentTimeMillis();
         opendapTest = new OpendapTest(
             "THREDDS OPeNDAP QScurl", //</title>
-            "http://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/QS/curl/8day", //</url>
+            "https://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/QS/curl/8day", //</url>
             "QScurl", //</variableName>
             "-1.0e32", //</missingValue>
             "1970-01-01", //</offsetDate>
@@ -401,7 +401,7 @@ public class OpendapTest extends NetCheckTest {
         error = opendapTest.test();
         Test.ensureEqual(error, "", String2.ERROR + " in OpendapTest.unitTest:\n" + error);
         String2.log("netcheck.OpendapTest THREDDS QScurl 8day finished successfully   time=" + 
-            (System.currentTimeMillis() - time));
+            (System.currentTimeMillis() - time) + "ms");
         /* */
 
     }

@@ -26,17 +26,13 @@ import java.util.Map;
 
 
 /**
- * Get netcdf-X.X.XX.jar from 
- * http://www.unidata.ucar.edu/software/thredds/current/netcdf-java/index.html
+ * Get netcdfAll-......jar from ftp://ftp.unidata.ucar.edu/pub
  * and copy it to <context>/WEB-INF/lib renamed as netcdf-latest.jar.
- * Get slf4j-jdk14.jar from 
- * ftp://ftp.unidata.ucar.edu/pub/netcdf-java/slf4j-jdk14.jar
- * and copy it to <context>/WEB-INF/lib.
- * Put both of these .jar files in the classpath for the compiler and for Java.
+ * Put it in the classpath for the compiler and for Java.
  */
 import ucar.nc2.*;
 import ucar.nc2.dataset.NetcdfDataset;
-import ucar.nc2.dods.*;
+//import ucar.nc2.dods.*;
 import ucar.nc2.util.*;
 import ucar.ma2.*;
 
@@ -84,12 +80,12 @@ public class Projects2  {
         sar = null; //gc
 
         String ip[] = {
-            "http://192.168.31.15:8080/", "http://coastwatch.pfeg.noaa.gov/", 
-            "http://192.168.31.18/"     , "http://oceanwatch.pfeg.noaa.gov/",
-            "http://192.168.31.27/"     , "http://thredds1.pfeg.noaa.gov/"  ,
-            "http://192.168.31.13/"     , "http://las.pfeg.noaa.gov/"       };
+            "https://192.168.31.15/", "https://coastwatch.pfeg.noaa.gov/", 
+            "https://192.168.31.18/", "https://oceanwatch.pfeg.noaa.gov/",
+            "https://192.168.31.27/", "https://thredds1.pfeg.noaa.gov/"  ,
+            "https://192.168.31.13/", "https://las.pfeg.noaa.gov/"       };
             //don't want to find the datasets on upwell
-            //"http://192.168.31.6/"      , "http://upwell.pfeg.noaa.gov/"    };
+            //"https://192.168.31.6/", "https://upwell.pfeg.noaa.gov/"    };
 
         int handXmlBasePo = 0;
         while (true) {
@@ -103,7 +99,7 @@ public class Projects2  {
             handXmlBasePo = handXmlSource2Po;
 
             String url = handXml.substring(handXmlSource1Po + 11, handXmlSource2Po);
-            if (url.startsWith("http://upwell."))
+            if (url.startsWith("https://upwell."))
                 continue;
             if (url.endsWith("hdayCompress"))
                 break;
@@ -213,17 +209,17 @@ public class Projects2  {
      */
     public static String getKeywords(String datasetID) throws Throwable {
         String servers[] = {
-            "http://coastwatch.pfeg.noaa.gov/erddap/griddap/",
-            "http://coastwatch.pfeg.noaa.gov/erddap/tabledap/",
-            "http://upwell.pfeg.noaa.gov/erddap/griddap/",
-            "http://upwell.pfeg.noaa.gov/erddap/tabledap/"};
+            "https://coastwatch.pfeg.noaa.gov/erddap/griddap/",
+            "https://coastwatch.pfeg.noaa.gov/erddap/tabledap/",
+            "https://upwell.pfeg.noaa.gov/erddap/griddap/",
+            "https://upwell.pfeg.noaa.gov/erddap/tabledap/"};
 
         String keywords = "";
         String2.log("datasetID=" + datasetID);
         for (int serv = 0; serv < servers.length; serv++) {
             try {
                 //try EDDGrid
-                String s = EDDGridFromDap.generateDatasetsXml(false, 
+                String s = EDDGridFromDap.generateDatasetsXml( 
                     servers[serv] + datasetID, 
                     null, null, null, EDD.DEFAULT_RELOAD_EVERY_N_MINUTES, new Attributes());
 
@@ -291,9 +287,9 @@ public class Projects2  {
             String fileName = fileNames[f];
             String2.log("fileName=" + fileName);
             Table table = new Table();
-            table.readFlat0Nc(inDir + fileName, null, 1, -1); //1=unpack, -1=read all rows
+            table.readFlat0Nc(inDir + fileName, null, 1, -1); //standardizeWhat=1, -1=read all rows
             int nRows = table.nRows();
-            String2.log(table.toCSVString());
+            String2.log(table.toString());
 
             //reject if no data
             double d = table.getColumn("time").getDouble(0);
@@ -312,7 +308,7 @@ public class Projects2  {
      * (assuming Hyrax's HTTP server is enabled),
      * including duplicating the file's date.  
      *
-     * @param urlDir  e.g., http://data.nodc.noaa.gov/opendap/wod/monthly/  
+     * @param urlDir  e.g., https://data.nodc.noaa.gov/opendap/wod/monthly/  
      *    which has contents.html
      * @param localDir  e.g., F:/data/wod/monthly/
      */
@@ -321,7 +317,7 @@ public class Projects2  {
 
         if (logFileName != null && logFileName.length() > 0)
             String2.setupLog(true, false, logFileName, true, 1000000000);
-        String2.log("*** Projects2.copyHyraxFiles " + Calendar2.getCurrentISODateTimeStringLocal() +
+        String2.log("*** Projects2.copyHyraxFiles " + Calendar2.getCurrentISODateTimeStringLocalTZ() +
             "\nlogFile=" + String2.logFileName() + "\n" +
             String2.standardHelpAboutMessage() + "\n  " + 
             urlDir + "\n  " + localDir);
@@ -368,13 +364,13 @@ public class Projects2  {
             }
         }
         String2.log("*** Projects2.copyHyraxFiles finished successfully at " + 
-            Calendar2.getCurrentISODateTimeStringLocal() + "\n");
+            Calendar2.getCurrentISODateTimeStringLocalTZ() + "\n");
         if (logFileName != null && logFileName.length() > 0)
             String2.returnLoggingToSystemOut();
     }
 
     public static void touchUsgs() throws Throwable {
-SSR.touchUrl("http://upwell.pfeg.noaa.gov/erddap/setDatasetFlag.txt?datasetID=usgs_waterservices_0125_011b_2920&flagKey=780628796", 60000);
+SSR.touchUrl("https://upwell.pfeg.noaa.gov/erddap/setDatasetFlag.txt?datasetID=usgs_waterservices_0125_011b_2920&flagKey=780628796", 60000);
     }
 
 

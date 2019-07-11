@@ -31,18 +31,13 @@ import java.util.List;
 import java.util.Vector;
 
 /**
- * Get netcdf-X.X.XX.jar from 
- * http://www.unidata.ucar.edu/software/thredds/current/netcdf-java/index.html
+ * Get netcdfAll-......jar from ftp://ftp.unidata.ucar.edu/pub
  * and copy it to <context>/WEB-INF/lib renamed as netcdf-latest.jar.
- * Get slf4j-jdk14.jar from 
- * ftp://ftp.unidata.ucar.edu/pub/netcdf-java/slf4j-jdk14.jar
- * and copy it to <context>/WEB-INF/lib.
- * 2013-02-21 new netcdfAll uses Java logging, not slf4j.
- * Put both of these .jar files in the classpath for the compiler and for Java.
+ * Put it in the classpath for the compiler and for Java.
  */
 import ucar.nc2.*;
 import ucar.nc2.dataset.NetcdfDataset;
-import ucar.nc2.dods.*;
+//import ucar.nc2.dods.*;
 import ucar.nc2.util.*;
 import ucar.ma2.*;
 
@@ -152,7 +147,7 @@ public class PointDataSetFromStationVariables extends PointDataSet {
      *       but variableFactor may be not 1 or the file may have non-udUnits units.
      *       Also, useful if the units exactly match the udUnits for other similar 
      *       pointDatasets (e.g, NDBC).
-     *       See http://www.unidata.ucar.edu/software/udunits/udunits.txt .
+     *       See https://www.unidata.ucar.edu/software/udunits/udunits.txt .
      *    </ol>
      * @param courtesy  the group to credit for this data (usually 25 char or less)
      * @param minStationX the minimum acceptable station lon  (may be 0 - 360 or -180 - 180).
@@ -266,7 +261,7 @@ public class PointDataSetFromStationVariables extends PointDataSet {
                 //open the file
                 //tTime = System.currentTimeMillis();
                 NetcdfFile ncFile = NcHelper.openFile(stationFileNames[station]);
-                //time ~150ms first time; 0 if in cache  if (reallyVerbose) String2.log("    get dGrid time=" + (System.currentTimeMillis() - tTime));  
+                //time ~150ms first time; 0 if in cache  if (reallyVerbose) String2.log("    get dGrid time=" + (System.currentTimeMillis() - tTime) + "ms");  
 
                 try {
 
@@ -391,11 +386,11 @@ public class PointDataSetFromStationVariables extends PointDataSet {
                         timeBaseSeconds[station], timeFactorToGetSeconds[station], t1);
                     maxT[station] = Calendar2.unitsSinceToEpochSeconds(
                         timeBaseSeconds[station], timeFactorToGetSeconds[station], maxT[station]);
-                    Test.ensureTrue(Math2.isFinite(minT[station]) && minT[station] < 1e10, //secondsSinceEpoch  year ~2040
+                    Test.ensureTrue(Double.isFinite(minT[station]) && minT[station] < 1e10, //secondsSinceEpoch  year ~2040
                         //errorInMethod added below
                         "minT=" + minT[station] + " for station=" + station + 
                         " is >= 1e10!");
-                    Test.ensureTrue(Math2.isFinite(maxT[station]) && maxT[station] < 1e10,
+                    Test.ensureTrue(Double.isFinite(maxT[station]) && maxT[station] < 1e10,
                         //errorInMethod added below
                         "maxT=" + maxT[station] + " for station=" + station + 
                         " is >= 1e10!");
@@ -407,8 +402,8 @@ public class PointDataSetFromStationVariables extends PointDataSet {
                     if (verbose) 
                         String2.log(
                         "    station=" + stationFileNames[station] +
-                        "\n      minT=" + Calendar2.epochSecondsToIsoStringT(minT[station]) +
-                           " maxT=" + Calendar2.epochSecondsToIsoStringT(maxT[station]));  
+                        "\n      minT=" + Calendar2.epochSecondsToIsoStringTZ(minT[station]) +
+                               " maxT=" + Calendar2.epochSecondsToIsoStringTZ(maxT[station]));  
 
                     //check "even" by checking that time.length is appropriate for 0th, 1st, and last times
                     if (timeIsEven) {
@@ -539,17 +534,8 @@ public class PointDataSetFromStationVariables extends PointDataSet {
                             " x=" + stationX[station] + " y=" + stationY[station] + 
                             "\n    zLevels=" + stationDepthLevels[station] +
                             "\n    totalTime=" + (System.currentTimeMillis() - stationTime));  
-
-                    //I care about this exception
+                } finally {
                     ncFile.close();
-
-                } catch (Exception e) {
-                    try {
-                        ncFile.close(); //make sure it is explicitly closed
-                    } catch (Exception e2) {
-                        //don't care
-                    }
-                    throw e;
                 }
 
             } catch (Exception e) {
@@ -672,7 +658,7 @@ public class PointDataSetFromStationVariables extends PointDataSet {
 
         if (verbose) String2.log("  finished successfully  nPointDataSets=" + 
             (activePointDataSets.size() - originalListSize) + 
-            " time=" + (System.currentTimeMillis() - time));  
+            " time=" + (System.currentTimeMillis() - time) + "ms");  
     }
     
     /**
@@ -730,8 +716,8 @@ public class PointDataSetFromStationVariables extends PointDataSet {
             minT = Math.min(minT, groupVariables[i].minT);
             maxT = Math.max(maxT, groupVariables[i].maxT);
         }
-        String2.log("  minT=" + Calendar2.epochSecondsToIsoStringT(minT) + 
-                     " maxT=" + Calendar2.epochSecondsToIsoStringT(maxT));
+        String2.log("  minT=" + Calendar2.epochSecondsToIsoStringTZ(minT) + 
+                     " maxT=" + Calendar2.epochSecondsToIsoStringTZ(maxT));
 
         //set the standard attributes
         altScaleFactor = 1.0; 
@@ -877,8 +863,8 @@ public class PointDataSetFromStationVariables extends PointDataSet {
             minT = Math.rint(minT / incr) * incr;
             maxT = Math.rint(maxT / incr) * incr;
             //if (verbose) String2.log("  data evenly spaced, so rounded minT=" + 
-            //    Calendar2.epochSecondsToIsoStringT(minT) + " maxT=" +
-            //    Calendar2.epochSecondsToIsoStringT(maxT));
+            //    Calendar2.epochSecondsToIsoStringTZ(minT) + " maxT=" +
+            //    Calendar2.epochSecondsToIsoStringTZ(maxT));
         }
 
         //make the table
@@ -922,7 +908,7 @@ public class PointDataSetFromStationVariables extends PointDataSet {
 
         //return the results
         String2.log("PointDataSetFromStationVariables.makeSubset done. nRows=" + 
-            table.nRows() + " TIME=" + (System.currentTimeMillis() - time));
+            table.nRows() + " TIME=" + (System.currentTimeMillis() - time) + "ms");
         return table;
     }
 
@@ -1189,7 +1175,7 @@ not very polished.
     public final static String[][] mbariNrtVariableInfo = {
         { //metsys
             //name, palette info and suggested range should match ndbc when possible
-            //units must be from http://www.unidata.ucar.edu/software/udunits/udunits.txt 
+            //units must be from https://www.unidata.ucar.edu/software/udunits/udunits.txt 
             //unofficial system: 4th letter n=near real time   s=science quality 
             //inFileVarName           varName  title                                     palette  paletteScale  factor min max  udUnits   
             "AirPressure`             PMBaprn` Air Pressure, Near Real Time`             Rainbow`      Linear`    1` 960` 1040` hPa",  //metsys files have metadata
@@ -1210,7 +1196,7 @@ not very polished.
        (each group uses different dimensions for the variables).*/
    public final static String[][] mbariSqVariableInfo = {
         {   //name, palette info and suggested range should match ndbc when possible
-            //units must be from http://www.unidata.ucar.edu/software/udunits/udunits.txt 
+            //units must be from https://www.unidata.ucar.edu/software/udunits/udunits.txt 
             //unofficial system: 4th letter n=near real time   s=science quality 
             //inFileVarName           varName  title                                    palette  paletteScale  factor min max   udUnits
             "AIR_PRESS_HR`            PMBaprs` Air Pressure, Science Quality`           Rainbow`      Linear`   1` 960` 1040` hPa",
@@ -1219,7 +1205,7 @@ not very polished.
             "WIND_U_COMPONENT_HR`     PMBwsus` Wind Speed, Science Quality, Zonal`      BlueWhiteRed` Linear`   1` -20`   20` m s^-1",
             "WIND_V_COMPONENT_HR`     PMBwsvs` Wind Speed, Science Quality, Meridional` BlueWhiteRed` Linear`   1` -20`   20` m s^-1"},
         {   //name, palette info and suggested range should match ndbc when possible
-            //units must be from http://www.unidata.ucar.edu/software/udunits/udunits.txt 
+            //units must be from https://www.unidata.ucar.edu/software/udunits/udunits.txt 
             "U_COMPONENT_UNCORR_HR`   PMBcrus` Current, Science Quality, Zonal`         BlueWhiteRed` Linear` .01` -.5`   .5` m s-1",  //.01 = convert cm/s to m/s
             "V_COMPONENT_UNCORR_HR`   PMBcrvs` Current, Science Quality, Meridional`    BlueWhiteRed` Linear` .01` -.5`   .5` m s-1"},  //.01 = convert cm/s to m/s
             //"ECHO_INTENSITY_BEAM1_HR` PMBei1s` Echo Intensity, Science Quality, Beam 1` Rainbow`      Linear`   1`   0`  100` counts", //range?
@@ -1228,7 +1214,7 @@ not very polished.
             //"ECHO_INTENSITY_BEAM4_HR` PMBei4s` Echo Intensity, Science Quality, Beam 4` Rainbow`      Linear`   1`   0`  100` counts"}, //range?
        {    //the lat/lon/depth MET variables
             //name, palette info and suggested range should match ndbc when possible
-            //units must be from http://www.unidata.ucar.edu/software/udunits/udunits.txt 
+            //units must be from https://www.unidata.ucar.edu/software/udunits/udunits.txt 
             "CONDUCTIVITY_HR`         PMBcnds` Conductivity, Science Quality`           Rainbow`      Linear`   1`   0`  100` Siemens m-1", //range?
             "PRESSURE_HR`             PMBsprs` Sea Pressure, Science Quality`           Rainbow`      Linear`   1`   0`  100` db", //range?
             "SALINITY_HR`             PMBsals` Salinity, Science Quality`               Rainbow`      Linear`   1`   0`  100` PSU", //range?
@@ -1468,7 +1454,7 @@ not very polished.
      * @throws Exception if trouble or no data
      */
     public static void testMbariSqStations() throws Exception {
-        String2.log("\n*** test PointDataSetFromStationVariables.testMbariSqStations");
+        String2.log("\n*** PointDataSetFromStationVariables.testMbariSqStations");
         CacheOpendapStation.verbose = true;
         CacheOpendapStation.reallyVerbose = true;
         DataHelper.verbose = true;
@@ -1524,8 +1510,8 @@ not very polished.
 
             Test.ensureEqual(pointDataSet.getStationMinTime("MBARI M0 SQ adcp"), 
                 1086285600, "");  //from opendap
-            Test.ensureEqual(Calendar2.epochSecondsToIsoStringT(pointDataSet.getStationMinTime("MBARI M0 SQ adcp")), 
-                "2004-06-03T18:00:00", "");  //converted to iso format
+            Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(pointDataSet.getStationMinTime("MBARI M0 SQ adcp")), 
+                "2004-06-03T18:00:00Z", "");  //converted to iso format
             String oneDayLater  = "2004-06-04T18:00:00";
             String oneDayLater1 = "2004-06-04T19:00:00";
 
@@ -1641,13 +1627,13 @@ not very polished.
      * @throws Exception if trouble or no data
      */
     public static void testNc4DMakeSubset() throws Exception {
-        String2.log("\n*** test PointDataSetFromStationVariables.testNc4DMakeSubset");
+        String2.log("\n*** PointDataSetFromStationVariables.testNc4DMakeSubset");
         DataHelper.verbose = true;
         PointDataSet.verbose = true;
         GroupVariable.verbose = false;
         NdbcMetStation.verbose = true;
 
-        //String2.log(DataHelper.ncDumpString("c:/data/ndbcMet4D/TAML1.nc", false));
+        //String2.log(NcHelper.ncdump("c:/data/ndbcMet4D/TAML1.nc", "-h"));
 
         ArrayList list = new ArrayList();
         PointDataSet pointDataSet = null;
@@ -1735,7 +1721,7 @@ not very polished.
         String2.log("\n*** whole world: all stations, 1 time, lonPM180");
         table = pointDataSet.makeSubset(
             -180, 180, -90, 90, 0, 0, "2004-01-07", "2004-01-07");
-        //String2.log(tTable.toString(Integer.MAX_VALUE));                      
+        //String2.log(tTable.toString());                      
         int tn = table.nRows();
         //this changes, but it is good to keep the test in case the number changes badly (e.g., smaller)
         Test.ensureEqual(table.nRows(), 658, "all sta, 1 time, nRows");
@@ -1782,7 +1768,7 @@ not very polished.
             -180, 180, -90, 90, 0, 0, "2004-01-01", "2004-02-01");
         //String2.log(table.toString(1000));
         table.convertToFakeMissingValues(); //so I see what file will look like
-        String2.log(table.toString("row", 1));
+        String2.log(table.toString(1));
         tn = table.nRows();
         for (int i = 0; i < tn; i++) {
             double tLon = table.getDoubleData(0, i);
@@ -1799,13 +1785,13 @@ not very polished.
      * @throws Exception if trouble or no data
      */
     public static void testNc4DMakeAveragedTimeSeries() throws Exception {
-        String2.log("\n*** test PointDataSetFromStationVariables.testNc4DmakeAveragedTimeSeries");
+        String2.log("\n*** PointDataSetFromStationVariables.testNc4DmakeAveragedTimeSeries");
         DataHelper.verbose = true;
         PointDataSet.verbose = true;
         GroupVariable.verbose = false;
         NdbcMetStation.verbose = true;
 
-        //String2.log(DataHelper.ncDumpString("c:/data/ndbcMet4D/TAML1.nc", false));
+        //String2.log(NcHelper.ncdump("c:/data/ndbcMet4D/TAML1.nc", "-h"));
 
         ArrayList list = new ArrayList();
         PointDataSet pointDataSet = null;
@@ -1852,21 +1838,21 @@ not very polished.
         Test.ensureEqual(table.getDoubleData(0,0), -123.17, "");
         Test.ensureEqual(table.getDoubleData(1,0), 48.33, "");
         Test.ensureEqual(table.getDoubleData(2,0), 0, "");
-        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT(table.getDoubleData(3,0)), "2005-10-01T00:00:00", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(table.getDoubleData(3,0)), "2005-10-01T00:00:00Z", "");
         Test.ensureEqual(table.getStringData(4,0), "NDBC 46088 met", "");
         Test.ensureEqual(table.getFloatData(5,0), 11.4f, "");
 
         Test.ensureEqual(table.getDoubleData(0,1), -123.17, "");
         Test.ensureEqual(table.getDoubleData(1,1), 48.33, "");
         Test.ensureEqual(table.getDoubleData(2,1), 0, "");
-        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT(table.getDoubleData(3,1)), "2005-10-01T01:00:00", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(table.getDoubleData(3,1)), "2005-10-01T01:00:00Z", "");
         Test.ensureEqual(table.getStringData(4,1), "NDBC 46088 met", "");
         Test.ensureEqual(table.getFloatData(5,1), 11.4f, "");
 
         Test.ensureEqual(table.getDoubleData(0,24), -123.17, "");
         Test.ensureEqual(table.getDoubleData(1,24), 48.33, "");
         Test.ensureEqual(table.getDoubleData(2,24), 0, "");
-        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT(table.getDoubleData(3,24)), "2005-10-02T00:00:00", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(table.getDoubleData(3,24)), "2005-10-02T00:00:00Z", "");
         Test.ensureEqual(table.getStringData(4,24), "NDBC 46088 met", "");
         Test.ensureEqual(table.getFloatData(5,24), 11.9f, "");
 
@@ -1877,7 +1863,7 @@ not very polished.
         Test.ensureEqual(table.getDoubleData(0,0), -123.17, "");
         Test.ensureEqual(table.getDoubleData(1,0), 48.33, "");
         Test.ensureEqual(table.getDoubleData(2,0), 0, "");
-        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT(table.getDoubleData(3,0)), "2005-10-01T12:00:00", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(table.getDoubleData(3,0)), "2005-10-01T12:00:00Z", "");
         Test.ensureEqual(table.getStringData(4,0), "NDBC 46088 met", "");
         Test.ensureEqual(table.getFloatData(5,0), 11.2375f, "");
         double average = pointDataSet.calculateAverage(    //independent test
@@ -1887,7 +1873,7 @@ not very polished.
         Test.ensureEqual(table.getDoubleData(0,1), -123.17, "");
         Test.ensureEqual(table.getDoubleData(1,1), 48.33, "");
         Test.ensureEqual(table.getDoubleData(2,1), 0, "");
-        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT(table.getDoubleData(3,1)), "2005-10-02T12:00:00", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(table.getDoubleData(3,1)), "2005-10-02T12:00:00Z", "");
         Test.ensureEqual(table.getStringData(4,1), "NDBC 46088 met", "");
         Test.ensureEqual(table.getFloatData(5,1), 11.154166f, "");
         average = pointDataSet.calculateAverage(
@@ -1897,7 +1883,7 @@ not very polished.
         Test.ensureEqual(table.getDoubleData(0,31), -123.17, "");
         Test.ensureEqual(table.getDoubleData(1,31), 48.33, "");
         Test.ensureEqual(table.getDoubleData(2,31), 0, "");
-        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT(table.getDoubleData(3,31)), "2005-11-01T12:00:00", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(table.getDoubleData(3,31)), "2005-11-01T12:00:00Z", "");
         Test.ensureEqual(table.getStringData(4,31), "NDBC 46088 met", "");
         Test.ensureEqual(table.getFloatData(5,31), 10.025001f, "");
         average = pointDataSet.calculateAverage(
@@ -1911,7 +1897,7 @@ not very polished.
         Test.ensureEqual(table.getDoubleData(0,0), -123.17, "");
         Test.ensureEqual(table.getDoubleData(1,0), 48.33, "");
         Test.ensureEqual(table.getDoubleData(2,0), 0, "");
-        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT(table.getDoubleData(3,0)), "2005-10-01T00:00:00", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(table.getDoubleData(3,0)), "2005-10-01T00:00:00Z", "");
         Test.ensureEqual(table.getStringData(4,0), "NDBC 46088 met", "");
         Test.ensureEqual(table.getFloatData(5,0), 11.261979f, "");
         average = pointDataSet.calculateAverage(
@@ -1921,7 +1907,7 @@ not very polished.
         Test.ensureEqual(table.getDoubleData(0,1), -123.17, "");
         Test.ensureEqual(table.getDoubleData(1,1), 48.33, "");
         Test.ensureEqual(table.getDoubleData(2,1), 0, "");
-        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT(table.getDoubleData(3,1)), "2005-10-02T00:00:00", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(table.getDoubleData(3,1)), "2005-10-02T00:00:00Z", "");
         Test.ensureEqual(table.getStringData(4,1), "NDBC 46088 met", "");
         Test.ensureEqual(table.getFloatData(5,1), 11.144271f, "");
         average = pointDataSet.calculateAverage(
@@ -1931,7 +1917,7 @@ not very polished.
         Test.ensureEqual(table.getDoubleData(0,31), -123.17, "");
         Test.ensureEqual(table.getDoubleData(1,31), 48.33, "");
         Test.ensureEqual(table.getDoubleData(2,31), 0, "");
-        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT(table.getDoubleData(3,31)), "2005-11-01T00:00:00", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(table.getDoubleData(3,31)), "2005-11-01T00:00:00Z", "");
         Test.ensureEqual(table.getStringData(4,31), "NDBC 46088 met", "");
         Test.ensureEqual(table.getFloatData(5,31), 10.145312f, "");
         average = pointDataSet.calculateAverage(
@@ -1945,7 +1931,7 @@ not very polished.
         Test.ensureEqual(table.getDoubleData(0,0), -123.17, "");
         Test.ensureEqual(table.getDoubleData(1,0), 48.33, "");
         Test.ensureEqual(table.getDoubleData(2,0), 0, "");
-        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT(table.getDoubleData(3,0)), "2004-10-16T12:00:00", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(table.getDoubleData(3,0)), "2004-10-16T12:00:00Z", "");
         Test.ensureEqual(table.getStringData(4,0), "NDBC 46088 met", "");
         Test.ensureEqual(table.getFloatData(5,0), 10.540457f, "");
         average = pointDataSet.calculateAverage(
@@ -1955,7 +1941,7 @@ not very polished.
         Test.ensureEqual(table.getDoubleData(0,1), -123.17, "");
         Test.ensureEqual(table.getDoubleData(1,1), 48.33, "");
         Test.ensureEqual(table.getDoubleData(2,1), 0, "");
-        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT(table.getDoubleData(3,1)), "2004-11-16T00:00:00", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(table.getDoubleData(3,1)), "2004-11-16T00:00:00Z", "");
         Test.ensureEqual(table.getStringData(4,1), "NDBC 46088 met", "");
         Test.ensureEqual(table.getFloatData(5,1), 9.550487f, "");
         average = pointDataSet.calculateAverage(
@@ -1965,7 +1951,7 @@ not very polished.
         Test.ensureEqual(table.getDoubleData(0,12), -123.17, "");
         Test.ensureEqual(table.getDoubleData(1,12), 48.33, "");
         Test.ensureEqual(table.getDoubleData(2,12), 0, "");
-        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT(table.getDoubleData(3,12)), "2005-10-16T12:00:00", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(table.getDoubleData(3,12)), "2005-10-16T12:00:00Z", "");
         Test.ensureEqual(table.getStringData(4,12), "NDBC 46088 met", "");
         Test.ensureEqual(table.getFloatData(5,12), 10.479704f, "");
         average = pointDataSet.calculateAverage(

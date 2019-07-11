@@ -15,12 +15,16 @@ import gov.noaa.pfel.coastwatch.hdf.*;
 import gov.noaa.pfel.coastwatch.pointdata.Table;
 import gov.noaa.pfel.coastwatch.util.*;
 
+import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.io.Writer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -39,22 +43,17 @@ import java.util.TimeZone;
 import org.apache.commons.codec.digest.DigestUtils;  //in netcdf-all.jar
 //import org.codehaus.janino.ExpressionEvaluator;
 
-import org.joda.time.*;
-import org.joda.time.format.*;
+import java.time.*;
+import java.time.format.*;
 
 /**
- * Get netcdf-X.X.XX.jar from 
- * http://www.unidata.ucar.edu/software/thredds/current/netcdf-java/index.html
+ * Get netcdfAll-......jar from ftp://ftp.unidata.ucar.edu/pub
  * and copy it to <context>/WEB-INF/lib renamed as netcdf-latest.jar.
- * Get slf4j-jdk14.jar from 
- * ftp://ftp.unidata.ucar.edu/pub/netcdf-java/slf4j-jdk14.jar
- * and copy it to <context>/WEB-INF/lib.
- * 2013-02-21 new netcdfAll uses Java logging, not slf4j.
- * Put both of these .jar files in the classpath for the compiler and for Java.
+ * Put it in the classpath for the compiler and for Java.
  */
 import ucar.nc2.*;
 import ucar.nc2.dataset.NetcdfDataset;
-import ucar.nc2.dods.*;
+//import ucar.nc2.dods.*;
 import ucar.nc2.util.*;
 import ucar.ma2.*;
 
@@ -105,19 +104,19 @@ EQUALS 02.  LET ME KNOW IF THAT DOES NOT MAKE SENSE.
 
 4) Are the times recorded in the file UTC times? Or are they local
 times? If they are local times, did you use clock time (so that the
-times may be standard time or daylight savings time)?
+times may be standard time or daylight saving time)?
 
 THEY ARE PACIFIC STANDARD TIME SET TO THE COMPUTER I USE TO SET THE
 LOGGERS.  WE RETRIEVE THEM ONCE PER YEAR SO I ASSUME THEY ARE CORRECTED FOR
-DAYLIGHT SAVINGS TIME, BUT I NEVER REALLY THOUGHT ABOUT THIS.
+DAYLIGHT SAVING TIME, BUT I NEVER REALLY THOUGHT ABOUT THIS.
 
 [in another email he says]
 Wow, good question.  They are local PST.  However, I will just presume that
-they are daylight savings time, but never thought about it.  We retrieved
+they are daylight saving time, but never thought about it.  We retrieved
 the data only once per year in the summer so I never thought to check that.
 
-[Bob interprets this as: all times are Pacific Daylight Savings Time, 
-e.g., 7 hours earlier than GMT,
+[Bob interprets this as: all times are Pacific Daylight Saving Time, 
+e.g., 7 hours earlier than Zulu,
 since he used his computer's clock in the summer to set the logger's clocks.]
 
 5) Is it okay if the courtesy information appears as "Channel Islands
@@ -209,7 +208,7 @@ the early years I was even testing them periodically in an ice bath.
 
             //sort by ID
             site.leftToRightSort(1);
-            String2.log("site table=\n" + site.toString("row", siteNRows));
+            String2.log("site table=\n" + site.toString(siteNRows));
         }
 
         //read f:/programs/kushner/KFM_Temperature.txt which has all the temperature data
@@ -242,7 +241,7 @@ the early years I was even testing them periodically in an ice bath.
         }
 
         //sort by  island, site, time
-        String2.log("pre-sort n=" + temp.nRows() + " temp table=\n" + temp.toString("row", 5));
+        String2.log("pre-sort n=" + temp.nRows() + " temp table=\n" + temp.toString(5));
         temp.leftToRightSort(3);
 
         //go through rows of temp, saving separate station files
@@ -300,7 +299,7 @@ the early years I was even testing them periodically in an ice bath.
                     "Station", //cdmDataType
                     DataHelper.ERD_CREATOR_EMAIL, //"Roy.Mendelssohn@noaa.gov", //creatorEmail
                     DataHelper.ERD_CREATOR_NAME,  //"NOAA NMFS SWFSC ERD",  //creatorName
-                    DataHelper.ERD_CREATOR_URL,   //"http://www.pfel.noaa.gov", //creatorUrl
+                    DataHelper.ERD_CREATOR_URL,   //"https://www.pfeg.noaa.gov", //creatorUrl
                     DataHelper.ERD_PROJECT,       
                     tempID, //id
                     "GCMD Science Keywords", //keywordsVocabulary,
@@ -323,7 +322,7 @@ the early years I was even testing them periodically in an ice bath.
                     //my old summary
                     //"Temperatures were recorded by David Kushner (David_Kushner@nps.gov) " + 
                     //    "using Onset Computer Corp. temperature loggers, accurate to +/- 0.2 C. The raw time values " +
-                    //    "(Pacific Daylight Savings Time) were converted to Zulu time by adding 7 hours and then stored in this file. " +
+                    //    "(Pacific Daylight Saving Time) were converted to Zulu time by adding 7 hours and then stored in this file. " +
                     //    "LAT and LON values were stored without seconds values to obscure the station's exact location.",
 
                     //courtesy, see 2006-12-12 email, but order reversed to current in 2006-12-19 email from Kushner
@@ -364,8 +363,9 @@ the early years I was even testing them periodically in an ice bath.
                 //see what results are like 
                 if (nStationsCreated == 1) {
                     Table tTable = new Table();
-                    tTable.read4DNc("c:/programs/kushner/" + tempID + ".nc", null, 0, stationColumnName, 4);
-                    String2.log("\nstation0=\n" + tTable.toString("row", 3));
+                    tTable.read4DNc("c:/programs/kushner/" + tempID + ".nc", null, 0, //standardizeWhat=0
+                        stationColumnName, 4); 
+                    String2.log("\nstation0=\n" + tTable.toString(3));
                     //from site ascii file
                     //Anacapa	Admiral's Reef	34	00	200	N	119	25	520	W	16
                     //data from original ascii file
@@ -409,7 +409,7 @@ the early years I was even testing them periodically in an ice bath.
                 station.addFloatData(0, siteLon.get(newPo)); //x
                 station.addFloatData(1, siteLat.get(newPo)); //y
                 station.addIntData(2, siteDepth.get(newPo)); //z
-                //t is adjusted from Pacific Daylight Savings Time to UTC (they are 7 hours ahead of PDST)
+                //t is adjusted from Pacific Daylight Saving Time to UTC (they are 7 hours ahead of PDST)
                 //see metadata "summary" regarding this conversion.
                 station.addDoubleData(3, temp.getDoubleData(2, row) + 7 * Calendar2.SECONDS_PER_HOUR); //t
                 station.addStringData(4, newID); //id
@@ -535,7 +535,7 @@ the early years I was even testing them periodically in an ice bath.
         }
 
         //sort by  ID, Time
-        String2.log("pre-sort n=" + temp.nRows() + " temp table=\n" + temp.toString("row", 5));
+        String2.log("pre-sort n=" + temp.nRows() + " temp table=\n" + temp.toString(5));
         temp.sort(new int[]{1, 0}, new boolean[] {true, true});
 
         //go through rows of temp, saving separate station files
@@ -601,7 +601,7 @@ the early years I was even testing them periodically in an ice bath.
                     "Station", //cdmDataType
                     DataHelper.ERD_CREATOR_EMAIL, //"Roy.Mendelssohn@noaa.gov", //creatorEmail
                     DataHelper.ERD_CREATOR_NAME,  //"NOAA NMFS SWFSC ERD",  //creatorName
-                    DataHelper.ERD_CREATOR_URL,   //"http://www.pfel.noaa.gov", //creatorUrl
+                    DataHelper.ERD_CREATOR_URL,   //"https://www.pfeg.noaa.gov", //creatorUrl
                     DataHelper.ERD_PROJECT,       
                     tempID, //id
                     "GCMD Science Keywords", //keywordsVocabulary,
@@ -625,7 +625,7 @@ the early years I was even testing them periodically in an ice bath.
                     //my old summary
                     //"Temperatures were recorded by David Kushner (David_Kushner@nps.gov) " + 
                     //    "using Onset Computer Corp. temperature loggers, accurate to +/- 0.2 C. The raw time values " +
-                    //    "(Pacific Daylight Savings Time) were converted to Zulu time by adding 7 hours and then stored in this file. " +
+                    //    "(Pacific Daylight Saving Time) were converted to Zulu time by adding 7 hours and then stored in this file. " +
                     //    "LAT and LON values were stored without seconds values to obscure the station's exact location.",
 
                     //courtesy, see 2006-12-12 email, but order reversed to current in 2006-12-19 email from Kushner
@@ -667,8 +667,9 @@ the early years I was even testing them periodically in an ice bath.
                 //see what results are like 
                 if (nStationsCreated == 1) {
                     Table tTable = new Table();
-                    tTable.read4DNc("c:/programs/kfm200801/KFMTemperature/" + tempID + ".nc", null, 0, stationColumnName, 4);
-                    String2.log("\nstation0=\n" + tTable.toString("row", 3));
+                    tTable.read4DNc("c:/programs/kfm200801/KFMTemperature/" + tempID + ".nc",
+                        null, 0, stationColumnName, 4); //standardizeWhat=0
+                    String2.log("\nstation0=\n" + tTable.toString(3));
                     //from site ascii file
                     //Anacapa	Admiral's Reef	34	00	200	N	119	25	520	W	16
                     //data from original ascii file
@@ -709,7 +710,7 @@ the early years I was even testing them periodically in an ice bath.
 
             //add a row of data to station table
             if (row < tempNRows) {
-                //t is adjusted from Pacific Daylight Savings Time to UTC (they are 7 hours ahead of PDST)
+                //t is adjusted from Pacific Daylight Saving Time to UTC (they are 7 hours ahead of PDST)
                 //see metadata "summary" regarding this conversion.
                 stationTime.add(temp.getDoubleData(0, row) + 7 * Calendar2.SECONDS_PER_HOUR); //t
                 stationID.add(newID);
@@ -923,7 +924,7 @@ Should the license/disclaimer still be:
             data.removeColumn(5);
 
             //add metadata for data columns
-            //standardNames from http://cfconventions.org/Data/cf-standard-names/27/build/cf-standard-name-table.html
+            //standardNames from http://cfconventions.org/standard-names.html
             //none seem relevant here
             for (int col = 5; col < data.nColumns(); col++) {
                 String pm2 = " per square meter";  //must be all lowercase
@@ -1092,7 +1093,7 @@ String2.log("uniqueYear = " + uniqueYear);
                         //my old summary
                         //"Temperatures were recorded by David Kushner (David_Kushner@nps.gov) " + 
                         //    "using Onset Computer Corp. temperature loggers, accurate to +/- 0.2 C. The raw time values " +
-                        //    "(Pacific Daylight Savings Time) were converted to Zulu time by adding 7 hours and then stored in this file. " +
+                        //    "(Pacific Daylight Saving Time) were converted to Zulu time by adding 7 hours and then stored in this file. " +
                         //    "LAT and LON values were stored without seconds values to obscure the station's exact location.",
 
                         //courtesy, see 2006-12-12 email, but order reversed to current in 2006-12-19 email from Kushner
@@ -1132,7 +1133,7 @@ String2.log("uniqueYear = " + uniqueYear);
 
                     //review the table
                     if (tsvI == 0 && (startRow == 0 || row == dataNRows)) {
-                        String2.log(stationTable.toString("row", 100));
+                        String2.log(stationTable.toString(100));
                         String2.pressEnterToContinue("Check if the file (above) is ok, then...");
                     }
                     String2.log("  startRow=" + startRow + " end=" + (row-1) + " island=" + island + " station=" + station); 
@@ -1267,7 +1268,7 @@ String2.log("uniqueYear = " + uniqueYear);
             String2.log("newDataName=" + newDataName + " newDataUnits=" + newDataUnits);
 
             //add metadata for data columns
-            //standardNames from http://cfconventions.org/Data/cf-standard-names/27/build/cf-standard-name-table.html
+            //standardNames from http://cfconventions.org/standard-names.html
             //none seem relevant here
             for (int col = 5; col < data.nColumns(); col++) {
                 String pm2 = " per square meter";  //must be all lowercase
@@ -1456,7 +1457,7 @@ String2.log("uniqueYear = " + uniqueYear);
                         //my old summary
                         //"Temperatures were recorded by David Kushner (David_Kushner@nps.gov) " + 
                         //    "using Onset Computer Corp. temperature loggers, accurate to +/- 0.2 C. The raw time values " +
-                        //    "(Pacific Daylight Savings Time) were converted to Zulu time by adding 7 hours and then stored in this file. " +
+                        //    "(Pacific Daylight Saving Time) were converted to Zulu time by adding 7 hours and then stored in this file. " +
                         //    "LAT and LON values were stored without seconds values to obscure the station's exact location.",
 
                         //courtesy, see 2006-12-12 email, but order reversed to current in 2006-12-19 email from Kushner
@@ -1496,7 +1497,7 @@ String2.log("uniqueYear = " + uniqueYear);
 
                     //review the table
                     if (tabI == 0 && (startRow == 0 || row == dataNRows)) {
-                        String2.log(stationTable.toString("row", 100));
+                        String2.log(stationTable.toString(100));
                         String2.pressEnterToContinue("Check if the file (above) is ok, then...");
                     }
                     String2.log("  startRow=" + startRow + " end=" + (row-1) + " island=" + island + " station=" + station); 
@@ -1640,7 +1641,7 @@ String2.log("uniqueYear = " + uniqueYear);
             //    CommonName, Number fish per 100mX2mX30m transect",  //6,7
 
             //add metadata for data columns
-            //standardNames from http://cfconventions.org/Data/cf-standard-names/27/build/cf-standard-name-table.html
+            //standardNames from http://cfconventions.org/standard-names.html
             //none seem relevant here
 //Year	IslandName	SiteName	Date	Species	Species Name	Adult/Juvenile/sex	CommonName	Transect	Number fish per 100mX2mX30m transect
 //1985	Anacapa	Admiral's Reef	8/30/1985 0:00:00	14001.00	Chromis punctipinnis	 Adult	Blacksmith Adult	1	224
@@ -1769,7 +1770,7 @@ String2.log("uniqueSpp = " + uniqueSpp);
                         //my old summary
                         //"Temperatures were recorded by David Kushner (David_Kushner@nps.gov) " + 
                         //    "using Onset Computer Corp. temperature loggers, accurate to +/- 0.2 C. The raw time values " +
-                        //    "(Pacific Daylight Savings Time) were converted to Zulu time by adding 7 hours and then stored in this file. " +
+                        //    "(Pacific Daylight Saving Time) were converted to Zulu time by adding 7 hours and then stored in this file. " +
                         //    "LAT and LON values were stored without seconds values to obscure the station's exact location.",
 
                         //courtesy, see 2006-12-12 email, but order reversed to current in 2006-12-19 email from Kushner
@@ -1809,7 +1810,7 @@ String2.log("uniqueSpp = " + uniqueSpp);
 
                     //review the table
                     if (tabI == 0 && (startRow == 0 || row == dataNRows)) {
-                        String2.log(stationTable.toString("row", 100));
+                        String2.log(stationTable.toString(100));
                         String2.pressEnterToContinue("Check if the file (above) is ok, then...");
                     }
                     String2.log("  startRow=" + startRow + " end=" + (row-1) + " island=" + island + " station=" + station); 
@@ -1966,7 +1967,7 @@ String2.log("uniqueSpp = " + uniqueSpp);
             data.removeColumn(5);
 
             //add metadata for data columns
-            //standardNames from http://cfconventions.org/Data/cf-standard-names/27/build/cf-standard-name-table.html
+            //standardNames from http://cfconventions.org/standard-names.html
             //none seem relevant here
             for (int col = 5; col < data.nColumns(); col++) {
                 String colName = data.getColumnName(col);
@@ -2095,7 +2096,7 @@ String2.log("sppCol name = " + data.getColumnName(sppCol));
                         //my old summary
                         //"Temperatures were recorded by David Kushner (David_Kushner@nps.gov) " + 
                         //    "using Onset Computer Corp. temperature loggers, accurate to +/- 0.2 C. The raw time values " +
-                        //    "(Pacific Daylight Savings Time) were converted to Zulu time by adding 7 hours and then stored in this file. " +
+                        //    "(Pacific Daylight Saving Time) were converted to Zulu time by adding 7 hours and then stored in this file. " +
                         //    "LAT and LON values were stored without seconds values to obscure the station's exact location.",
 
                         //courtesy, see 2006-12-12 email, but order reversed to current in 2006-12-19 email from Kushner
@@ -2269,7 +2270,7 @@ String2.log("sppCol name = " + data.getColumnName(sppCol));
             //data.columnAttributes(4).set("units", DataHelper.UNITLESS);
 
             //add metadata for data columns
-            //standardNames from http://cfconventions.org/Data/cf-standard-names/27/build/cf-standard-name-table.html
+            //standardNames from http://cfconventions.org/standard-names.html
             //none seem relevant here
             for (int col = 5; col < data.nColumns(); col++) {
                 String colName = data.getColumnName(col);
@@ -2399,7 +2400,7 @@ String2.log("sppCol name = " + data.getColumnName(sppCol));
                         //my old summary
                         //"Temperatures were recorded by David Kushner (David_Kushner@nps.gov) " + 
                         //    "using Onset Computer Corp. temperature loggers, accurate to +/- 0.2 C. The raw time values " +
-                        //    "(Pacific Daylight Savings Time) were converted to Zulu time by adding 7 hours and then stored in this file. " +
+                        //    "(Pacific Daylight Saving Time) were converted to Zulu time by adding 7 hours and then stored in this file. " +
                         //    "LAT and LON values were stored without seconds values to obscure the station's exact location.",
 
                         //courtesy, see 2006-12-12 email, but order reversed to current in 2006-12-19 email from Kushner
@@ -2488,7 +2489,8 @@ String2.log("sppCol name = " + data.getColumnName(sppCol));
             ///*20*/"m s-1"};
             String desiredColumns[] = {"TIME", "WD", "WSPD", "GST",  "WVHT", "DPD",  "APD",  "ATMP", "WTMP"};
             Table table = new Table();
-            table.read4DNc("c:/programs/kushner/NDBC_" + id[idi] + "_met.nc", null, 1, stationColumnName, 4);
+            table.read4DNc("c:/programs/kushner/NDBC_" + id[idi] + "_met.nc", null, 
+                1, stationColumnName, 4); //standardizeWhat=1
             String2.log("colNames=" + String2.toCSSVString(table.getColumnNames()));
 
             //pluck out desired columns
@@ -2518,7 +2520,7 @@ String2.log("sppCol name = " + data.getColumnName(sppCol));
 
             //write out the file
             table.saveAsTabbedASCII("c:/programs/kushner/NDBC_" + id[idi] + "_met.asc"); 
-            String2.log(table.toString("row", 5));
+            String2.log(table.toString(5));
 
         }
     }
@@ -2533,11 +2535,14 @@ String2.log("sppCol name = " + data.getColumnName(sppCol));
         String url = "http://biloxi-bay.ssc.hpc.msstate.edu/dods-bin/dapnav_main.py/WCOS/nmsp/wcos/"; 
         String fileName = "c:/temp/ssc.xml";
 
-        Writer writer = new FileWriter(fileName);
-        oneSsc(writer,
-            "http://biloxi-bay.ssc.hpc.msstate.edu",
-            "/dods-bin/dapnav_main.py/WCOS/nmsp/wcos/"); // ANO001/
-        writer.close();
+        Writer writer = new BufferedWriter(new FileWriter(fileName));
+        try {
+            oneSsc(writer,
+                "http://biloxi-bay.ssc.hpc.msstate.edu",
+                "/dods-bin/dapnav_main.py/WCOS/nmsp/wcos/"); // ANO001/
+        } finally {
+            writer.close();
+        }
         String2.log(String2.readFromFile(fileName)[1]);
         String2.log("fileName=" + fileName);
 
@@ -2554,7 +2559,7 @@ String2.log("sppCol name = " + data.getColumnName(sppCol));
      */
     public static void oneSsc(Writer writer, String baseUrl, String url) throws Exception { 
         String2.log("oneSsc entering " + url);
-        String sar[] = SSR.getUrlResponse(baseUrl + url);
+        String sar[] = SSR.getUrlResponseLines(baseUrl + url);
         int line = 0;
         //read to "parent directory" line
         while (line < sar.length && sar[line].indexOf("parent directory") < 0)
@@ -2590,7 +2595,7 @@ String2.log("sppCol name = " + data.getColumnName(sppCol));
                 /*
                 //get nTimes
                 //isn't there a better way to get nTimes?
-                String dds = SSR.getUrlResponseString(s + ".dds");
+                String dds = SSR.getURLResponseStringUnchanged(s + ".dds");
                 po = dds.indexOf("Time = ");
                 po2 = dds.indexOf("]", po);
                 int nTimes = String2.parseInt(dds.substring(po + 7, po2));
@@ -2676,7 +2681,7 @@ String2.log("sppCol name = " + data.getColumnName(sppCol));
                     "urlPath=\"WCOS/temp/" + year + "_" + name6 + "_" + depth + "m\">\n" +
                 "      <serviceName>ncdods</serviceName>\n" +
                 "      <!-- <serviceName>wcs</serviceName> -->\n" +
-                "      <netcdf xmlns=\"http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2\">\n" +
+                "      <netcdf xmlns=\"https://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2\">\n" +
                 "        <variable name=\"Time\" shape=\"Time\" type=\"double\">\n" +
                 "          <attribute name=\"units\" value=\"seconds since 1970-01-01 00:00:00\"/>\n" +
                 "          <attribute name=\"_CoordinateAxisType\" value=\"Time\" />\n" +
@@ -2693,9 +2698,44 @@ String2.log("sppCol name = " + data.getColumnName(sppCol));
         lastNcName = nameExt;
     }
 
+
+    /**
+     * This makes ncml files for soda (3.3.1).
+     *
+     * @param iceOcean "ice" or "ocean"
+     * @throws Exception if trouble
+     */
+    public static void makeSoda331Ncml(String iceOcean, int startYear, int stopYear)
+        throws Exception {
+
+        String dir = "/u00/soda3/soda3_" + iceOcean + "/ncml/";
+        String preName =  "soda3.3.1_mn_" + iceOcean + "_reg_";
+        for (int year = startYear; year <= stopYear; year++) {
+            String name = preName + year;
+            String2.log("writing " + dir + name + ".ncml");
+            Writer writer = new BufferedWriter(new FileWriter(dir + name + ".ncml"));
+            try {
+                StringBuilder values = new StringBuilder();
+                for (int i = 1; i <= 12; i++)
+                    values.append((Calendar2.isoStringToEpochSeconds(year + "-" + String2.zeroPad(""+i, 2) + "-16") / 
+                        Calendar2.SECONDS_PER_DAY) + " ");
+                writer.write(
+"<netcdf xmlns='http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2'\n" +
+"  location=\"" + name + ".nc\">\n" +
+"  <variable name=\"time\">\n" +
+"    <attribute name='units' value='days since 1970-01-01' />\n" +
+"    <values>" + values+ "</values>\n" +
+"  </variable>\n" +
+"</netcdf>\n");
+            } finally {
+                writer.close();
+            }
+        }
+    }
+
     /**
      * This adds metadata and a time dimension to SODA data files.
-     * See http://www.atmos.umd.edu/~ocean/
+     * See https://www.atmos.umd.edu/~ocean/
      * ncdump of sample source file
 <pre>
 netcdf SODA_1.4.2_200112 {
@@ -2785,386 +2825,394 @@ variables:
                     cdfName = fileNames[fn].substring(0, fileNames[fn].length() - 3);
                 }                    
 
-                if (fn == 0) String2.log("\noldFile=" + NcHelper.dumpString(cdfDir + cdfName, false) + "\n");
+                if (fn == 0) String2.log("\noldFile=" + NcHelper.ncdump(cdfDir + cdfName, "-h") + "\n");
 
                 //open the old file
-                oldFile = NcHelper.openFile(cdfDir + cdfName);
-
-                //open the new file
                 String newName = cdfName.substring(0, cdfName.length() - 3) + "nc";
-                newFile = NetcdfFileWriter.createNew(
-                    NetcdfFileWriter.Version.netcdf3, newDir + newName);
-                Group rootGroup = newFile.addGroup(null, "");
+                oldFile = NcHelper.openFile(cdfDir + cdfName);
+                try {
 
-                //find old dimensions
-                Dimension oldTimeDimension  = oldFile.findDimension("time");
-                Dimension oldDepthDimension = oldFile.findDimension("depth");
-                Dimension oldLatDimension   = oldFile.findDimension("lat");
-                Dimension oldLonDimension   = oldFile.findDimension("lon");
+                    //open the new file
+                    newFile = NetcdfFileWriter.createNew(
+                        NetcdfFileWriter.Version.netcdf3, newDir + newName);
+                    try {
+                        boolean nc3Mode = true;
+                        Group rootGroup = newFile.addGroup(null, "");
 
-                //find variables
-                List<Variable> oldVars = oldFile.getVariables();
+                        //find old dimensions
+                        Dimension oldTimeDimension  = oldFile.findDimension("time");
+                        Dimension oldDepthDimension = oldFile.findDimension("depth");
+                        Dimension oldLatDimension   = oldFile.findDimension("lat");
+                        Dimension oldLonDimension   = oldFile.findDimension("lon");
 
-                //create the dimensions
-                Dimension timeDimension  = newFile.addDimension(rootGroup, "time", 1);
-                Dimension depthDimension = newFile.addDimension(rootGroup, "depth", oldDepthDimension.getLength());
-                Dimension latDimension   = newFile.addDimension(rootGroup, "lat",   oldLatDimension.getLength());
-                Dimension lonDimension   = newFile.addDimension(rootGroup, "lon",   oldLonDimension.getLength());
+                        //find variables
+                        List<Variable> oldVars = oldFile.getVariables();
 
-                //define each variable
-                double minLon = Double.NaN, maxLon = Double.NaN, lonSpacing = Double.NaN;
-                double minLat = Double.NaN, maxLat = Double.NaN, latSpacing = Double.NaN;
-                double minDepth = Double.NaN, maxDepth = Double.NaN;
+                        //create the dimensions
+                        Dimension timeDimension  = newFile.addDimension(rootGroup, "time", 1);
+                        Dimension depthDimension = newFile.addDimension(rootGroup, "depth", oldDepthDimension.getLength());
+                        Dimension latDimension   = newFile.addDimension(rootGroup, "lat",   oldLatDimension.getLength());
+                        Dimension lonDimension   = newFile.addDimension(rootGroup, "lon",   oldLonDimension.getLength());
 
-                Variable newVars[] = new Variable[oldVars.size()];
-                for (int v = 0; v < oldVars.size(); v++) {
-                    Variable oldVar = oldVars.get(v);
-                    String varName = oldVar.getName();
-                    Attributes atts = new Attributes(); 
-                    NcHelper.getVariableAttributes(oldVar, atts);
-                    ArrayList<Dimension> dimensions = new ArrayList();
-                    DataType dataType = oldVar.getDataType();
+                        //define each variable
+                        double minLon = Double.NaN, maxLon = Double.NaN, lonSpacing = Double.NaN;
+                        double minLat = Double.NaN, maxLat = Double.NaN, latSpacing = Double.NaN;
+                        double minDepth = Double.NaN, maxDepth = Double.NaN;
 
-                    //if lon 
-                    if (varName.equals("lon")) {
-                        dimensions.add(oldVar.getDimension(0));
+                        Variable newVars[] = new Variable[oldVars.size()];
+                        for (int v = 0; v < oldVars.size(); v++) {
+                            Variable oldVar = oldVars.get(v);
+                            String varName = oldVar.getName();
+                            Attributes atts = new Attributes(); 
+                            NcHelper.getVariableAttributes(oldVar, atts);
+                            ArrayList<Dimension> dimensions = new ArrayList();
+                            DataType dataType = oldVar.getDataType();
 
-                        PrimitiveArray pa = NcHelper.getPrimitiveArray(oldVar);
-                        minLon = pa.getDouble(0);
-                        maxLon = pa.getDouble(pa.size() - 1);
-                        if (pa.isEvenlySpaced().length() == 0)
-                            lonSpacing = (maxLon - minLon) / (pa.size() - 1);
+                            //if lon 
+                            if (varName.equals("lon")) {
+                                dimensions.add(oldVar.getDimension(0));
 
-                        atts.add("_CoordinateAxisType", "Lon");
-                        atts.add("actual_range", new DoubleArray(new double[]{minLon, maxLon}));
-                        atts.add("axis", "X");
-                        atts.add("coordsys", "geographic");
-                        atts.add("long_name", "Longitude");
-                        atts.add("standard_name", "longitude");
-                        atts.add("units", "degrees_east");
+                                PrimitiveArray pa = NcHelper.getPrimitiveArray(oldVar);
+                                minLon = pa.getDouble(0);
+                                maxLon = pa.getDouble(pa.size() - 1);
+                                if (pa.isEvenlySpaced().length() == 0)
+                                    lonSpacing = (maxLon - minLon) / (pa.size() - 1);
 
-                    //if lat 
-                    } else if (varName.equals("lat")) {
-                        dimensions.add(oldVar.getDimension(0));
+                                atts.add("_CoordinateAxisType", "Lon");
+                                atts.add("actual_range", new DoubleArray(new double[]{minLon, maxLon}));
+                                atts.add("axis", "X");
+                                atts.add("coordsys", "geographic");
+                                atts.add("long_name", "Longitude");
+                                atts.add("standard_name", "longitude");
+                                atts.add("units", "degrees_east");
 
-                        PrimitiveArray pa = NcHelper.getPrimitiveArray(oldVar);
-                        minLat = pa.getDouble(0);
-                        maxLat = pa.getDouble(pa.size() - 1);
-                        if (pa.isEvenlySpaced().length() == 0)
-                            latSpacing = (maxLat - minLat) / (pa.size() - 1);
+                            //if lat 
+                            } else if (varName.equals("lat")) {
+                                dimensions.add(oldVar.getDimension(0));
 
-                        atts.add("_CoordinateAxisType", "Lat");
-                        atts.add("actual_range", new DoubleArray(new double[]{minLat, maxLat}));
-                        atts.add("axis", "Y");
-                        atts.add("coordsys", "geographic");
-                        atts.add("long_name", "Latitude");
-                        atts.add("standard_name", "latitude");
-                        atts.add("units", "degrees_north");                    
+                                PrimitiveArray pa = NcHelper.getPrimitiveArray(oldVar);
+                                minLat = pa.getDouble(0);
+                                maxLat = pa.getDouble(pa.size() - 1);
+                                if (pa.isEvenlySpaced().length() == 0)
+                                    latSpacing = (maxLat - minLat) / (pa.size() - 1);
 
-                    //if depth
-                    } else if (varName.equals("depth")) {
-                        dimensions.add(oldVar.getDimension(0));
+                                atts.add("_CoordinateAxisType", "Lat");
+                                atts.add("actual_range", new DoubleArray(new double[]{minLat, maxLat}));
+                                atts.add("axis", "Y");
+                                atts.add("coordsys", "geographic");
+                                atts.add("long_name", "Latitude");
+                                atts.add("standard_name", "latitude");
+                                atts.add("units", "degrees_north");                    
 
-                        PrimitiveArray pa = NcHelper.getPrimitiveArray(oldVar);
-                        minDepth = pa.getDouble(0);
-                        maxDepth = pa.getDouble(pa.size() - 1);
+                            //if depth
+                            } else if (varName.equals("depth")) {
+                                dimensions.add(oldVar.getDimension(0));
 
-                        atts.add("_CoordinateAxisType", "Height");
-                        atts.add("_CoordinateZisPositive", "down");
-                        atts.add("actual_range", new DoubleArray(new double[]{minDepth, maxDepth}));
-                        atts.add("axis", "Z");
-                        atts.add("long_name", "Depth");
-                        atts.add("positive", "down");
-                        atts.add("standard_name", "depth");
-                        atts.add("units", "m");
+                                PrimitiveArray pa = NcHelper.getPrimitiveArray(oldVar);
+                                minDepth = pa.getDouble(0);
+                                maxDepth = pa.getDouble(pa.size() - 1);
 
-                    //if time
-                    } else if (varName.equals("time")) {
-                        dimensions.add(timeDimension);
+                                atts.add("_CoordinateAxisType", "Height");
+                                atts.add("_CoordinateZisPositive", "down");
+                                atts.add("actual_range", new DoubleArray(new double[]{minDepth, maxDepth}));
+                                atts.add("axis", "Z");
+                                atts.add("long_name", "Depth");
+                                atts.add("positive", "down");
+                                atts.add("standard_name", "depth");
+                                atts.add("units", "m");
 
-                        dataType = DataType.INT; //the only oldVar that changes dataType
+                            //if time
+                            } else if (varName.equals("time")) {
+                                dimensions.add(timeDimension);
 
-                        //ensure time size == 1;
-                        PrimitiveArray pa = NcHelper.getPrimitiveArray(oldVar);
-                        if (pa.size() != 1)
-                            throw new Exception("time size=" + pa.size() + "\n" + pa);
+                                dataType = DataType.INT; //the only oldVar that changes dataType
 
-                        atts.add("_CoordinateAxisType", "Time");
-                        atts.add("axis", "T");
-                        atts.add("long_name", "Time");
-                        atts.add("standard_name", "time");
-                        atts.add("time_origin", "15-JAN-1950 00:00:00");
-                        atts.add("units", "months since 1950-01-15T00:00:00Z");                    
+                                //ensure time size == 1;
+                                PrimitiveArray pa = NcHelper.getPrimitiveArray(oldVar);
+                                if (pa.size() != 1)
+                                    throw new Exception("time size=" + pa.size() + "\n" + pa);
 
-                    //other variables
-                    } else {
+                                atts.add("_CoordinateAxisType", "Time");
+                                atts.add("axis", "T");
+                                atts.add("long_name", "Time");
+                                atts.add("standard_name", "time");
+                                atts.add("time_origin", "15-JAN-1950 00:00:00");
+                                atts.add("units", "months since 1950-01-15T00:00:00Z");                    
 
-                        //add time dimension
-                        int rank = oldVar.getRank();
-                        dimensions.add(timeDimension);
-                        for (int r = 0; r < rank; r++)
-                            dimensions.add(oldVar.getDimension(r));
-
-                        atts.add("missing_value", atts.getFloat("_FillValue"));
-                        if (varName.equals("temp")) {
-                            Test.ensureEqual(atts.getString("units"), "deg. C", "");
-                            atts.add("long_name", "Sea Water Temperature");
-                            atts.add("standard_name", "sea_water_temperature");
-                            atts.add("units", "degree_C");
-
-                        } else if (varName.equals("salt")) {
-                            if (atts.getString("units").equals("frac. by wt. less")) {
-                                //atts.add("units", "frac. by wt. less"); //???
-                            } else if (atts.getString("units").equals("g/kg")) {
-                                atts.add("units", "g kg-1"); //???
+                            //other variables
                             } else {
-                                Test.error("Unexpected salt units=" + atts.getString("units"));
-                            }
-                            atts.add("long_name", "Salinity");
-                            atts.add("standard_name", "sea_water_salinity");
 
-                        } else if (varName.equals("u")) {
-                            if (atts.getString("units").equals("cm/sec")) {
-                                atts.add("units", "cm s-1");
-                            } else if (atts.getString("units").equals("m/sec")) {
-                                atts.add("units", "m s-1");
-                            } else {
-                                Test.error("Unexpected u units=" + atts.getString("units"));
-                            }
-                            atts.add("long_name", "Zonal Velocity");
-                            atts.add("standard_name", "sea_water_x_velocity");
+                                //add time dimension
+                                int rank = oldVar.getRank();
+                                dimensions.add(timeDimension);
+                                for (int r = 0; r < rank; r++)
+                                    dimensions.add(oldVar.getDimension(r));
 
-                        } else if (varName.equals("v")) {
-                            if (atts.getString("units").equals("cm/sec")) {
-                                atts.add("units", "cm s-1");
-                            } else if (atts.getString("units").equals("m/sec")) {
-                                atts.add("units", "m s-1");
-                            } else {
-                                Test.error("Unexpected v units=" + atts.getString("units"));
-                            }
-                            atts.add("long_name", "Meridional Velocity");
-                            atts.add("standard_name", "sea_water_y_velocity");
+                                atts.add("missing_value", atts.getFloat("_FillValue"));
+                                if (varName.equals("temp")) {
+                                    Test.ensureEqual(atts.getString("units"), "deg. C", "");
+                                    atts.add("long_name", "Sea Water Temperature");
+                                    atts.add("standard_name", "sea_water_temperature");
+                                    atts.add("units", "degree_C");
 
-                        } else if (varName.equals("w")) {
-                            if (atts.getString("units").equals("cm/sec")) {
-                                atts.add("units", "cm s-1");
-                            } else if (atts.getString("units").equals("m/sec")) {
-                                atts.add("units", "m s-1");
-                            } else {
-                                Test.error("Unexpected w units=" + atts.getString("units"));
-                            }
-                            atts.add("long_name", "Vertical Velocity");
-                            atts.add("standard_name", "sea_water_z_velocity"); //not offical standard name, but direct extension of x and y
+                                } else if (varName.equals("salt")) {
+                                    if (atts.getString("units").equals("frac. by wt. less")) {
+                                        //atts.add("units", "frac. by wt. less"); //???
+                                    } else if (atts.getString("units").equals("g/kg")) {
+                                        atts.add("units", "g kg-1"); //???
+                                    } else {
+                                        Test.error("Unexpected salt units=" + atts.getString("units"));
+                                    }
+                                    atts.add("long_name", "Salinity");
+                                    atts.add("standard_name", "sea_water_salinity");
+
+                                } else if (varName.equals("u")) {
+                                    if (atts.getString("units").equals("cm/sec")) {
+                                        atts.add("units", "cm s-1");
+                                    } else if (atts.getString("units").equals("m/sec")) {
+                                        atts.add("units", "m s-1");
+                                    } else {
+                                        Test.error("Unexpected u units=" + atts.getString("units"));
+                                    }
+                                    atts.add("long_name", "Zonal Velocity");
+                                    atts.add("standard_name", "sea_water_x_velocity");
+
+                                } else if (varName.equals("v")) {
+                                    if (atts.getString("units").equals("cm/sec")) {
+                                        atts.add("units", "cm s-1");
+                                    } else if (atts.getString("units").equals("m/sec")) {
+                                        atts.add("units", "m s-1");
+                                    } else {
+                                        Test.error("Unexpected v units=" + atts.getString("units"));
+                                    }
+                                    atts.add("long_name", "Meridional Velocity");
+                                    atts.add("standard_name", "sea_water_y_velocity");
+
+                                } else if (varName.equals("w")) {
+                                    if (atts.getString("units").equals("cm/sec")) {
+                                        atts.add("units", "cm s-1");
+                                    } else if (atts.getString("units").equals("m/sec")) {
+                                        atts.add("units", "m s-1");
+                                    } else {
+                                        Test.error("Unexpected w units=" + atts.getString("units"));
+                                    }
+                                    atts.add("long_name", "Vertical Velocity");
+                                    atts.add("standard_name", "sea_water_z_velocity"); //not offical standard name, but direct extension of x and y
 
 
-                        } else if (varName.equals("utrans")) {
-                            if (atts.getString("units").equals("degC/sec")) {
-                                atts.add("units", "degree_C s-1");
-                            } else {
-                                Test.error("Unexpected utrans units=" + atts.getString("units"));
-                            }
-                            atts.add("long_name", "Zonal Temperature Transport");  //TEMP-> Temperature???
-                            atts.add("standard_name", "eastward_ocean_heat_transport"); //???
+                                } else if (varName.equals("utrans")) {
+                                    if (atts.getString("units").equals("degC/sec")) {
+                                        atts.add("units", "degree_C s-1");
+                                    } else {
+                                        Test.error("Unexpected utrans units=" + atts.getString("units"));
+                                    }
+                                    atts.add("long_name", "Zonal Temperature Transport");  //TEMP-> Temperature???
+                                    atts.add("standard_name", "eastward_ocean_heat_transport"); //???
 
-                        } else if (varName.equals("vtrans")) {
-                            if (atts.getString("units").equals("degC/sec")) {
-                                atts.add("units", "degree_C s-1");
-                            } else {
-                                Test.error("Unexpected vtrans units=" + atts.getString("units"));
-                            }
-                            atts.add("long_name", "Meridional Temperature Transport"); //TEMP-> Temperature???
-                            atts.add("standard_name", "northward_ocean_heat_transport"); //???
+                                } else if (varName.equals("vtrans")) {
+                                    if (atts.getString("units").equals("degC/sec")) {
+                                        atts.add("units", "degree_C s-1");
+                                    } else {
+                                        Test.error("Unexpected vtrans units=" + atts.getString("units"));
+                                    }
+                                    atts.add("long_name", "Meridional Temperature Transport"); //TEMP-> Temperature???
+                                    atts.add("standard_name", "northward_ocean_heat_transport"); //???
 
-                        } else if (varName.equals("hflx")) {
-                            if (atts.getString("units").equals("watts/m^2")) {
-                                atts.add("units", "watt m-2");
-                            } else {
-                                Test.error("Unexpected hflx units=" + atts.getString("units"));
-                            }
-                            atts.add("long_name", "Surface Heat Flux");  
-                            atts.add("standard_name", "surface_downward_heat_flux_in_sea_water"); //???
+                                } else if (varName.equals("hflx")) {
+                                    if (atts.getString("units").equals("watts/m^2")) {
+                                        atts.add("units", "watt m-2");
+                                    } else {
+                                        Test.error("Unexpected hflx units=" + atts.getString("units"));
+                                    }
+                                    atts.add("long_name", "Surface Heat Flux");  
+                                    atts.add("standard_name", "surface_downward_heat_flux_in_sea_water"); //???
 
-                        } else if (varName.equals("wflx")) {
-                            if (atts.getString("units").equals("m/year")) {
-                                atts.add("units", "m year-1");
-                            } else {
-                                Test.error("Unexpected wflx units=" + atts.getString("units"));
-                            }
-                            atts.add("long_name", "Surface Water Flux");
-                            atts.add("standard_name", "surface_downward_water_flux"); //???
+                                } else if (varName.equals("wflx")) {
+                                    if (atts.getString("units").equals("m/year")) {
+                                        atts.add("units", "m year-1");
+                                    } else {
+                                        Test.error("Unexpected wflx units=" + atts.getString("units"));
+                                    }
+                                    atts.add("long_name", "Surface Water Flux");
+                                    atts.add("standard_name", "surface_downward_water_flux"); //???
 
-                        } else if (varName.equals("CFC11")) {
-                            if (atts.getString("units").equals("mmol/m**3")) {
-                                atts.add("units", "mmole m-3");
-                            } else {
-                                Test.error("Unexpected vtrans units=" + atts.getString("units"));
-                            }
-                            atts.add("long_name", "CFC11 Concentration"); 
-                            atts.add("standard_name", "mole_concentration"); //not standard!!! but close
+                                } else if (varName.equals("CFC11")) {
+                                    if (atts.getString("units").equals("mmol/m**3")) {
+                                        atts.add("units", "mmole m-3");
+                                    } else {
+                                        Test.error("Unexpected vtrans units=" + atts.getString("units"));
+                                    }
+                                    atts.add("long_name", "CFC11 Concentration"); 
+                                    atts.add("standard_name", "mole_concentration"); //not standard!!! but close
 
-                        } else if (varName.equals("taux")) {
-                            if (atts.getString("units").equals("dynes/cm^2")) {
-                                atts.add("units", "dynes cm-2");  //convert to Pa???
-                            } else if (atts.getString("units").equals("N/m^2")) {
-                                atts.add("units", "N m-2");
-                            } else {
-                                Test.error("Unexpected taux units=" + atts.getString("units"));
-                            }
-                            atts.add("long_name", "Zonal Wind Stress"); //???
-                            atts.add("standard_name", "surface_downward_eastward_stress"); //???
+                                } else if (varName.equals("taux")) {
+                                    if (atts.getString("units").equals("dynes/cm^2")) {
+                                        atts.add("units", "dynes cm-2");  //convert to Pa???
+                                    } else if (atts.getString("units").equals("N/m^2")) {
+                                        atts.add("units", "N m-2");
+                                    } else {
+                                        Test.error("Unexpected taux units=" + atts.getString("units"));
+                                    }
+                                    atts.add("long_name", "Zonal Wind Stress"); //???
+                                    atts.add("standard_name", "surface_downward_eastward_stress"); //???
 
-                        } else if (varName.equals("tauy")) {
-                            if (atts.getString("units").equals("dynes/cm^2")) {
-                                atts.add("units", "dynes cm-2");  //convert to Pa???
-                            } else if (atts.getString("units").equals("N/m^2")) {
-                                atts.add("units", "N m-2");
-                            } else {
-                                Test.error("Unexpected tauy units=" + atts.getString("units"));
-                            }
-                            atts.add("long_name", "Meridional Wind Stress"); //???
-                            atts.add("standard_name", "surface_downward_northward_stress"); //???
+                                } else if (varName.equals("tauy")) {
+                                    if (atts.getString("units").equals("dynes/cm^2")) {
+                                        atts.add("units", "dynes cm-2");  //convert to Pa???
+                                    } else if (atts.getString("units").equals("N/m^2")) {
+                                        atts.add("units", "N m-2");
+                                    } else {
+                                        Test.error("Unexpected tauy units=" + atts.getString("units"));
+                                    }
+                                    atts.add("long_name", "Meridional Wind Stress"); //???
+                                    atts.add("standard_name", "surface_downward_northward_stress"); //???
 
-                        } else if (varName.equals("ssh")) {
-                            if (atts.getString("units").equals("cm")) {
-                            } else if (atts.getString("units").equals("m")) {
-                            } else {
-                                Test.error("Unexpected ssh units=" + atts.getString("units"));
+                                } else if (varName.equals("ssh")) {
+                                    if (atts.getString("units").equals("cm")) {
+                                    } else if (atts.getString("units").equals("m")) {
+                                    } else {
+                                        Test.error("Unexpected ssh units=" + atts.getString("units"));
+                                    }
+                                    atts.add("long_name", "Sea Surface Height");
+                                    atts.add("standard_name", "sea_surface_height_above_geoid"); //???
+                                } else {
+                                    throw new Exception("Unexpected varName=" + varName);
+                                }
                             }
-                            atts.add("long_name", "Sea Surface Height");
-                            atts.add("standard_name", "sea_surface_height_above_geoid"); //???
-                        } else {
-                            throw new Exception("Unexpected varName=" + varName);
+
+                            //define newVar in new file
+                            newVars[v] = newFile.addVariable(rootGroup, varName, dataType, dimensions); 
+                            NcHelper.setAttributes(nc3Mode, newVars[v], atts);
                         }
+
+                        //define GLOBAL metadata 
+                        Attributes gatts = new Attributes();
+                        String cDate = Calendar2.getCurrentISODateStringZulu();
+                        NcHelper.getGlobalAttributes(oldFile, gatts);
+                        gatts.add("acknowledgement", "NSF, NASA, NOAA"); //from https://www.atmos.umd.edu/~ocean/reanalysis.pdf
+                        gatts.add("cdm_data_type", "Grid");
+                        gatts.add("composite", "true");
+                        gatts.add("contributor_name", "World Ocean Atlas, Expendable Bathythermograph Archive, " +
+                            "TOGA-TAO thermistor array, Soviet SECTIONS tropical program, " +
+                            "and Satellite altimetry from Geosat, ERS/1 and TOPEX/Poseidon.");
+                        gatts.add("contributor_role", "source data");
+                        gatts.add("Conventions", "COARDS, CF-1.6, ACDD-1.3");
+                        gatts.add("creator_email", "carton@umd.edu");
+                        gatts.add("creator_name", "SODA");
+                        gatts.add("creator_url", "https://www.atmos.umd.edu/~ocean/");
+                        gatts.add("date_created", cDate);
+                        gatts.add("date_issued", cDate);
+                        gatts.add("Easternmost_Easting", maxLon);
+                        gatts.add("geospatial_lat_max", maxLat);
+                        gatts.add("geospatial_lat_min", minLat);
+                        if (!Double.isNaN(latSpacing)) gatts.add("geospatial_lat_resolution", latSpacing);
+                        gatts.add("geospatial_lat_units", "degrees_north");
+                        gatts.add("geospatial_lon_max", maxLon);
+                        gatts.add("geospatial_lon_min", minLon);
+                        if (!Double.isNaN(lonSpacing)) gatts.add("geospatial_lon_resolution", lonSpacing);
+                        gatts.add("geospatial_lon_units", "degrees_east");
+                        gatts.add("geospatial_vertical_max", maxDepth);
+                        gatts.add("geospatial_vertical_min", minDepth);
+                        gatts.add("geospatial_vertical_positive", "down");
+                        gatts.add("geospatial_vertical_units", "m");
+                        gatts.add("history", "http://dsrs.atmos.umd.edu/\n" +
+                            cDate + " NOAA SWFSC ERD added metadata and time dimension");
+                        gatts.add("infoUrl", "https://www.atmos.umd.edu/~ocean/");
+                        gatts.add("institution", "TAMU/UMD"); //from title
+                        gatts.add("keywords", "Oceans > Ocean Temperature > Water Temperature");
+                        gatts.add("keywords_vocabulary", "GCMD Science Keywords");
+                        gatts.add("license", "The data may be used and redistributed for free but is not intended for legal use, since it may contain inaccuracies. Neither the data Creator, NOAA, nor the United States Government, nor any of their employees or contractors, makes any warranty, express or implied, including warranties of merchantability and fitness for a particular purpose, or assumes any legal liability for the accuracy, completeness, or usefulness, of this information.");
+                        gatts.add("naming_authority", "SODA");
+                        gatts.add("Northernmost_Northing", maxLat);
+                        //gatts.add("origin", "TAMU/UMD"); cwhdf attribute, see institution instead
+                        gatts.add("processing_level", "4 (model)");
+                        gatts.add("project", "SODA (https://www.atmos.umd.edu/~ocean/)");
+                        gatts.add("projection", "geographic");
+                        gatts.add("projection_type", "mapped");
+                        gatts.add("references", //from http://www.met.rdg.ac.uk/~swr02ldc/SODA.html
+                            "Carton, J. A., Chepurin, G., Cao, X. H. and Giese, B. (2000). " +
+                            "A Simple Ocean Data Assimilation analysis of the global upper ocean 1950-95. " +
+                            "Part I: Methodology. Journal of Physical Oceanography, 30, 2, pp294-309. " +
+                            "Carton, J. A., Chepurin, G. and Cao, X. H. (2000). A Simple Ocean Data " +
+                            "Assimilation analysis of the global upper ocean 1950-95. Part II: Results. " +
+                            "Journal of Physical Oceanography, 30, 2, pp311-326. " +
+                            "See also https://www.atmos.umd.edu/~ocean/reanalysis.pdf .");
+                        //gatts.add("satellite", "POES");   cwhdf attribute, not appropriate here
+                        //gatts.add("sensor", "AVHRR GAC"); cwhdf attribute, not appropriate here
+                        gatts.add("source", "model; SODA " + sodaVersion);
+                        gatts.add("Southernmost_Northing", minLat);
+                        gatts.add("standard_name_vocabulary", FileNameUtility.getStandardNameVocabulary());
+                        gatts.add("summary", 
+                            "Simple Ocean Data Assimilation (SODA) version " + sodaVersion + " - A reanalysis of ocean climate. " +
+                            //from http://www.met.rdg.ac.uk/~swr02ldc/SODA.html
+                            "SODA uses the GFDL modular ocean model version 2.2. The model is forced by observed " +
+                            "surface wind stresses from the COADS data set (from 1958 to 1992) and from NCEP (after 1992). " +
+                            "Note that the wind stresses were detrended before use due to inconsistencies with " +
+                            "observed sea level pressure trends. The model is also constrained by constant assimilation " +
+                            "of observed temperatures, salinities, and altimetry using an optimal data assimilation " +
+                            "technique. The observed data comes from: " +
+                            "1) The World Ocean Atlas 1994 which contains ocean temperatures and salinities from " +
+                            "mechanical bathythermographs, expendable bathythermographs and conductivity-temperature-depth probes. " +
+                            "2) The expendable bathythermograph archive " +
+                            "3) The TOGA-TAO thermistor array " +
+                            "4) The Soviet SECTIONS tropical program " +
+                            "5) Satellite altimetry from Geosat, ERS/1 and TOPEX/Poseidon. \n" +
+                            //from https://www.atmos.umd.edu/~ocean/history.html
+                            "We are now exploring an eddy-permitting reanalysis based on the Parallel Ocean Program " +
+                            "POP-1.4 model with 40 levels in the vertical and a 0.4x0.25 degree displaced pole grid " +
+                            "(25 km resolution in the western North Atlantic).  The first version of this we will release " +
+                            "is SODA1.2, a reanalysis driven by ERA-40 winds covering the period 1958-2001 (extended " +
+                            "to the current year using available altimetry). ");
+                        //has title
+                        gatts.add("Westernmost_Easting", minLon);
+                        //set the globalAttributes
+                        NcHelper.setAttributes(nc3Mode, rootGroup, gatts);
+                    
+                        //leave define mode
+                        newFile.create();
+
+                        //write data for each variable
+                        for (int v = 0; v < oldVars.size(); v++) {
+                            Variable oldVar = oldVars.get(v);
+                            String name = oldVar.getName();
+
+                            //if lon, lat, depth
+                            if (name.equals("lon") || name.equals("lat") || name.equals("depth")) {
+                                //just read it and write it unchanged
+                                newFile.write(newVars[v], oldVar.read());
+
+                            //if time
+                            } else if (name.equals("time")) {
+                                //just read it and write it unchanged
+                                newFile.write(newVars[v], NcHelper.get1DArray(new int[]{months}));
+
+                            //if other variables
+                            } else {
+                                //read it
+                                Array array = oldVar.read();
+                                //add time dimension
+                                int oldShape[] = array.getShape();
+                                int newShape[] = new int[oldShape.length + 1];
+                                newShape[0] = 1;
+                                System.arraycopy(oldShape, 0, newShape, 1, oldShape.length);
+                                array = array.reshape(newShape);
+                                //write it
+                                newFile.write(newVars[v], array);
+                            }
+                        }
+                    } finally {
+                        try {oldFile.close(); } catch (Exception e) {}
+                        oldFile = null;
                     }
-
-                    //define newVar in new file
-                    newVars[v] = newFile.addVariable(rootGroup, varName, dataType, dimensions); 
-                    NcHelper.setAttributes(newVars[v], atts);
+                } finally {
+                    try {newFile.close(); } catch (Exception e) {}
+                    newFile = null;
                 }
-
-                //define GLOBAL metadata 
-                Attributes gatts = new Attributes();
-                String cDate = Calendar2.getCurrentISODateStringZulu();
-                NcHelper.getGlobalAttributes(oldFile, gatts);
-                gatts.add("acknowledgement", "NSF, NASA, NOAA"); //from http://www.atmos.umd.edu/~ocean/reanalysis.pdf
-                gatts.add("cdm_data_type", "Grid");
-                gatts.add("composite", "true");
-                gatts.add("contributor_name", "World Ocean Atlas, Expendable Bathythermograph Archive, " +
-                    "TOGA-TAO thermistor array, Soviet SECTIONS tropical program, " +
-                    "and Satellite altimetry from Geosat, ERS/1 and TOPEX/Poseidon.");
-                gatts.add("contributor_role", "source data");
-                gatts.add("Conventions", "COARDS, CF-1.6, ACDD-1.3");
-                gatts.add("creator_email", "carton@umd.edu");
-                gatts.add("creator_name", "SODA");
-                gatts.add("creator_url", "http://www.atmos.umd.edu/~ocean/");
-                gatts.add("date_created", cDate);
-                gatts.add("date_issued", cDate);
-                gatts.add("Easternmost_Easting", maxLon);
-                gatts.add("geospatial_lat_max", maxLat);
-                gatts.add("geospatial_lat_min", minLat);
-                if (!Double.isNaN(latSpacing)) gatts.add("geospatial_lat_resolution", latSpacing);
-                gatts.add("geospatial_lat_units", "degrees_north");
-                gatts.add("geospatial_lon_max", maxLon);
-                gatts.add("geospatial_lon_min", minLon);
-                if (!Double.isNaN(lonSpacing)) gatts.add("geospatial_lon_resolution", lonSpacing);
-                gatts.add("geospatial_lon_units", "degrees_east");
-                gatts.add("geospatial_vertical_max", maxDepth);
-                gatts.add("geospatial_vertical_min", minDepth);
-                gatts.add("geospatial_vertical_positive", "down");
-                gatts.add("geospatial_vertical_units", "m");
-                gatts.add("history", "http://dsrs.atmos.umd.edu/\n" +
-                    cDate + " NOAA SWFSC ERD added metadata and time dimension");
-                gatts.add("infoUrl", "http://www.atmos.umd.edu/~ocean/");
-                gatts.add("institution", "TAMU/UMD"); //from title
-                gatts.add("keywords", "Oceans > Ocean Temperature > Water Temperature");
-                gatts.add("keywords_vocabulary", "GCMD Science Keywords");
-                gatts.add("license", "The data may be used and redistributed for free but is not intended for legal use, since it may contain inaccuracies. Neither the data Creator, NOAA, nor the United States Government, nor any of their employees or contractors, makes any warranty, express or implied, including warranties of merchantability and fitness for a particular purpose, or assumes any legal liability for the accuracy, completeness, or usefulness, of this information.");
-                gatts.add("naming_authority", "SODA");
-                gatts.add("Northernmost_Northing", maxLat);
-                //gatts.add("origin", "TAMU/UMD"); cwhdf attribute, see institution instead
-                gatts.add("processing_level", "4 (model)");
-                gatts.add("project", "SODA (http://www.atmos.umd.edu/~ocean/)");
-                gatts.add("projection", "geographic");
-                gatts.add("projection_type", "mapped");
-                gatts.add("references", //from http://www.met.rdg.ac.uk/~swr02ldc/SODA.html
-                    "Carton, J. A., Chepurin, G., Cao, X. H. and Giese, B. (2000). " +
-                    "A Simple Ocean Data Assimilation analysis of the global upper ocean 1950-95. " +
-                    "Part I: Methodology. Journal of Physical Oceanography, 30, 2, pp294-309. " +
-                    "Carton, J. A., Chepurin, G. and Cao, X. H. (2000). A Simple Ocean Data " +
-                    "Assimilation analysis of the global upper ocean 1950-95. Part II: Results. " +
-                    "Journal of Physical Oceanography, 30, 2, pp311-326. " +
-                    "See also http://www.atmos.umd.edu/~ocean/reanalysis.pdf .");
-                //gatts.add("satellite", "POES");   cwhdf attribute, not appropriate here
-                //gatts.add("sensor", "AVHRR GAC"); cwhdf attribute, not appropriate here
-                gatts.add("source", "model; SODA " + sodaVersion);
-                gatts.add("Southernmost_Northing", minLat);
-                gatts.add("standard_name_vocabulary", FileNameUtility.getStandardNameVocabulary());
-                gatts.add("summary", 
-                    "Simple Ocean Data Assimilation (SODA) version " + sodaVersion + " - A reanalysis of ocean climate. " +
-                    //from http://www.met.rdg.ac.uk/~swr02ldc/SODA.html
-                    "SODA uses the GFDL modular ocean model version 2.2. The model is forced by observed " +
-                    "surface wind stresses from the COADS data set (from 1958 to 1992) and from NCEP (after 1992). " +
-                    "Note that the wind stresses were detrended before use due to inconsistencies with " +
-                    "observed sea level pressure trends. The model is also constrained by constant assimilation " +
-                    "of observed temperatures, salinities, and altimetry using an optimal data assimilation " +
-                    "technique. The observed data comes from: " +
-                    "1) The World Ocean Atlas 1994 which contains ocean temperatures and salinities from " +
-                    "mechanical bathythermographs, expendable bathythermographs and conductivity-temperature-depth probes. " +
-                    "2) The expendable bathythermograph archive " +
-                    "3) The TOGA-TAO thermistor array " +
-                    "4) The Soviet SECTIONS tropical program " +
-                    "5) Satellite altimetry from Geosat, ERS/1 and TOPEX/Poseidon. \n" +
-                    //from http://www.atmos.umd.edu/~ocean/history.html
-                    "We are now exploring an eddy-permitting reanalysis based on the Parallel Ocean Program " +
-                    "POP-1.4 model with 40 levels in the vertical and a 0.4x0.25 degree displaced pole grid " +
-                    "(25 km resolution in the western North Atlantic).  The first version of this we will release " +
-                    "is SODA1.2, a reanalysis driven by ERA-40 winds covering the period 1958-2001 (extended " +
-                    "to the current year using available altimetry). ");
-                //has title
-                gatts.add("Westernmost_Easting", minLon);
-                //set the globalAttributes
-                NcHelper.setAttributes(rootGroup, gatts);
-            
-                //leave define mode
-                newFile.create();
-
-                //write data for each variable
-                for (int v = 0; v < oldVars.size(); v++) {
-                    Variable oldVar = oldVars.get(v);
-                    String name = oldVar.getName();
-
-                    //if lon, lat, depth
-                    if (name.equals("lon") || name.equals("lat") || name.equals("depth")) {
-                        //just read it and write it unchanged
-                        newFile.write(newVars[v], oldVar.read());
-
-                    //if time
-                    } else if (name.equals("time")) {
-                        //just read it and write it unchanged
-                        newFile.write(newVars[v], NcHelper.get1DArray(new int[]{months}));
-
-                    //if other variables
-                    } else {
-                        //read it
-                        Array array = oldVar.read();
-                        //add time dimension
-                        int oldShape[] = array.getShape();
-                        int newShape[] = new int[oldShape.length + 1];
-                        newShape[0] = 1;
-                        System.arraycopy(oldShape, 0, newShape, 1, oldShape.length);
-                        array = array.reshape(newShape);
-                        //write it
-                        newFile.write(newVars[v], array);
-                    }
-                }
-
-                oldFile.close(); oldFile = null;
-                newFile.close(); newFile = null;
 
                 if (gzipped) 
                     File2.delete(tempDir + cdfName);
 
-                String2.log("newFile=" + NcHelper.dumpString(newDir + newName, false));
+                String2.log("newFile=" + NcHelper.ncdump(newDir + newName, "-h"));
 
             } //end file loop
 
@@ -3177,11 +3225,75 @@ variables:
         }
     }
 
+    /** Can netcdf-java write longs (64bit integers) into a nc3 file? 
+     * 2017-02-08:
+java.lang.IllegalArgumentException: illegal dataType: long not supported in netcdf-3
+ at ucar.nc2.NetcdfFileWriter.addVariable(NetcdfFileWriter.java:538)
+ at ucar.nc2.NetcdfFileWriter.addVariable(NetcdfFileWriter.java:518)
+ at gov.noaa.pfel.coastwatch.Projects.testLongInNc3(Projects.java:3237)    +5
+ at gov.noaa.pfel.coastwatch.TestAll.main(TestAll.java:442)
+     */
+    public static void testLongInNc3() throws Exception {
+        String2.log("\n*** Projects.testLongInNc3");
+
+        //get a list of files
+        String dirFileName = "/data/ethan/testLongInNc3.nc";
+        NetcdfFileWriter newFile = newFile = NetcdfFileWriter.createNew(
+                NetcdfFileWriter.Version.netcdf3, dirFileName);
+        try {
+            
+            boolean nc3Mode = true;
+            Group rootGroup = newFile.addGroup(null, "");
+
+            //create the dimensions
+            Dimension dim = newFile.addDimension(rootGroup, "row", 5);
+            ArrayList<Dimension> dims = new ArrayList();
+            dims.add(dim);
+
+            ArrayList<Dimension> dimensions = new ArrayList();
+            DataType dataType = DataType.LONG;
+
+            Attributes atts = new Attributes();
+            atts.set("units", "count");
+
+            Variable var = newFile.addVariable(rootGroup, "longs", dataType, dims); 
+            NcHelper.setAttributes(nc3Mode, var, atts);
+
+            //define GLOBAL metadata 
+            Attributes gatts = new Attributes();
+            gatts.set("title", "test of 64bit integers");
+            NcHelper.setAttributes(nc3Mode, rootGroup, gatts);
+        
+            //leave define mode
+            newFile.create();
+
+            ArrayLong.D1 array = new ArrayLong.D1(5);
+            array.set(0, Long.MIN_VALUE);
+            array.set(0, -999);
+            array.set(0, 0);
+            array.set(0, 999);
+            array.set(0, Long.MAX_VALUE);
+
+            newFile.write(var, array);
+
+            newFile.close(); newFile = null;
+
+            String2.log("newFile=" + NcHelper.ncdump(dirFileName, ""));
+
+            String2.log("\n*** Projects.testLongInNc3 finished successfully.");
+
+        } catch (Exception e) {
+            try {if (newFile != null) newFile.close();} catch (Exception e2) {}
+            String2.log(MustBe.throwableToString(e));
+        }
+    }
+
+
     /**
      * This is a test of reading a coastwatch .hdf file (as they distribute)
      * with the new netcdf-java 4.0 library.
      * With the hope of making a thredds iosp for these files (see 
-     * http://www.unidata.ucar.edu/software/netcdf-java/tutorial/IOSPoverview.html ).
+     * https://www.unidata.ucar.edu/software/netcdf-java/tutorial/IOSPoverview.html ).
      *
      * @throws Exception if trouble
      */
@@ -3316,10 +3428,10 @@ public static void testJanino() throws Exception {
         //String2.log(" -5%4=" + (-5%4) + " 5%-4=" + (5%-4) + " -5%-4=" + (-5%-4));
         if (false) {
             //ucar.nc2.util.DebugFlags.set("DODS/serverCall", true);
-            //NetcdfFile nc = NetcdfDataset.openFile("http://dapper.pmel.noaa.gov/dapper/epic/tao_time_series.cdp", null);
-            //NetcdfFile nc = NetcdfDataset.openFile("http://coastwatch.pfeg.noaa.gov/erddap2/tabledap/cwwcNDBCMet", null);
+            //NetcdfFile nc = NetcdfDataset.openFile("http://apdrc.soest.hawaii.edu/dapper/godae/argo_all.cdp", null);
+            //NetcdfFile nc = NetcdfDataset.openFile("https://coastwatch.pfeg.noaa.gov/erddap2/tabledap/cwwcNDBCMet", null);
             NetcdfFile nc = NetcdfDataset.openFile("http://localhost/cwexperimental/tabledap/cwwcNDBCMet", null);
-            //NetcdfFile nc = NetcdfDataset.openFile("http://thredds1.pfeg.noaa.gov/thredds/dodsC/satellite/cwtest/aqua/modis/chlora/D1", null);
+            //NetcdfFile nc = NetcdfDataset.openFile("https://thredds1.pfeg.noaa.gov/thredds/dodsC/satellite/cwtest/aqua/modis/chlora/D1", null);
             String2.log(nc.toString());
             nc.close();
         }
@@ -3350,7 +3462,7 @@ public static void testJanino() throws Exception {
 
     /** A tunnel test for ERDDAP. */
     public static void erddapTunnelTest() throws Exception {
-        String url = "http://coastwatch.pfeg.noaa.gov/erddap/griddap/erdCMsfc";
+        String url = "https://coastwatch.pfeg.noaa.gov/erddap/griddap/erdCMsfc";
         String varName = "eastCurrent";
         SSR.genericTunnelTest(1000, url + ".csv", varName); 
         SSR.genericTunnelTest(1000, url + ".nc",  varName); 
@@ -3382,27 +3494,27 @@ public static void testJanino() throws Exception {
                 tTime1=-1, tTime2=-1, tTime3=-1, tTime4=-1, tTime5=-1, tTime6=-1;
             try {
                 tTime1 = System.currentTimeMillis();
-                response1 = SSR.getUrlResponseString(opendapBaseUrl + ".das");
+                response1 = SSR.getUrlResponseStringUnchanged(opendapBaseUrl + ".das");
                 tTime1 = System.currentTimeMillis() - tTime1;
 
                 tTime2 = System.currentTimeMillis();
-                response2 = SSR.getUrlResponseString(opendapBaseUrl + ".dds");
+                response2 = SSR.getUrlResponseStringUnchanged(opendapBaseUrl + ".dds");
                 tTime2 = System.currentTimeMillis() - tTime2;
 
                 tTime3 = System.currentTimeMillis();
-                response3 = SSR.getUrlResponseString(opendapBaseUrl + ".asc?time");      
+                response3 = SSR.getUrlResponseStringUnchanged(opendapBaseUrl + ".asc?time");      
                 tTime3 = System.currentTimeMillis() - tTime3;
 
                 tTime4 = System.currentTimeMillis();
-                response4 = SSR.getUrlResponseString(opendapBaseUrl + ".asc?lat" + (thredds? "" : "itude"));      
+                response4 = SSR.getUrlResponseStringUnchanged(opendapBaseUrl + ".asc?lat" + (thredds? "" : "itude"));      
                 tTime4 = System.currentTimeMillis() - tTime4;
 
                 tTime5 = System.currentTimeMillis();
-                response5 = SSR.getUrlResponseString(opendapBaseUrl + ".asc?lon" + (thredds? "" : "gitude"));      
+                response5 = SSR.getUrlResponseStringUnchanged(opendapBaseUrl + ".asc?lon" + (thredds? "" : "gitude"));      
                 tTime5 = System.currentTimeMillis() - tTime5;
 
                 tTime6 = System.currentTimeMillis();
-                response6 = SSR.getUrlResponseString(opendapBaseUrl + ".asc?" + varName + 
+                response6 = SSR.getUrlResponseStringUnchanged(opendapBaseUrl + ".asc?" + varName + 
                     "[" + Math2.random(100) + "][0]" +
                     "[" + Math2.random(20) + "]" +
                     "[" + Math2.random(20) + "]");      
@@ -3510,7 +3622,7 @@ public static void testJanino() throws Exception {
             String.class, String.class, float.class, float.class, String.class};
 
         //find timezone   America/Los_Angeles
-        //String2.log(String2.toCSSVString(DateTimeZone.getAvailableIDs().toArray()));
+        //String2.log(String2.toCSSVString(ZoneId.getAvailableZoneIDs().toArray()));
         //Test.ensureTrue(false, "");
 
         //recursively delete any files in destDir 
@@ -3519,8 +3631,10 @@ public static void testJanino() throws Exception {
         //read the data source file
         String2.log("\nreading the data source file");
         Table dataTable = new Table();
-        dataTable.readASCII(sourceDir + sourceCsv, String2.readLinesFromFile(sourceDir + sourceCsv, null, 3), 
-            -1, 0, null, null, null, null, false); //don't simplify
+        dataTable.readASCII(sourceDir + sourceCsv, 
+            String2.readLinesFromFile(sourceDir + sourceCsv, null, 3), 
+            -1, 0, "", 
+            null, null, null, null, false); //don't simplify
         Test.ensureEqual(dataTable.nColumns(), dataColNames.length, "dataTable.nColumns() != dataColNames.length");
         String2.log("");
 
@@ -3594,9 +3708,11 @@ public static void testJanino() throws Exception {
         StringArray datePa = (StringArray)dataTable.findColumn("date");
         StringArray localTimePa = (StringArray)dataTable.findColumn("local_time");
         DoubleArray timePa = new DoubleArray();
+        String dateTimeFormat = "MM/dd/yyyy hh:mm:ss a";
+        String timeZoneString = "America/Los_Angeles";
+        TimeZone timeZone = TimeZone.getTimeZone(timeZoneString);
         DateTimeFormatter dateTimeFormatter = 
-            DateTimeFormat.forPattern("MM/dd/yyyy hh:mm:ss aa").withZone(
-                DateTimeZone.forID("America/Los_Angeles"));
+            Calendar2.makeDateTimeFormatter(dateTimeFormat, timeZoneString);
         for (int row = 0; row < datePa.size(); row++) {
             String tDate = datePa.get(row);
             if (tDate.length() == 0) {
@@ -3612,7 +3728,7 @@ public static void testJanino() throws Exception {
                 tDate = tDate.substring(0, 10) + tLocal.substring(10);
             }
             //Newport, OR is same time zone as Pacific Grove. so just use default local time zone.
-            double sec = Math2.roundToDouble(dateTimeFormatter.parseMillis(tDate) / 1000.0); //timeInMillis is zulu time
+            double sec = Calendar2.parseToEpochSeconds(tDate, dateTimeFormat, timeZone);
             if (row == 0 || row == 6053)
                 String2.log("time example: row=" + row + " \"" + tDate + "\" was converted to " + 
                     Calendar2.safeEpochSecondsToIsoStringTZ(sec, ""));
@@ -3627,7 +3743,7 @@ public static void testJanino() throws Exception {
         //read the latLon file
         String2.log("\nreading the latLon source file");
         Table latLonTable = new Table();
-        latLonTable.readASCII(sourceDir + sourceLatLon, -1, 0, null, null, null, null);
+        latLonTable.readASCII(sourceDir + sourceLatLon, -1, 0, "", null, null, null, null);
         Test.ensureEqual(latLonTable.nColumns(), latLonColNames.length, "latLonTable.nColumns() != latLonColNames.length");
         for (int col = 0; col < latLonColNames.length; col++) {
             //set the column name
@@ -3722,7 +3838,7 @@ public static void testJanino() throws Exception {
                 table.saveAsFlatNc(fullName, "row", false);
 
                 if (startRow < 100 || row == nRows - 1) 
-                    String2.log(table.toCSVString());
+                    String2.log(table.toString());
                 //if (startRow > 100) Test.ensureTrue(false, "Evaluate the tables.");
 
                 lastStationCode = oldStationCodePa.get(row);
@@ -3777,7 +3893,7 @@ public static void testJanino() throws Exception {
         String2.log("\nreading the data source file");
         Table dataTable = new Table();
         dataTable.readASCII(sourceDir + sourceCsv, String2.readLinesFromFile(sourceDir + sourceCsv, null, 3), 
-            -1, 0, null, null, null, null, false);  //don't simplify
+            -1, 0, "", null, null, null, null, false);  //don't simplify
         Test.ensureEqual(dataTable.nColumns(), dataColNames.length, "dataTable.nColumns() != dataColNames.length");
         String2.log("");
 
@@ -3856,7 +3972,7 @@ public static void testJanino() throws Exception {
             timePa.add(Math2.roundToDouble(gc.getTimeInMillis() / 1000.0));
             if (row % 10000 == 0)
                 String2.log("row=" + row + " year=" + year + " month=" + month + " time=" + 
-                    Calendar2.epochSecondsToIsoStringT(timePa.get(row)));
+                    Calendar2.epochSecondsToIsoStringTZ(timePa.get(row)));
         }
         String2.log("\nnTimeNaN=" +nTimeNaN + "\n");
         Test.ensureEqual(timePa.size(), yearPa.size(), "timePa size is incorrect.");
@@ -3878,7 +3994,7 @@ public static void testJanino() throws Exception {
         String2.log("\nreading the marCat source file");
         Table marCatTable = new Table();
 
-        marCatTable.readASCII(sourceDir + sourceMarCat, -1, 0, null, null, null, null);
+        marCatTable.readASCII(sourceDir + sourceMarCat, -1, 0, "", null, null, null, null);
         Test.ensureEqual(marCatTable.nColumns(), marCatColNames.length, "marCatTable.nColumns() != marCatColNames.length");
         for (int col = 0; col < marCatColNames.length; col++) {
             //set the column name
@@ -3952,7 +4068,7 @@ String2.log(marCatTable.toString());
                 table.saveAsFlatNc(fullName, "row", false);
 
                 if (startRow < 100 || row == nRows - 1) 
-                    String2.log(table.toCSVString());
+                    String2.log(table.toString());
                 //if (startRow > 100) Test.ensureTrue(false, "Evaluate the tables.");
 
                 lastRegion = tRegion;
@@ -4094,7 +4210,7 @@ String2.log(marCatTable.toString());
      */
     public static long crc32(String s) {
         java.util.zip.CRC32 crc32 = new java.util.zip.CRC32();
-        crc32.update(String2.getUTF8Bytes(s));
+        crc32.update(String2.stringToUtf8Bytes(s));
         return crc32.getValue();
     }
 
@@ -4130,7 +4246,7 @@ String2.log(marCatTable.toString());
         Test.ensureEqual(md5(quote), String2.md5Hex(quote), "md5's aren't the same.");
 
         for (int method = 3; method <= 3; method++) {
-            String2.log("\n*** testHashFunctions " +
+            String2.log("\n*** Projects.testHashFunctions " +
                 (method == 0? "hashCode" :
                  method == 1? "md5" :     
                  method == 2? "crc32"    :
@@ -4462,7 +4578,7 @@ String2.log("Projects.touchUrls is finished.");
         for (int t = 0; t < nTime_series; t++) {
             double tt = time_series.get(t);
             double epSec = Calendar2.unitsSinceToEpochSeconds(tbf[0], tbf[1], tt);
-            int tYear = String2.parseInt(Calendar2.epochSecondsToIsoStringT(epSec).substring(0, 4));
+            int tYear = String2.parseInt(Calendar2.epochSecondsToIsoDateString(epSec).substring(0, 4));
 
             int landingsAll[] = new int[nFish];  //0's
             for (int s = 0; s < nStations; s++) {
@@ -4737,7 +4853,7 @@ String2.log("Projects.touchUrls is finished.");
         for (int t = 0; t < nTime_series; t++) {
             double tt = time_series.get(t);
             double epSec = Calendar2.unitsSinceToEpochSeconds(tbf[0], tbf[1], tt);
-            int tYear = String2.parseInt(Calendar2.epochSecondsToIsoStringT(epSec).substring(0, 4));
+            int tYear = String2.parseInt(Calendar2.epochSecondsToIsoDateString(epSec).substring(0, 4));
 
             int landingsAll[] = new int[nFish];  //0's
             for (int s = 0; s < nStations; s++) {
@@ -4853,7 +4969,7 @@ String2.log("Projects.touchUrls is finished.");
             }
         }   
         String2.log("test regular hashMap finished longest=" + max + " time=" + 
-            (System.currentTimeMillis() - time));      //282     
+            (System.currentTimeMillis() - time) + "ms");      //282     
 
         //***
         String2.log("test synchronized HashMap");
@@ -4871,7 +4987,7 @@ String2.log("Projects.touchUrls is finished.");
             }
         }   
         String2.log("test synchronized hashMap finished longest=" + max + " time=" + 
-            (System.currentTimeMillis() - time));      //343     
+            (System.currentTimeMillis() - time) + "ms");      //343     
 
         //***
         String2.log("testConcurrentHashMap");
@@ -4889,7 +5005,7 @@ String2.log("Projects.touchUrls is finished.");
             }
         }   
         String2.log("testConcurrentHashMap finished longest=" + max + " time=" + 
-            (System.currentTimeMillis() - time));   //282
+            (System.currentTimeMillis() - time) + "ms");   //282
     }
 
 
@@ -4907,7 +5023,7 @@ String2.log("Projects.touchUrls is finished.");
         StringArray sa, sa1, sa2;
         Attributes atts;
         int nRows, po;
-        String today = Calendar2.getCurrentISODateTimeStringLocal().substring(0, 10);
+        String today = Calendar2.getCurrentISODateTimeStringLocalTZ().substring(0, 10);
 
         //*** global attributes
         Attributes globatts = new Attributes();
@@ -4997,7 +5113,7 @@ String2.log("Projects.touchUrls is finished.");
         sa.intraReplaceAll("-blanket", "- blanket");
         sa.intraReplaceAll("Other, includes gill netting, beach seining, round",
                            "Other");
-        String2.log("\n*** activity09=\n" + activity09.toCSVString());
+        String2.log("\n*** activity09=\n" + activity09.toString());
 
         //areaCode09
         Table areaCode09 = new Table();
@@ -5011,7 +5127,7 @@ String2.log("Projects.touchUrls is finished.");
         sa = (StringArray)areaCode09.getColumn(1);
         sa.intraReplaceAllIgnoreCase("\"Punta Baha - 28 \"\" 30.0' N.\"", "Punta Baha - 28.5N");
         sa.intraReplaceAllIgnoreCase("\"28\"\" 30.0' - punta Eugenia\"", "Punta Eugenia - 28.5N");
-        String2.log("\n*** areaCode09=\n" + areaCode09.toCSVString());
+        String2.log("\n*** areaCode09=\n" + areaCode09.toString());
 
         //idMethod09
         Table idMethod09 = new Table();
@@ -5028,7 +5144,7 @@ String2.log("Projects.touchUrls is finished.");
             "Echo characteristic");
         sa.intraReplaceAll("detetions", "detections");  //ok???
         sa.intraReplaceAll(".", "");
-        String2.log("\n*** idMethod09=\n" + idMethod09.toCSVString());
+        String2.log("\n*** idMethod09=\n" + idMethod09.toString());
 
         //lengthUnit09
         Table lengthUnit09 = new Table();
@@ -5048,12 +5164,12 @@ String2.log("Projects.touchUrls is finished.");
         sa.intraReplaceAllIgnoreCase("millimeters", "mm");
         sa.intraReplaceAll("length,squid measurement", "length (squid)");
         sa.intraReplaceAll("length.", "length");
-        String2.log("\n*** lengthUnit09=\n" + lengthUnit09.toCSVString());
+        String2.log("\n*** lengthUnit09=\n" + lengthUnit09.toString());
 
         //methodCapt09   
         Table methodCapt09 = new Table();
         methodCapt09.readASCII(tsvDir + "methodCapt09.tsv");
-        String2.log("\n*** original methodCapt09=\n" + methodCapt09.dataToCSVString());
+        String2.log("\n*** original methodCapt09=\n" + methodCapt09.dataToString());
         methodCapt09.setColumnName(0, "MethodLocatingCode"); //will be removed
         methodCapt09.removeColumn(2); //Description moved to metadata
         methodCapt09.setColumn(1, StringArray.fromCSV(
@@ -5091,7 +5207,7 @@ String2.log("Projects.touchUrls is finished.");
 "* 30H        30 foot-square opening trawl which was spread in same manner as above but with smaller hydrofoil doors.\n" +
 "* COT        A seldom-used early model cotton twine trawl.  Mouth opening was approximately 35 foot-square.\n" +
 "* MWT        Midwater trawl (no designation)\n");  //18
-        String2.log("\n*** methodCapt09=\n" + methodCapt09.toCSVString());
+        String2.log("\n*** methodCapt09=\n" + methodCapt09.toString());
 
         //MethodLocating09    (missing value is code="0")
 //Code	AlphaCode	Description
@@ -5107,7 +5223,7 @@ String2.log("Projects.touchUrls is finished.");
             .add("long_name",     "Method Locating")
             .add("ioos_category", "Identifier");
         methodLocating09.setStringData(1, 1, "No attempt");
-        String2.log("\n*** methodLocating09=\n" + methodLocating09.toCSVString());
+        String2.log("\n*** methodLocating09=\n" + methodLocating09.toString());
 
         //speCode09
         Table speCode09 = new Table();
@@ -5135,7 +5251,7 @@ String2.log("Projects.touchUrls is finished.");
             sa2.switchFromTo("Unknow", "Unknown");
 
         }
-        String2.log("\n*** speCode09=\n" + speCode09.toCSVString(20) + "...");
+        String2.log("\n*** speCode09=\n" + speCode09.toString(20));
 
         //stType09
         Table stType09 = new Table();
@@ -5153,7 +5269,7 @@ String2.log("Projects.touchUrls is finished.");
         sa.intraReplaceAll(",round", ", round");
         sa.intraReplaceAll("-blanket", "- blanket");
         sa.intraReplaceAll("Other, includes gill netting, beach seining, round", "Other");
-        String2.log("\n*** stType09=\n" + stType09.toCSVString());
+        String2.log("\n*** stType09=\n" + stType09.toString());
 
         //vesselName   (I put the info in the comments for CuiseNo)
         Table vesselName = new Table();
@@ -5162,7 +5278,7 @@ String2.log("Projects.touchUrls is finished.");
         vesselName.columnAttributes(1)
             .add("long_name",     "Vessel Name")
             .add("ioos_category", "Identifier");
-        String2.log("\n*** vesselName09=\n" + vesselName.toCSVString());
+        String2.log("\n*** vesselName09=\n" + vesselName.toString());
 
 
         //*** stationData09        
@@ -5212,7 +5328,7 @@ String2.log("Projects.touchUrls is finished.");
             lon2PA.add(stationData09.getIntData(lonD2Po, row) + stationData09.getIntData(lonM2Po, row) / 60f);
             lat2PA.add(stationData09.getIntData(latD2Po, row) + stationData09.getIntData(latM2Po, row) / 60f);
             timePA.add(Calendar2.gcToEpochSeconds(
-                Calendar2.newGCalendarLocal(            //???local or zulu???  daylight savings?
+                Calendar2.newGCalendarLocal(            //???local or zulu???  daylight saving time?
                     stationData09.getIntData(yearPo,   row),
                     stationData09.getIntData(monthPo,  row),
                     stationData09.getIntData(dayPo,    row),
@@ -5307,7 +5423,7 @@ String2.log("Projects.touchUrls is finished.");
         stationData09.columnAttributes(stationData09.findColumnNumber(""))
             .add("description",   "");
 
-        String2.log("\n*** stationData09=\n" + stationData09.toCSVString(20) + "...");
+        String2.log("\n*** stationData09=\n" + stationData09.toString(20));
         for (int col = 0; col < stationData09.nColumns(); col++) {
             if (!(stationData09.getColumn(col) instanceof StringArray)) {
                 String2.log(String2.left(stationData09.getColumnName(col),14) + " " + 
@@ -5355,7 +5471,7 @@ project)
             .add("ioos_category", "Biology");
         afData09.columnAttributes(afData09.findColumnNumber("YearClass"))
             .add(yearClassAtts);
-        String2.log("\n*** afData09=\n" + afData09.toCSVString(20) + "...");
+        String2.log("\n*** afData09=\n" + afData09.toString(20));
 
         //AnchSchoolData
         Table anchSchoolData = new Table();
@@ -5397,7 +5513,7 @@ project)
         anchSchoolData.columnAttributes(afData09.findColumnNumber("Frequencies"))        
             .add("description", "Number of anchovy schools seen from the sonargram at a station.")
             .add("units",       "count");
-        String2.log("\n*** anchSchoolData=\n" + anchSchoolData.toCSVString(20) + "...");
+        String2.log("\n*** anchSchoolData=\n" + anchSchoolData.toString(20));
 
         //BTData09
         Table btData09 = new Table();
@@ -5423,7 +5539,7 @@ project)
         po = btData09.findColumnNumber("CruiseNo");
         btData09.join(3, po, "", stationData09); 
         //keep the keyColumns 
-        String2.log("\n*** btData09=\n" + btData09.toCSVString(20) + "...");
+        String2.log("\n*** btData09=\n" + btData09.toString(20));
 
         //LFData09
         Table lfData09 = new Table();
@@ -5463,7 +5579,7 @@ project)
         po = lfData09.findColumnNumber("LengthUnit");
         lfData09.join(1, po, "0", lengthUnit09); 
         lfData09.removeColumn(po);
-        String2.log("\n*** lfData09=\n" + lfData09.toCSVString(20) + "...");
+        String2.log("\n*** lfData09=\n" + lfData09.toString(20));
 
 
         //NSData09
@@ -5509,7 +5625,7 @@ project)
         po = nsData09.findColumnNumber("AreaCode");
         nsData09.join(1, po, "0", areaCode09); 
         nsData09.removeColumn(po);
-        String2.log("\n*** nsData09=\n" + nsData09.toCSVString(20) + "...");
+        String2.log("\n*** nsData09=\n" + nsData09.toString(20));
 
         //speciesData09
         Table speciesData09 = new Table();
@@ -5556,7 +5672,7 @@ project)
         po = speciesData09.findColumnNumber("LenUnit");
         speciesData09.join(1, po, "0", lengthUnit09); 
         speciesData09.removeColumn(po);
-        String2.log("\n*** speciesData09=\n" + speciesData09.toCSVString(20) + "...");
+        String2.log("\n*** speciesData09=\n" + speciesData09.toString(20));
 
         //speciesTally09
         Table speciesTally09 = new Table();
@@ -5592,7 +5708,7 @@ project)
         speciesTally09.join(1, po, "0", speCode09); 
         speciesTally09.setColumnName(po, "SpeciesCode"); //don't remove SpeCode
         speciesTally09.columnAttributes(po).add(speciesCodeAtts);
-        String2.log("\n*** speciesTally09=\n" + speciesTally09.toCSVString(20) + "...");
+        String2.log("\n*** speciesTally09=\n" + speciesTally09.toString(20));
 
 
         //done
@@ -5618,8 +5734,9 @@ project)
             String2.log("Quick look at one file");
             Table table = new Table();
             table.readNDNc(oldDir + "calcofiBio_19840211_66.7_65_NH16.nc",
-                null, null, Double.NaN, Double.NaN, true);
-            String2.log(table.toCSVString());
+                null, 0,  //standardizeWhat=0
+                null, Double.NaN, Double.NaN, true);
+            String2.log(table.toString());
             System.exit(0);
         }
 
@@ -5679,7 +5796,8 @@ project)
         for (int filei = 0; filei < nFiles; filei++) {
             Table inTable = new Table();
             inTable.readNDNc(oldDir + fileName[filei],
-                null, null, Double.NaN, Double.NaN, true);
+                null, 0,  //standardizeWhat=0
+                null, Double.NaN, Double.NaN, true);
             if (inTable.nRows() != 1)
                 throw new RuntimeException(fileName[filei] + " has nRows=" + inTable.nRows());
             double time = -999f;
@@ -5801,7 +5919,7 @@ project)
                     String2.modifyToBeFileNameSafe(obsCommonPA.get(row)) + ".nc", 
                     "row", false); //convertToFakeMissingValues
                 if (startRow == 0)
-                    String2.log(tTable.toCSVString());
+                    String2.log(tTable.toString());
                 startRow = row + 1;
             }
         }
@@ -5846,8 +5964,9 @@ project)
         if (false) {
             Table table = new Table();
             table.readNDNc(oldDir + "subsurface_19490228_92_39.nc",
-                null, null, Double.NaN, Double.NaN, true);
-            String2.log(table.toCSVString());
+                null, 0,  //standardizeWhat=0
+                null, Double.NaN, Double.NaN, true);
+            String2.log(table.toString());
             System.exit(0);
         }
 
@@ -5863,8 +5982,9 @@ project)
         //use the first file as the seed for all others
         Table outTable = new Table();
         outTable.readNDNc(oldDir + fileName[0],
-            null, null, Double.NaN, Double.NaN, true);
-            String2.log(outTable.toCSVString());
+            null, 0,  //standardizeWhat=0
+            null, Double.NaN, Double.NaN, true);
+            String2.log(outTable.toString());
         String outColNames[] = outTable.getColumnNames();
         String today = Calendar2.getCurrentISODateStringLocal();
         outTable.globalAttributes().set("history",
@@ -5878,7 +5998,8 @@ project)
         for (int filei = 1; filei < nFiles; filei++) {
             Table inTable = new Table();
             inTable.readNDNc(oldDir + fileName[filei],
-                null, null, Double.NaN, Double.NaN, true);
+                null, 0,  //standardizeWhat=0
+                null, Double.NaN, Double.NaN, true);
             String inColNames[] = inTable.getColumnNames();
             Test.ensureEqual(outColNames, inColNames, "outColNames doesn't equal inColNames");            
            
@@ -5928,7 +6049,7 @@ project)
                     String2.modifyToBeFileNameSafe(lineStationPA.get(row)) + ".nc", 
                     "row", false); //convertToFakeMissingValues
                 if (startRow == 0)
-                    String2.log(tTable.toCSVString());
+                    String2.log(tTable.toString());
                 startRow = row + 1;
             }
         }
@@ -5958,8 +6079,9 @@ project)
         if (true) {
             Table table = new Table();
             table.readNDNc(oldDir + "surface_19490228_92_39.nc",
-                null, null, Double.NaN, Double.NaN, true);
-            String2.log(table.toCSVString());
+                null, 0,  //standardizeWhat=0
+                null, Double.NaN, Double.NaN, true);
+            String2.log(table.toString());
             //System.exit(0);
         }
 
@@ -5975,8 +6097,9 @@ project)
         //use the first file as the seed for all others
         Table outTable = new Table();
         outTable.readNDNc(oldDir + fileName[0],
-            null, null, Double.NaN, Double.NaN, true);
-            String2.log(outTable.toCSVString());
+            null, 0,  //standardizeWhat=0
+            null, Double.NaN, Double.NaN, true);
+            String2.log(outTable.toString());
         String outColNames[] = outTable.getColumnNames();
         String today = Calendar2.getCurrentISODateStringLocal();
         outTable.globalAttributes().set("history",
@@ -5990,7 +6113,8 @@ project)
         for (int filei = 1; filei < nFiles; filei++) {
             Table inTable = new Table();
             inTable.readNDNc(oldDir + fileName[filei],
-                null, null, Double.NaN, Double.NaN, true);
+                null, 0,  //standardizeWhat=0
+                null, Double.NaN, Double.NaN, true);
             String inColNames[] = inTable.getColumnNames();
             Test.ensureEqual(outColNames, inColNames, "outColNames doesn't equal inColNames");            
            
@@ -6040,7 +6164,7 @@ project)
                     String2.modifyToBeFileNameSafe(lineStationPA.get(row)) + ".nc", 
                     "row", false); //convertToFakeMissingValues
                 if (startRow == 0)
-                    String2.log(tTable.toCSVString());
+                    String2.log(tTable.toString());
                 startRow = row + 1;
             }
         }
@@ -6071,24 +6195,24 @@ project)
             Table table = new Table();
             //1=unpack -- solves problem:
             // intp  first 4 files have add_offset NaN.  remainder have 273.15
-            table.readFlatNc(inDir + fileName, null, 1); 
+            table.readFlatNc(inDir + fileName, null, 1); //standardizeWhat=1 
             int nRows = table.nRows();
 
-            //*** ext: some degrees_Celsius, some Kelvin (convert to degrees_Celsius)
+            //*** ext: some degree_Celsius, some Kelvin (convert to degree_C)
             col = table.findColumnNumber("ext");
             atts = table.columnAttributes(col);
             units = atts.getString("units");
             pa = table.getColumn(col);
             pa.switchFromTo("9.96921E36", ""); 
-            if (!"degrees_Celsius".equals(units)) {               
-                if ("degree_Celsius".equals(units)) {
+            if (!"degree_Celsius".equals(units)) {               
+                if ("degrees_Celsius".equals(units)) {
                 } else if ("Kelvin".equals(units)) {
                     pa = table.getColumn(col);
                     pa.scaleAddOffset(1, Math2.kelvinToC); 
                 } else {
                     throw new Exception("Unexpected units for ext: " + units);
                 }
-                atts.set("units", "degrees_Celsius");
+                atts.set("units", "degree_C");
             }
             pa.switchFromTo("" + Math2.kelvinToC, ""); 
             //count n<-100 degrees
@@ -6100,12 +6224,12 @@ project)
                 throw new RuntimeException("count of ext values <-100 = " + count + "\n" +
                     atts.toString());
 
-            //*** intp: some degrees_Celsius, some Kelvin (convert to degrees_Celsius)
+            //*** intp: some degree_Celsius, some Kelvin (convert to degree_C)
             col = table.findColumnNumber("intp");
             atts = table.columnAttributes(col);
             units = atts.getString("units");
-            if (!"degrees_Celsius".equals(units)) {               
-                if ("degree_Celsius".equals(units)) {
+            if (!"degree_Celsius".equals(units)) {               
+                if ("degrees_Celsius".equals(units)) {
                 } else if ("Kelvin".equals(units)) {
                     pa = table.getColumn(col);
                     pa.scaleAddOffset(1, Math2.kelvinToC); 
@@ -6113,7 +6237,7 @@ project)
                 } else {
                     throw new Exception("Unexpected units for intp: " + units);
                 }
-                atts.set("units", "degrees_Celsius");
+                atts.set("units", "degree_Celsius");
             }
             //count n>100 degrees
             pa = table.getColumn(col);
@@ -6130,21 +6254,21 @@ project)
             units = atts.getString("units");
             Test.ensureEqual(units, "1e-3", "Unexpected units for sal");
 
-            //*** sst: some degrees_Celsius, some Kelvin (convert to degrees_Celsius)
+            //*** sst: some degrees_Celsius, some Kelvin (convert to degree_C)
             col = table.findColumnNumber("sst");
             atts = table.columnAttributes(col);
             units = atts.getString("units");
             pa = table.getColumn(col);
             pa.switchFromTo("9.96921E36", ""); 
-            if (!"degrees_Celsius".equals(units)) {               
-                if ("degree_Celsius".equals(units)) {
+            if (!"degree_Celsius".equals(units)) {               
+                if ("degrees_Celsius".equals(units)) {
                 } else if ("Kelvin".equals(units)) {
                     pa = table.getColumn(col);
                     pa.scaleAddOffset(1, Math2.kelvinToC); 
                 } else {
                     throw new Exception("Unexpected units for sst: " + units);
                 }
-                atts.set("units", "degrees_Celsius");
+                atts.set("units", "degree_C");
             }
 
             //*** time
@@ -6209,7 +6333,7 @@ project)
 
         String2.setupLog(true, false, logFile, false, 1000000000);
         String2.log("*** Projects.convertCchdoBottle " + 
-            Calendar2.getCurrentISODateTimeStringLocal() + "\n" +
+            Calendar2.getCurrentISODateTimeStringLocalTZ() + "\n" +
               " inDir=" + inDir +
             "\noutDir=" + outDir +
             "\nlogFile=" + logFile + "\n" +
@@ -6259,7 +6383,8 @@ project)
                 lines = tLines;
 
                 //read ASCII info into a table
-                table.readASCII(inDir + fileNames[f], lines, colNamesLine, colNamesLine + 2,
+                table.readASCII(inDir + fileNames[f], lines, 
+                    colNamesLine, colNamesLine + 2, "", 
                     null, null, null, null, false); //false=simplify
                 int nRows = table.nRows();
 
@@ -6788,19 +6913,29 @@ project)
         String2.returnLoggingToSystemOut();
     }
 
-    /** This makes the NetCheck tests for all of an ERDDAP's datasets. 
+    /** 
+     * This makes the NetCheck tests for all of an ERDDAP's datasets. 
+     * 
      * @param erddapUrl the erddap URL, ending in a slash
+     * @return a string with the tests. The results are also printed and
+     *   put on the clipboard.
      */
-    public static void makeNetcheckErddapTests(String erddapUrl) throws Throwable {
+    public static String makeNetcheckErddapTests(String erddapUrl) throws Throwable {
         Table table = new Table();
-        erddapUrl += "info/index.json?page=1&itemsPerPage=100000000"; //all possible datasets
-        String json = SSR.getUncompressedUrlResponseString(erddapUrl);
-        table.readJson(erddapUrl, json);
-        int nRows = table.nRows();
-        PrimitiveArray pa = table.getColumn("Dataset ID");
-        pa.sortIgnoreCase();
+        erddapUrl += "tabledap/allDatasets.csv0?datasetID";
+        StringArray rows = new StringArray(SSR.getUrlResponseLines(erddapUrl)); //default is String2.ISO_8859_1
+        int nRows = rows.size();
+        rows.sortIgnoreCase();
+        StringBuilder sb = new StringBuilder();
         for (int row = 0; row < nRows; row++) 
-            String2.log("    <responseMustInclude>" + pa.getString(row) + "</responseMustInclude>");
+            sb.append("    <responseMustInclude>" + rows.getString(row) + "</responseMustInclude>\n");
+        String s = sb.toString();
+        sb = null;
+        String2.setClipboardString(s);
+        String2.log(s);
+        String2.log("nDatasets=" + nRows);
+        String2.log("The results are on the clipboard.");
+        return s;
     }
 
 
@@ -6830,7 +6965,7 @@ project)
      */
     public static void fixKeywords(String fileName) throws Exception {
         String2.log("fixKeywords " + fileName);
-        String charset = "ISO-8859-1";
+        String charset = String2.ISO_8859_1;
         String attKeywords = "<att name=\"keywords\">";
         int attKeywordsLength = attKeywords.length();
         StringArray lines = StringArray.fromFile(fileName, charset);
@@ -6969,6 +7104,7 @@ project)
         //*Then* make ncOut.    If this fails, no clean up needed.
         NetcdfFileWriter ncOut = NetcdfFileWriter.createNew(
             NetcdfFileWriter.Version.netcdf3, fullFileName + randomInt);
+        boolean nc3Mode = true;
         try {
             Group rootGroup = ncOut.addGroup(null, "");
             ncOut.setFill(false);
@@ -7016,21 +7152,21 @@ project)
             //write global attributes in ncOut
             Attributes tAtts = new Attributes();
             OpendapHelper.getAttributes(das, "GLOBAL", tAtts);
-            NcHelper.setAttributes(rootGroup, tAtts);
+            NcHelper.setAttributes(nc3Mode, rootGroup, tAtts);
 
             //write dimension attributes in ncOut
             for (int dim = 0; dim < nDims; dim++) {
                 String dimName = dims[dim].getName();               
                 tAtts.clear();
                 OpendapHelper.getAttributes(das, dimName, tAtts);
-                NcHelper.setAttributes(newDimVars[v], tAtts);
+                NcHelper.setAttributes(nc3Mode, newDimVars[v], tAtts);
             }
 
             //write data attributes in ncOut
             for (int v = 0; v < nVars; v++) {
                 tAtts.clear();
                 OpendapHelper.getAttributes(das, vars[v], tAtts);
-                NcHelper.setAttributes(newVars[v], tAtts);
+                NcHelper.setAttributes(nc3Mode, newVars[v], tAtts);
             }
 
             //leave "define" mode in ncOut
@@ -7093,7 +7229,7 @@ project)
             //diagnostic
             if (verbose) String2.log("  Projects.dapToNc finished.  TIME=" + 
                 Calendar2.elapsedTimeString(System.currentTimeMillis() - time) + "\n");
-            //String2.log(NcHelper.dumpString(fullFileName, false));
+            //String2.log(NcHelper.ncdump(fullFileName, "-h"));
 
         } catch (Throwable t) {
             //try to close the file
@@ -7193,9 +7329,10 @@ project)
 
         String colNames = sa.get(0);
         int chunk = 0;
+        StringArray subset = new StringArray();
         while (size > 1) { 
             int stop = Math.min(100000, size - 1);
-            StringArray subset = (StringArray)sa.subset(0, 1, stop); //stop is inclusive
+            sa.subset(subset, 0, 1, stop); //stop is inclusive
             subset.toFile(fileDir + "rockfish" + (chunk++) + ".csv");
             sa.removeRange(1, stop + 1); //end is exclusive
             size = sa.size();
@@ -7666,7 +7803,7 @@ towTypesDescription);
         String2.log(lines.substring(0, Math.min(lines.length(), 1500)));
         Table table = new Table();
         table.readJson(inFile, lines);
-        String2.log("Before adjustments:\n" + String2.annotatedString(table.dataToCSVString(5)));  
+        String2.log("Before adjustments:\n" + String2.annotatedString(table.dataToString(5)));  
         int nRows = table.nRows();
         int nErrors = 0;
 
@@ -7707,7 +7844,7 @@ towTypesDescription);
                 }
                 if (nErrors > 0)
                     String2.pressEnterToContinue(
-                        "Bob: check US daylight savings time rules. On/near these dates?\n" +
+                        "Bob: check US daylight saving time rules. On/near these dates?\n" +
                         "https://en.wikipedia.org/wiki/History_of_time_in_the_United_States\n" +
                         "nErrors=" + nErrors);
             }
@@ -7866,7 +8003,7 @@ towTypesDescription);
         }
         
         //save as .nc
-        String2.log("After adjustments:\n" + String2.annotatedString(table.dataToCSVString(5)));  
+        String2.log("After adjustments:\n" + String2.annotatedString(table.dataToString(5)));  
         table.saveAsFlatNc(dir + tableName + ".nc", rowName, false);
         return table;
     }
@@ -7885,72 +8022,76 @@ towTypesDescription);
 
         String fromTo[] = {
 //alternate ferret url and sourceUrl
-"http://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/20thC_ReanV2/",
-"http://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/20thC_ReanV2/",
-"http://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/NARR",  //several variants 
-"http://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/NARR",
-"http://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/cpc_us_hour_precip/",
-"http://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/cpc_us_hour_precip/",
-"http://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/cpc_us_precip/",
-"http://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/cpc_us_precip/",
-"http://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/cru/",
-"http://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/cru/",
-"http://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/godas/",
-"http://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/godas/",
-"http://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/gpcc/",
-"http://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/gpcc/",
-"http://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/interp_OLR/",
-"http://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/interp_OLR/",
-"http://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/msu/",
-"http://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/msu/",
-"http://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/ncep.reanalysis.derived/",
-"http://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/ncep.reanalysis.derived/",
-"http://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/ncep.reanalysis2.dailyavgs/",
-"http://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/ncep.reanalysis2.dailyavgs/",
-"http://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/ncep.reanalysis2/",
-"http://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/ncep.reanalysis2/",
-"http://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/noaa.ersst/",
-"http://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/noaa.ersst/",
-"http://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/snowcover/",
-"http://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/snowcover/",
-"http://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/udel.airt.precip/",
-"http://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/udel.airt.precip/"
+"https://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/20thC_ReanV2/",
+"https://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/20thC_ReanV2/",
+"https://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/NARR",  //several variants 
+"https://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/NARR",
+"https://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/cpc_us_hour_precip/",
+"https://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/cpc_us_hour_precip/",
+"https://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/cpc_us_precip/",
+"https://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/cpc_us_precip/",
+"https://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/cru/",
+"https://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/cru/",
+"https://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/godas/",
+"https://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/godas/",
+"https://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/gpcc/",
+"https://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/gpcc/",
+"https://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/interp_OLR/",
+"https://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/interp_OLR/",
+"https://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/msu/",
+"https://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/msu/",
+"https://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/ncep.reanalysis.derived/",
+"https://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/ncep.reanalysis.derived/",
+"https://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/ncep.reanalysis2.dailyavgs/",
+"https://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/ncep.reanalysis2.dailyavgs/",
+"https://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/ncep.reanalysis2/",
+"https://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/ncep.reanalysis2/",
+"https://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/noaa.ersst/",
+"https://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/noaa.ersst/",
+"https://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/snowcover/",
+"https://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/snowcover/",
+"https://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/udel.airt.precip/",
+"https://www.esrl.noaa.gov/psd/thredds/dodsC/Datasets/udel.airt.precip/"
 };
 
         //extract unique sourceUrls
-        FileInputStream is = new FileInputStream(datasetsXmlFileName); 
-        BufferedReader in = new BufferedReader(new InputStreamReader(is));
         HashSet<String> ferretAggregations = new HashSet();  //hashsets automatically avoid duplicates
         HashSet<String> ferretAggregationSources = new HashSet();
         HashSet<String> others = new HashSet();
         String source;
-        while ((source = in.readLine()) != null) {
-            source = source.trim();
-            if (source.startsWith("<sourceUrl>") &&
-                source.endsWith(  "</sourceUrl>")) {
-                source = source.substring(11, source.length() - 12);
-                String unferret = null;
-                if (source.startsWith("http://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/")) {
-                    for (int ft = 0; ft < fromTo.length; ft +=2) {
-                        if (source.startsWith(fromTo[ft])) {
-                            unferret = fromTo[ft + 1] + source.substring(fromTo[ft].length());
-                            break;
+
+        InputStream is = File2.getDecompressedBufferedInputStream(datasetsXmlFileName); 
+        BufferedReader in = new BufferedReader(new InputStreamReader(is));
+        try {
+            while ((source = in.readLine()) != null) {
+                source = source.trim();
+                if (source.startsWith("<sourceUrl>") &&
+                    source.endsWith(  "</sourceUrl>")) {
+                    source = source.substring(11, source.length() - 12);
+                    String unferret = null;
+                    if (source.startsWith("https://ferret.pmel.noaa.gov/geoide/dodsC/Datasets/")) {
+                        for (int ft = 0; ft < fromTo.length; ft +=2) {
+                            if (source.startsWith(fromTo[ft])) {
+                                unferret = fromTo[ft + 1] + source.substring(fromTo[ft].length());
+                                break;
+                            }
+                        }
+                    }
+                    if (unferret == null) {
+                        others.add(source);
+                    } else {
+                        if (unferret.endsWith("_aggregation")) {
+                            ferretAggregations.add(source);
+                            ferretAggregationSources.add(unferret.substring(0, unferret.length() - 12));
+                        } else {
+                            others.add(unferret);
                         }
                     }
                 }
-                if (unferret == null) {
-                    others.add(source);
-                } else {
-                    if (unferret.endsWith("_aggregation")) {
-                        ferretAggregations.add(source);
-                        ferretAggregationSources.add(unferret.substring(0, unferret.length() - 12));
-                    } else {
-                        others.add(unferret);
-                    }
-                }
             }
+        } finally {
+            in.close();
         }
-        in.close();
 
         String2.log("***** ferretAggregations");
         String sar[] = ferretAggregations.toArray(new String[0]);
@@ -7992,6 +8133,7 @@ towTypesDescription);
         if (create) {
             NetcdfFileWriter nc = NetcdfFileWriter.createNew(
                 NetcdfFileWriter.Version.netcdf3, dir + fileName);
+            boolean nc3Mode = true;
             try {
                 Group rootGroup = nc.addGroup(null, "");
                 nc.setFill(false);
@@ -8003,17 +8145,17 @@ towTypesDescription);
                 Dimension latDim = nc.addDimension(rootGroup, latName, nLat);
                 Variable latVar = nc.addVariable(rootGroup, latName, 
                     NcHelper.getDataType(double.class), Arrays.asList(latDim)); 
-                NcHelper.setAttributes(latVar, atts);
+                NcHelper.setAttributes(nc3Mode, latVar, atts);
 
                 //lon
                 atts.add("units", "degrees_east");
                 Dimension lonDim = nc.addDimension(rootGroup, lonName, nLon);
                 Variable lonVar = nc.addVariable(rootGroup, lonName, 
                     NcHelper.getDataType(double.class), Arrays.asList(lonDim)); 
-                NcHelper.setAttributes(lonVar, atts);
+                NcHelper.setAttributes(nc3Mode, lonVar, atts);
 
                 //write global attributes
-                //NcHelper.setAttributes(nc, "NC_GLOBAL", ada.globalAttributes());
+                //NcHelper.setAttributes(nc3Mode, nc, "NC_GLOBAL", ada.globalAttributes());
 
                 //leave "define" mode
                 nc.create();
@@ -8112,7 +8254,7 @@ towTypesDescription);
      * E.g., &lt;netcdf location="V2013074.L3m_DAY_NPP_CHL_chlor_a_4km" coordValue="15779"/&gt;
      * The string is displayed and put on the clipboard.
      * 
-     * @param fileName  with '*' where YYYYDDD goes.
+     * @param location  with '*' where YYYYDDD goes.
      * @param startIso
      * @param stopIso   (inclusive)
      * @param increment e.g., 1, 7, or 3
@@ -8141,57 +8283,92 @@ towTypesDescription);
         return s;
     }
     
-    /** Convert FED Rockfish CTD .csv data files to .nc (from Lynn 2013-03-28
-     * from /Volumes/PFEL_Shared_Space/PFEL_Share/Lynn2Bob/Rockfish_CTD.tar.gz).
-     */
-    public static void convertRockfish20130328() throws Throwable {
-        String2.log("\nProjects.convertRockfish20130328()");
-        String dir = "C:/u00/data/points/rockfish20130328/"; 
-        String outerName = "ERD_CTD_HEADER_2008_to_2011";  //.csv -> .nc
-        String innerName = "ERD_CTD_CAST_2008_to_2011";    //.csv -> .nc
+    /** 
+     * Convert FED Rockfish CTD to .nc.
+     * I do the .xls to tsv by hand in Excel -- use time format yyyy-mm-dd h:mm (24 hour h, no am/pm). 
+     * Then use macro in EditPlus to fix the hour data (regex search "-[0-9]{2} [0-9]:")
+     *   and insert 0 so it is Thh (2 digits). 
+     * Then copy rockfish_casts_yyyy.nc and rockfish_header_yyyy.nc to rockfish20130409
+     *  so they are part of erdFed
 
-        //read the outer .csv files
+     * From Lynn 2013-03-28 from /Volumes/PFEL_Shared_Space/PFEL_Share/Lynn2Bob/Rockfish_CTD.tar.gz).
+     * From Lynn 2017-02-03 from xserve /home/ldewitt/FED_rockfish_CTD
+     *
+     * @param lastYear year of processing e.g., 2013, 2015
+     */
+    public static void convertRockfish(int lastYear) throws Throwable {
+        String2.log("\nProjects.convertRockfish()");
+        String dir = null, outerName = null, innerName = null, fileExtension = null;
+        if (lastYear == 2011) {
+            dir = "/u00/data/points/rockfish20130328/"; 
+            outerName = "ERD_CTD_HEADER_2008_to_2011";  //.csv -> .nc
+            innerName = "ERD_CTD_CAST_2008_to_2011";    //.csv -> .nc
+            fileExtension = ".csv";
+
+        } else if (lastYear == 2015) {
+            dir = "/data/rockfish/"; 
+            outerName = "NOAA NMFS SWFSC Santa Cruz CTD_HEADER 2012-2015bob";  //tsv -> .nc
+            innerName = "NOAA NMFS SWFSC Santa Cruz CTD_CAST 2012-2015";    //tsv -> .nc
+            fileExtension = ".txt";
+
+        } else {
+            throw new RuntimeException("unsupported year");
+        }
+
+        //read the outer files
         Table outer = new Table();
-        outer.readASCII(dir + outerName + ".csv", 0, 1, null, null, null, null, false); //simplify
+        outer.readASCII(dir + outerName + fileExtension, 0, 1, "\t", 
+            null, null, null, null, false); //simplify
         Test.ensureEqual(outer.getColumnNamesCSVString(),
             "CRUISE,CTD_INDEX,CTD_NO,STATION,CTD_DATE,CTD_LAT,CTD_LONG,CTD_BOTTOM_DEPTH,BUCKET_TEMP,BUCKET_SAL,TS_TEMP,TS_SAL",
             "Unexpected outer column names");
-        String2.log("outer (5 rows) as read:\n" + outer.dataToCSVString(5));
+        for (int coli = 0; coli < outer.nColumns(); coli++) 
+            outer.setColumnName(coli, outer.getColumnName(coli).toLowerCase());
+        String2.log("outer (5 rows) as read:\n" + outer.dataToString(5));
 
         //convert to short 
-        String colNames[] = {"CTD_INDEX","CTD_NO","STATION","CTD_BOTTOM_DEPTH"};
+        String colNames[] = {"ctd_index","ctd_no","station","ctd_bottom_depth"};
         for (int coli = 0; coli < colNames.length; coli++) {
             int col = outer.findColumnNumber(colNames[coli]);
             outer.setColumn(col, new ShortArray(outer.getColumn(col)));
+            if (colNames[coli].equals("ctd_bottom_depth"))
+                outer.setColumnName(col, "bottom_depth");
         }
 
         //convert to floats 
-        colNames = new String[]{"BUCKET_TEMP","BUCKET_SAL","TS_TEMP","TS_SAL"};
+        colNames = new String[]{"bucket_temp","bucket_sal","ts_temp","ts_sal"};
+        String newColNames[] = new String[]{"bucket_temperature","bucket_salinity",
+            "ts_temperature","ts_salinity"};
         for (int coli = 0; coli < colNames.length; coli++) {
             int col = outer.findColumnNumber(colNames[coli]);
             outer.setColumn(col, new FloatArray(outer.getColumn(col)));
+            outer.setColumnName(col, newColNames[coli]);
         }
 
-        //convert date time "5/5/2008 9:10" to time   
-        DateTimeFormatter dtf = DateTimeFormat.forPattern("M/d/yyyy H:mm").withZone(
-            DateTimeZone.forID("America/Los_Angeles")); 
+        //convert date time e.g., "2008-05-05 12:10" to epoch seconds
+        String dateTimeFormat = "yyyy-MM-dd HH:mm";
+        String timeZoneString = "America/Los_Angeles";
+        TimeZone timeZone = TimeZone.getTimeZone(timeZoneString);
+        //was DateTimeFormatter dtf = Calendar2.makeDateTimeFormatter(dateTimeFormat, timeZoneString); 
         //GMT: erddap/convert/time.html says "5/5/2008 19:10" = 1.2100146E9
         //  if 7 hours different in summer...
-        Test.ensureEqual(dtf.parseMillis("5/5/2008 12:10") / 1000.0, 1.2100146E9, //erddap/convert/time.html
-            "trouble with DateTimeFormatter");
+        Test.ensureEqual(Calendar2.parseToEpochSeconds("2008-05-05 12:10", dateTimeFormat, timeZone), 
+            1.2100146E9, //erddap/convert/time.html
+            "trouble with DateTimeFormat");
         int nOuter = outer.nRows();
         {
-            int col = outer.findColumnNumber("CTD_DATE");
+            int col = outer.findColumnNumber("ctd_date");
             PrimitiveArray oldTimePA = outer.getColumn(col);
             DoubleArray newTimePA = new DoubleArray();
             for (int row = 0; row < nOuter; row++) 
-                newTimePA.add(dtf.parseMillis(oldTimePA.getString(row)) / 1000.0);
+                newTimePA.add(Calendar2.parseToEpochSeconds(oldTimePA.getString(row), dateTimeFormat, timeZone));
+            outer.setColumnName(col, "time");
             outer.setColumn(col, newTimePA);
             outer.columnAttributes(col).set("units", "seconds since 1970-01-01T00:00:00Z");
         }
 
         //convert lat and lon from dddmm.mmmm to decimal degrees
-        colNames = new String[]{"CTD_LAT","CTD_LONG"};
+        colNames = new String[]{"ctd_lat","ctd_long"};
         for (int coli = 0; coli < colNames.length; coli++) {
             int col = outer.findColumnNumber(colNames[coli]);
             PrimitiveArray pa = outer.getColumn(col);
@@ -8203,47 +8380,54 @@ towTypesDescription);
                 if (d < 0) throw new SimpleException("d<0 requires more testing");
                 fa.add(scale * Math2.doubleToFloatNaN(Math.floor(d / 100.0) + (d % 100.0) / 60.0));
             }
+            outer.setColumnName(col, coli == 0? "latitude": "longitude");
             outer.setColumn(col, fa);
         }
         
         //save the outer as .nc
-        String2.log("outer (5 rows) before save:\n" + outer.toCSVString(5));
-        outer.saveAsFlatNc(dir + outerName + ".nc", "row", false); //convertToFakeMissingValues
+        String2.log("outer (5 rows) before save:\n" + outer.toString(5));
+        outer.saveAsFlatNc(dir + "rockfish_header_" + lastYear + ".nc", "row", false); //convertToFakeMissingValues
 
         //just keep the outer columns needed for inner table
-        StringArray desired = StringArray.fromCSV("CRUISE,CTD_INDEX,CTD_NO,STATION,CTD_DATE,CTD_LAT,CTD_LONG");
+        StringArray desired = StringArray.fromCSV("cruise,ctd_index,ctd_no,station,time,latitude,longitude");
         Test.ensureEqual(outer.reorderColumns(desired, true), desired.size(), 
             "Not all desired columns were found.");
 
         //read inner table
         Table inner = new Table();
-        inner.readASCII(dir + innerName + ".csv", 0, 1, null, null, null, null, false); //simplify
+        inner.readASCII(dir + innerName + fileExtension, 0, 1, "\t", 
+            null, null, null, null, false); //simplify
+        for (int coli = 0; coli < inner.nColumns(); coli++) 
+            inner.setColumnName(coli, inner.getColumnName(coli).toLowerCase());
         Test.ensureEqual(inner.getColumnNamesCSVString(),
-            "CRUISE,CTD_INDEX,CTD_DEPTH,TEMPERATURE,SALINITY,DENSITY,DYN_HGT,IRRAD,FLUOR_VOLT,TRANSMISSIVITY,CHLOROPHYLL,OXYGEN_VOLT,OXYGEN",
+            "cruise,ctd_index,ctd_depth,temperature,salinity,density,dyn_hgt,irrad,fluor_volt,transmissivity,chlorophyll,oxygen_volt,oxygen",
             "Unexpected inner column names");
 
         //convert to short 
-        colNames = new String[]{"CTD_INDEX","CTD_DEPTH"};
+        colNames = new String[]{"ctd_index","ctd_depth"};
         for (int coli = 0; coli < colNames.length; coli++) {
             int col = inner.findColumnNumber(colNames[coli]);
+            inner.setColumnName(col, coli == 0? "ctd_index": "depth");
             inner.setColumn(col, new ShortArray(inner.getColumn(col)));
         }
 
         //convert to floats 
-        colNames = new String[]{"TEMPERATURE","SALINITY","DENSITY","DYN_HGT","IRRAD","FLUOR_VOLT","TRANSMISSIVITY","CHLOROPHYLL","OXYGEN_VOLT","OXYGEN"};
+        colNames = new String[]{"temperature","salinity","density","dyn_hgt","irrad","fluor_volt","transmissivity","chlorophyll","oxygen_volt","oxygen"};
         for (int coli = 0; coli < colNames.length; coli++) {
             int col = inner.findColumnNumber(colNames[coli]);
             inner.setColumn(col, new FloatArray(inner.getColumn(col)));
+            if (colNames[coli].equals("irrad"))
+                inner.setColumnName(col, "irradiance");
         }
 
         //add outer info to inner table
         inner.join(2, 0, "", outer); //nKeys, keyCol, String mvKey, Table lookUpTable
 
         //save inner table
-        String2.log("inner (5 rows) before save:\n" + inner.toCSVString(5));
-        inner.saveAsFlatNc(dir + innerName + ".nc", "row", false); //convertToFakeMissingValues
+        String2.log("inner (5 rows) before save:\n" + inner.toString(5));
+        inner.saveAsFlatNc(dir + "rockfish_casts_" + lastYear + ".nc", "row", false); //convertToFakeMissingValues
 
-        String2.log("\n*** Projects.convertRockfish20130328() finished successfully");
+        String2.log("\n*** Projects.convertRockfish() finished successfully");
     }
 
     /** Convert FED Rockfish CTD .csv data files to .nc (from Lynn 2013-04-09
@@ -8260,7 +8444,7 @@ towTypesDescription);
         for (int f = 0; f < tFileNames.length; f++) {
 
             Table table = new Table();
-            table.readASCII(tFileNames[f], 0, 2, null, null, null, null, false); //simplify
+            table.readASCII(tFileNames[f], 0, 2, "", null, null, null, null, false); //simplify
             Test.ensureEqual(table.getColumnNamesCSVString(),
                 headerMode?
                     "cruise,ctd_index,ctd_no,station,time,longitude,latitude,bottom_depth," +
@@ -8270,7 +8454,7 @@ towTypesDescription);
                         "chlorophyll,oxygen_volt,oxygen",
                 "Unexpected column names");
             if (f == 0)
-                String2.log("table (5 rows) as read:\n" + table.dataToCSVString(5));
+                String2.log("table (5 rows) as read:\n" + table.dataToString(5));
 
             //convert to short 
             String colNames[] = headerMode? 
@@ -8306,7 +8490,7 @@ towTypesDescription);
             //save as .nc
             String2.log("f=" + f + " finished.");
             if (f == 0) 
-                String2.log("table (5 rows) before save:\n" + table.toCSVString(5));
+                String2.log("table (5 rows) before save:\n" + table.toString(5));
             table.saveAsFlatNc(dir + File2.getNameNoExtension(tFileNames[f]) + ".nc", 
                 "row", false); //convertToFakeMissingValues
         }
@@ -8319,7 +8503,7 @@ towTypesDescription);
      * This queries a list of coastwatch ERDDAP datasets and makes a table with
      * the last time point for each dataset.
      *
-     * @param griddapUrl e.g., "http://coastwatch.pfeg.noaa.gov/erddap/griddap/"
+     * @param griddapUrl e.g., "https://coastwatch.pfeg.noaa.gov/erddap/griddap/"
      * @param datasetIDs a list of datasetIDs
      */
     public static void lastTime(String griddapUrl, StringArray datasetIDs) throws Exception {
@@ -8330,7 +8514,7 @@ towTypesDescription);
             String result = "";
             try {
                 //request time[last] and get the date from the 3rd line   2007-04-12T14:00:00Z
-                String response[] = SSR.getUrlResponse(
+                String response[] = SSR.getUrlResponseLines(
                     griddapUrl + datasetIDs.get(i) + ".csv?time[last]");
                 if (response.length >= 3)
                     result = response[2];
@@ -8345,8 +8529,8 @@ towTypesDescription);
             datasetInfo.add(String2.left(datasetIDs.get(i), 21) + " " + result);
             String2.log(datasetInfo.get(i));
         }
-        String2.log("\nLast Times (as of " + Calendar2.getCurrentISODateTimeStringLocal() + 
-            " Pacific time)\n" + datasetInfo.toNewlineString());
+        String2.log("\nLast Times (as of " + Calendar2.getCurrentISODateTimeStringLocalTZ() + 
+            ")\n" + datasetInfo.toNewlineString());
     }
 
     /**
@@ -8379,7 +8563,7 @@ towTypesDescription);
 
         while (seconds <= endSeconds) {
             String yyyymmdd = String2.replaceAll(
-                Calendar2.epochSecondsToIsoStringT(seconds).substring(0, 10), "-", "");
+                Calendar2.epochSecondsToIsoDateString(seconds), "-", "");
             int daysSince = Math2.roundToInt(seconds / secondsPerDay);
             int n = yyyymmdd.compareTo("20090604") >= 0? 19 :
                     yyyymmdd.compareTo("20050822") >= 0? 18 :
@@ -8388,7 +8572,7 @@ towTypesDescription);
             String2.log(daysSince + " " + fileName);
 
             String contents = 
-"<netcdf xmlns=\"http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2\">\n" +
+"<netcdf xmlns=\"https://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2\">\n" +
 "  <variable name=\"time\" type=\"int\" shape=\"time\">\n" +
 "    <attribute name=\"units\" value=\"days since 1970-01-01T00:00:00Z\"/>\n" +
 "    <attribute name=\"_CoordinateAxisType\" value=\"Time\" />\n" +
@@ -8481,7 +8665,7 @@ towTypesDescription);
         table.columnAttributes(0).set("long_name", "Centered Time");
         table.columnAttributes(0).set("units", Calendar2.SECONDS_SINCE_1970);
 
-        String2.log(table.toCSVString(3));
+        String2.log(table.toString(3));
 
         table.saveAsFlatNc("/u00/data/points/isaac/NPH_IDS.nc", "time", false);  //convertToFakeMV=false
     }
@@ -8595,7 +8779,7 @@ towTypesDescription);
             time.add(Calendar2.gcToEpochSeconds(gc));
         }
         table.setColumn(0, time);
-        String2.log(table.toCSVString(3));
+        String2.log(table.toString(3));
 
         table.saveAsFlatNc("/u00/data/points/isaac/PCUI_IDS.nc", "time", false);  //convertToFakeMV=false
     }
@@ -8614,7 +8798,8 @@ towTypesDescription);
 
             if (fileName != null && fileName.matches(nameRegex)) {
                 table.clear();
-                table.readNDNc(dir + fileName, null, null, 0, 0, true);
+                table.readNDNc(dir + fileName, null, 0,  //standardizeWhat=0
+                    null, 0, 0, true);
                 int nCols = table.nColumns();
                 PrimitiveArray pa = table.globalAttributes().get("wmo_platform_code");
                 tally.add("wmo_platform_code",
@@ -8646,8 +8831,8 @@ towTypesDescription);
                         Calendar2.newGCalendarZulu(year, jDate).getTimeInMillis()/1000));
                 String2.log(yj + " " + daysSince);      
                 for (int var = 0; var < varDirNames.length; var++) {
-                    FileWriter w = new FileWriter("/content/scripts/VHncml/" +
-                        varDirNames[var] + "/ncml1day/V" + yj + ".ncml");
+                    Writer w = new BufferedWriter(new FileWriter("/content/scripts/VHncml/" +
+                        varDirNames[var] + "/ncml1day/V" + yj + ".ncml"));
                     w.write(
 /* C:/content/scripts/VHncml/chla/ncml1day/V2014365.ncml is
 <netcdf xmlns='http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2'>
@@ -8698,8 +8883,8 @@ towTypesDescription);
                     daysSince--; //imperfect
                 String2.log(yj1 + " " + yj2 + " " + daysSince);
                 for (int var = 0; var < varDirNames.length; var++) {
-                    FileWriter w = new FileWriter("/content/scripts/VHncml/" +
-                        varDirNames[var] + "/ncml8day/V" + yj1 + yj2 + ".ncml");
+                    Writer w = new BufferedWriter(new FileWriter("/content/scripts/VHncml/" +
+                        varDirNames[var] + "/ncml8day/V" + yj1 + yj2 + ".ncml"));
                     w.write(
 /* C:/content/scripts/VHncml/chla/ncml8day/V20120012012008.ncml is
  <netcdf xmlns='http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2'>
@@ -8743,8 +8928,8 @@ towTypesDescription);
                         firstDay.getTimeInMillis()/1000));
                 String2.log(yj1 + " " + yj2 + " " + daysSince);
                 for (int var = 0; var < varDirNames.length; var++) {
-                    FileWriter w = new FileWriter("/content/scripts/VHncml/" +
-                        varDirNames[var] + "/ncmlmon/V" + yj1 + yj2 + ".ncml");
+                    Writer w = new BufferedWriter(new FileWriter("/content/scripts/VHncml/" +
+                        varDirNames[var] + "/ncmlmon/V" + yj1 + yj2 + ".ncml"));
                     w.write(
 /* C:/content/scripts/VHncml/chla/ncmlmon/V20120012012031.ncml is
  <netcdf xmlns='http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2'>
@@ -8787,8 +8972,8 @@ towTypesDescription);
                         Calendar2.newGCalendarZulu(year, jDate).getTimeInMillis()/1000));
                 String2.log(yj + " " + daysSince);      
                 for (int var = 0; var < varDirNames.length; var++) {
-                    FileWriter w = new FileWriter("/content/scripts/VH2ncml/" +
-                        varDirNames[var] + "/ncml1day/V" + yj + ".ncml");
+                    Writer w = new BufferedWriter(new FileWriter("/content/scripts/VH2ncml/" +
+                        varDirNames[var] + "/ncml1day/V" + yj + ".ncml"));
                     w.write(
 /* C:/content/scripts/VH2ncml/chla/ncml1day/V2014365.ncml is
 <netcdf xmlns='http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2'>
@@ -8840,8 +9025,8 @@ towTypesDescription);
                     daysSince--; //imperfect
                 String2.log(yj1 + " " + yj2 + " " + daysSince);
                 for (int var = 0; var < varDirNames.length; var++) {
-                    FileWriter w = new FileWriter("/content/scripts/VH2ncml/" +
-                        varDirNames[var] + "/ncml8day/V" + yj1 + yj2 + ".ncml");
+                    Writer w = new BufferedWriter(new FileWriter("/content/scripts/VH2ncml/" +
+                        varDirNames[var] + "/ncml8day/V" + yj1 + yj2 + ".ncml"));
                     w.write(
 /* C:/content/scripts/VH2ncml/chla/ncml8day/V20120012012008.ncml is
  <netcdf xmlns='http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2'>
@@ -8887,8 +9072,8 @@ towTypesDescription);
                         firstDay.getTimeInMillis()/1000));
                 String2.log(yj1 + " " + yj2 + " " + daysSince);
                 for (int var = 0; var < varDirNames.length; var++) {
-                    FileWriter w = new FileWriter("/content/scripts/VH2ncml/" +
-                        varDirNames[var] + "/ncmlmon/V" + yj1 + yj2 + ".ncml");
+                    Writer w = new BufferedWriter(new FileWriter("/content/scripts/VH2ncml/" +
+                        varDirNames[var] + "/ncmlmon/V" + yj1 + yj2 + ".ncml"));
                     w.write(
 /* C:/content/scripts/VH2ncml/chla/ncmlmon/V20120012012031.ncml is
  <netcdf xmlns='http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2'>
@@ -8931,8 +9116,8 @@ towTypesDescription);
                         Calendar2.newGCalendarZulu(year, jDate).getTimeInMillis()/1000));
                 String2.log(yj + " " + daysSince);      
                 for (int var = 0; var < varDirNames.length; var++) {
-                    FileWriter w = new FileWriter("/content/scripts/VH3ncml/" +
-                        varDirNames[var] + "/ncml1day/V" + yj + ".ncml");
+                    Writer w = new BufferedWriter(new FileWriter("/content/scripts/VH3ncml/" +
+                        varDirNames[var] + "/ncml1day/V" + yj + ".ncml"));
                     w.write(
 /* C:/content/scripts/VH3ncml/chla/ncml1day/V2014365.ncml is
 <netcdf xmlns='http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2'>
@@ -8984,8 +9169,8 @@ towTypesDescription);
                     daysSince--; //imperfect
                 String2.log(yj1 + " " + yj2 + " " + daysSince);
                 for (int var = 0; var < varDirNames.length; var++) {
-                    FileWriter w = new FileWriter("/content/scripts/VH3ncml/" +
-                        varDirNames[var] + "/ncml8day/V" + yj1 + yj2 + ".ncml");
+                    Writer w = new BufferedWriter(new FileWriter("/content/scripts/VH3ncml/" +
+                        varDirNames[var] + "/ncml8day/V" + yj1 + yj2 + ".ncml"));
                     w.write(
 /* C:/content/scripts/VH3ncml/chla/ncml8day/V20120012012008.ncml is
  <netcdf xmlns='http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2'>
@@ -9008,7 +9193,7 @@ towTypesDescription);
             }
         }
     }
-
+    
     /** Make VH3 mday .ncml files. 
      * coordValue is firstDay of the month. First 3 of 2012 are 15340, 15371, 15400. 
      */
@@ -9031,8 +9216,8 @@ towTypesDescription);
                         firstDay.getTimeInMillis()/1000));
                 String2.log(yj1 + " " + yj2 + " " + daysSince);
                 for (int var = 0; var < varDirNames.length; var++) {
-                    FileWriter w = new FileWriter("/content/scripts/VH3ncml/" +
-                        varDirNames[var] + "/ncmlmon/V" + yj1 + yj2 + ".ncml");
+                    Writer w = new BufferedWriter(new FileWriter("/content/scripts/VH3ncml/" +
+                        varDirNames[var] + "/ncmlmon/V" + yj1 + yj2 + ".ncml"));
                     w.write(
 /* C:/content/scripts/VH3ncml/chla/ncmlmon/V20120012012031.ncml is
  <netcdf xmlns='http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2'>
@@ -9056,6 +9241,561 @@ towTypesDescription);
             }
         }
     }
+
+    /** Make VH2018 1day .ncml files. */
+    public static void makeVH20181dayNcmlFiles(int startYear, int endYear) throws Throwable {
+        String varDirNames[] = new String[]{
+            "chla",       "k490",        "r671",       "par",    "pic",    "poc"};
+        String jplFileNames[]    = new String[]{
+            "CHL_chlor_a","KD490_Kd_490","RRS_Rrs_671","PAR_par","PIC_pic","POC_poc"};
+        String jplVarNames[]    = new String[]{
+            "chlor_a",    "Kd_490",      "Rrs_671",    "par",    "pic",    "poc"};
+
+        for (int year = startYear; year <= endYear; year++) {
+            int nDays = year % 4 == 0? 366 : 365;
+            for (int jDate = 1; jDate <= nDays; jDate++) {
+                String yj = year + String2.zeroPad("" + jDate, 3);
+                int daysSince = Math2.roundToInt(
+                    Calendar2.epochSecondsToUnitsSince(0, Calendar2.SECONDS_PER_DAY,
+                        Calendar2.newGCalendarZulu(year, jDate).getTimeInMillis()/1000));
+                String2.log(yj + " " + daysSince);      
+                for (int var = 0; var < varDirNames.length; var++) {
+                    Writer w = new BufferedWriter(new FileWriter("/content/scripts/VH2018ncml/" +
+                        varDirNames[var] + "/ncml1day/V" + yj + ".ncml"));
+                    w.write(
+/* C:/content/scripts/VH2018ncml/chla/ncml1day/V2014365.ncml is
+<netcdf xmlns='http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2'>
+   <variable name='time' type='int' shape='time' />
+   <aggregation dimName='time' type='joinNew'>
+     <variableAgg name='l3m_data'/>
+     <netcdf location='V2014365.L3m_DAY_NPP_CHL_chlor_a_4km' coordValue='16435'/>
+   </aggregation>
+ </netcdf> */
+"<netcdf xmlns='http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2'>\n" +
+"  <variable name='time' type='int' shape='time' />\n" +
+"  <aggregation dimName='time' type='joinNew'>\n" +
+"    <variableAgg name='" + jplVarNames[var] + "'/>\n" +
+"    <netcdf location='V" + yj + ".L3m_DAY_SNPP_" + jplFileNames[var] + "_4km.nc' " +
+            "coordValue='" + daysSince + "'/>\n" +
+"  </aggregation>\n" +
+"</netcdf>\n");
+                    w.close();
+                }
+            }
+        }
+    }
+
+    /** Make VH2018 8day .ncml files. 
+     * coordValue is firstDay. First 3 of 2012 are 15340, 15348, 15356. 
+     * Every year, start again Jan 1-8, 9-16, ...
+     * End of year, 
+     */
+    public static void makeVH20188dayNcmlFiles(int startYear, int endYear) throws Throwable {
+        String varDirNames[] = new String[]{
+            "chla",       "k490",        "r671",       "par",    "pic",    "poc"};
+        String jplFileNames[]    = new String[]{
+            "CHL_chlor_a","KD490_Kd_490","RRS_Rrs_671","PAR_par","PIC_pic","POC_poc"};
+        String jplVarNames[]    = new String[]{
+            "chlor_a",    "Kd_490",      "Rrs_671",    "par",    "pic",    "poc"};
+
+        for (int year = startYear; year <= endYear; year++) {
+            int nDays = year % 4 == 0? 366 : 365;
+            for (int day1 = 1; day1 <= nDays; day1 += 8) {
+                GregorianCalendar firstDay = Calendar2.newGCalendarZulu(year, day1);
+                GregorianCalendar lastDay  = Calendar2.newGCalendarZulu(year, 
+                    Math.min(nDays, day1+7));
+                String yj1 = Calendar2.formatAsYYYYDDD(firstDay);
+                String yj2 = Calendar2.formatAsYYYYDDD(lastDay);
+                int daysSince = Math2.roundToInt(
+                    Calendar2.epochSecondsToUnitsSince(0, Calendar2.SECONDS_PER_DAY,
+                        firstDay.getTimeInMillis()/1000));
+                if (day1+7 > nDays)
+                    daysSince--; //imperfect
+                String2.log(yj1 + " " + yj2 + " " + daysSince);
+                for (int var = 0; var < varDirNames.length; var++) {
+                    Writer w = new BufferedWriter(new FileWriter("/content/scripts/VH2018ncml/" +
+                        varDirNames[var] + "/ncml8day/V" + yj1 + yj2 + ".ncml"));
+                    w.write(
+/* C:/content/scripts/VH2018ncml/chla/ncml8day/V20120012012008.ncml is
+ <netcdf xmlns='http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2'>
+   <variable name='time' type='int' shape='time' />
+   <aggregation dimName='time' type='joinNew'>
+     <variableAgg name='l3m_data'/>
+     <netcdf location='V20120012012008.L3m_8D_NPP_CHL_chlor_a_4km' coordValue='15340'/>
+   </aggregation>
+ </netcdf> */
+"<netcdf xmlns='http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2'>\n" +
+"  <variable name='time' type='int' shape='time' />\n" +
+"  <aggregation dimName='time' type='joinNew'>\n" +
+"    <variableAgg name='" + jplVarNames[var] + "'/>\n" +
+"    <netcdf location='V" + yj1 + yj2 + ".L3m_8D_SNPP_" + jplFileNames[var] + "_4km.nc' " +
+            "coordValue='" + daysSince + "'/>\n" +
+"  </aggregation>\n" +
+"</netcdf>\n");
+                    w.close();
+                }
+            }
+        }
+    }
+    
+    /** Make VH2018 mday .ncml files. 
+     * coordValue is firstDay of the month. First 3 of 2012 are 15340, 15371, 15400. 
+     */
+    public static void makeVH2018mdayNcmlFiles(int startYear, int endYear) throws Throwable {
+        String varDirNames[] = new String[]{
+            "chla",       "k490",        "r671",       "par",    "pic",    "poc"};
+        String jplFileNames[]    = new String[]{
+            "CHL_chlor_a","KD490_Kd_490","RRS_Rrs_671","PAR_par","PIC_pic","POC_poc"};
+        String jplVarNames[]    = new String[]{
+            "chlor_a",    "Kd_490",      "Rrs_671",    "par",    "pic",    "poc"};
+
+        for (int year = startYear; year <= endYear; year++) {
+            for (int month = 1; month <= 12; month++) {
+                GregorianCalendar firstDay = Calendar2.newGCalendarZulu(year, month, 1);
+                GregorianCalendar lastDay  = Calendar2.newGCalendarZulu(year, month+1, 0);
+                String yj1 = Calendar2.formatAsYYYYDDD(firstDay);
+                String yj2 = Calendar2.formatAsYYYYDDD(lastDay);
+                int daysSince = Math2.roundToInt(
+                    Calendar2.epochSecondsToUnitsSince(0, Calendar2.SECONDS_PER_DAY,
+                        firstDay.getTimeInMillis()/1000));
+                String2.log(yj1 + " " + yj2 + " " + daysSince);
+                for (int var = 0; var < varDirNames.length; var++) {
+                    Writer w = new BufferedWriter(new FileWriter("/content/scripts/VH2018ncml/" +
+                        varDirNames[var] + "/ncmlmon/V" + yj1 + yj2 + ".ncml"));
+                    w.write(
+/* C:/content/scripts/VH2018ncml/chla/ncmlmon/V20120012012031.ncml is
+ <netcdf xmlns='http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2'>
+   <variable name='time' type='int' shape='time' />
+   <aggregation dimName='time' type='joinNew'>
+     <variableAgg name='l3m_data'/>
+     <netcdf location='V20120012012031.L3m_MO_NPP_CHL_chlor_a_4km' coordValue='15340'/>
+   </aggregation>
+ </netcdf>
+ */
+"<netcdf xmlns='http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2'>\n" +
+"  <variable name='time' type='int' shape='time' />\n" +
+"  <aggregation dimName='time' type='joinNew'>\n" +
+"    <variableAgg name='" + jplVarNames[var] + "'/>\n" +
+"    <netcdf location='V" + yj1 + yj2 + ".L3m_MO_SNPP_" + jplFileNames[var] + "_4km.nc' " +
+            "coordValue='" + daysSince + "'/>\n" +
+"  </aggregation>\n" +
+"</netcdf>\n");
+                    w.close();
+                }
+            }
+        }
+    }
+
+
+    /** Extract sonar initial lat,lon values.
+     * 1) original csv file (from xls)
+     * 2) In local ERDDAP, save all of nceiNmfsSonarAscii as nceiNmfsSonarOriginal.nc
+     * 3) This creates latitude and longitude columns with initial point from shape var.
+     * 4) This saves as nceiNmfsSonar.nc
+     */
+    public static void extractSonarLatLon() throws Throwable {
+        String2.log("\n*** Projects.extractSonarLatLon");
+        String dir = "/u00/data/points/sonar/";
+        String fiName = "nceiNmfsSonarOriginal.nc";
+        String foName = "nceiNmfsSonar.nc";
+
+        Table table = new Table();
+        table.readFlatNc(dir + fiName, null, 0); //standardizeWhat=0
+        int nRows = table.nRows();
+        String2.log("original nRows=" + nRows + " colNames=" + table.getColumnNamesCSSVString());
+
+        //get shape. make lat, lon.
+        int shapeCol = table.findColumnNumber("shape");
+        StringArray shape = (StringArray)table.getColumn(shapeCol);
+        DoubleArray lat = new DoubleArray();
+        DoubleArray lon = new DoubleArray();
+        table.addColumn(shapeCol, "latitude", lat, 
+            (new Attributes()).add("units", "degrees_north").add("long_name", "Initial Latitude"));
+        table.addColumn(shapeCol, "longitude", lon, 
+            (new Attributes()).add("units", "degrees_east").add("long_name", "Initial Longitude"));
+
+        //convert fileName "D20130716-T034047.raw" to more precise epochSeconds time
+        //(Original time is just the date.)
+        //??? IS THAT RIGHT??? Won't there be conflicts from different cruises???
+        Pattern fileNamePattern = Pattern.compile("D(\\d{8})-T(\\d{6})\\.raw");
+        PrimitiveArray fileNamePA = table.findColumn("file_name");
+        int dateCol               = table.findColumnNumber("time");
+        table.setColumnName(dateCol, "date");
+        PrimitiveArray datePA     = table.getColumn(dateCol);
+        PrimitiveArray timePA     = (DoubleArray)datePA.clone();
+        table.addColumn(dateCol, "time", timePA, 
+            (new Attributes()).add("units", "seconds since 1970-01-01T00:00:00Z").add("long_name", "Start Time"));
+
+        for (int row = 0; row < nRows; row++) {
+            //generate lon and lat
+            String[] shapeAr = StringArray.arrayFromCSV(shape.get(row));
+            lon.add(shapeAr.length >= 2? 
+                Math2.roundTo(String2.parseDouble(shapeAr[0]), 7) : Double.NaN);
+            lat.add(shapeAr.length >= 2? 
+                Math2.roundTo(String2.parseDouble(shapeAr[1]), 7) : Double.NaN);
+
+            //convert fileName "D20130716-T034047.raw" to a more precise time
+            //  if it matches the regex
+            String tfn = fileNamePA.getString(row);
+            try {
+                Matcher matcher = fileNamePattern.matcher(tfn);
+                if (matcher.matches()) {
+                    timePA.setDouble(row, 
+                        Calendar2.gcToEpochSeconds(Calendar2.parseCompactDateTimeZulu(
+                            matcher.group(1) + matcher.group(2))));
+                } else {
+                    String2.log("unmatched fileName["+row+"]=" + tfn);
+                }
+            } catch (Throwable t) {
+                String2.log("Exception for fileName["+row+"]=" + tfn + "\n" +
+                    t.toString());
+            }
+        }
+        table.saveAsFlatNc(dir + foName, "row");
+        String2.log("new colNames=" + table.getColumnNamesCSSVString());
+        String2.log("\n*** Projects.extractSonarLatLon finished successfully. Created:\n" +
+            dir + foName);
+    }
+
+    /**
+     * This makes ncml files for PH2.
+     *
+     * @param sstdn  sstd or sstn
+     * @throws Exception if trouble
+     */
+    public static void makePH2Ncml(String sstdn)
+        throws Exception {
+        String2.log("*** Projects.makePH2Ncml(" + sstdn + ")");
+
+        //get list of filenames (without dir)
+        //19811101145206-NODC-L3C_GHRSST-SSTskin-AVHRR_Pathfinder-PFV5.2_NOAA07_G_1981305_day-v02.0-fv01.0.nc
+        String dir = "/u00/satellite/PH2/" + sstdn + "/1day/ncml/";
+        String regex = "\\d{14}-NODC.*\\.nc";
+
+        //String names[] = RegexFilenameFilter.list(dir, regex);
+        String names[] = String2.readLinesFromFile(
+            "/u00/satellite/PH2/" + sstdn + "/names.txt", null, 1);
+
+        //for each file
+        for (int i = 0; i < names.length; i++) {
+
+            //extract date yyyyddd
+            String tName = names[i];
+//19811101145206-NODC-L3C_GHRSST-SSTskin-AVHRR_Pathfinder-PFV5.2_NOAA07_G_1981305_day-v02.0-fv01.0.nc
+            double epochSeconds = 
+                (Calendar2.parseYYYYDDDZulu(tName.substring(72, 79)).getTimeInMillis() /
+                1000.0) + 12 * Calendar2.SECONDS_PER_HOUR; //center on noon of that day
+
+            String2.log("writing " + dir + tName + ".ncml " + epochSeconds);
+            Writer writer = new BufferedWriter(new FileWriter(dir + tName + ".ncml"));
+            StringBuilder values = new StringBuilder();
+            writer.write(
+"<netcdf xmlns='http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2'\n" +
+"  location=\"" + tName + "\">\n" +
+"  <variable name=\"time\">\n" +
+"    <attribute name='units' value='seconds since 1970-01-01T00:00:00Z' />\n" +
+"    <values>" + epochSeconds + "</values>\n" +
+"  </variable>\n" +
+"</netcdf>\n");
+            writer.close();
+        }
+    }
+
+    /**
+     * This makes ncml files for PH53.
+     *
+     * @param dayMode
+     * @throws Exception if trouble
+     */
+    public static void makePH53Ncml()
+        throws Exception {
+        String2.log("*** Projects.makePH53Ncml()");
+        String dir = "/u00/satellite/PH53/";
+        String dayNight[] = {"day", "night"};
+        String ncmlDir = "/u00/satellite/PH53Ncml/";
+        File2.makeDirectory(ncmlDir);
+
+        //get list of 1day filenames:  
+        //  cd /u00/satellite/PH53/1day/2019
+        //  find data -name *day*.nc > daynames2019.txt  
+        //  find data -name *night*.nc > nightnames2019.txt  
+        //copy to laptop /u00/satellite/PH53Ncml
+        //
+        //source is ftp://ftp.nodc.noaa.gov/pub/data.nodc/pathfinder/Version5.3/L3C/2018/data/
+        //2019-02-21: there is no 2018081_day file, or 2018023_night file
+
+        for (int year = 2019; year <= 2019; year++) {
+            for (int daynight = 0; daynight < 2; daynight++) {
+
+                String names[] = String2.readLinesFromFile(
+                    ncmlDir + dayNight[daynight] + "names" + year + ".txt", null, 1);
+                HashMap<String,String> hm = new HashMap();
+                //for each file
+                //19811101145206-NODC-L3C_GHRSST-SSTskin-AVHRR_Pathfinder-PFV5.2_NOAA07_G_1981305_day-v02.0-fv01.0.nc
+                for (int i = 0; i < names.length; i++) {
+
+                    //extract date yyyyddd
+                    String tName = File2.getNameAndExtension(names[i]);
+                    String date = String2.extractCaptureGroup(tName, ".*_(\\d{7})_.*", 1);
+                    if (date == null)
+                        continue;
+        //19810825023019-NCEI-L3C_GHRSST-SSTskin-AVHRR_Pathfinder-PFV5.3_NOAA07_G_1981237_night-v02.0-fv01.0.nc
+                    int epochSeconds = Math2.roundToInt(
+                        (Calendar2.parseYYYYDDDZulu(date).getTimeInMillis() /
+                        1000.0) + 12 * Calendar2.SECONDS_PER_HOUR); //center on noon of that day
+                    String oldName = hm.put("" + epochSeconds, tName);
+                    if (oldName != null) 
+                        throw new RuntimeException("duplicate epSec=" +epochSeconds + 
+                           "\n" + oldName +
+                           "\n" + tName);
+
+                    String2.log("writing " + ncmlDir + dayNight[daynight] + "Ncml/" +tName + ".ncml " + epochSeconds);
+                    Writer writer = new BufferedWriter(new FileWriter(ncmlDir + dayNight[daynight] + "Ncml/" +tName + ".ncml"));
+                    try {
+                        writer.write(
+        "<netcdf xmlns='http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2'\n" +
+        "  location=\"" + tName + "\">\n" +
+        "  <variable name=\"time\">\n" +
+        "    <attribute name='units' value='seconds since 1970-01-01T00:00:00Z' />\n" +
+        "    <values>" + epochSeconds + "</values>\n" +
+        "  </variable>\n" +
+        "</netcdf>\n");
+                    } finally {
+                        writer.close();
+                    }
+                }
+            }
+        }
+    }
+
+    public static void tallyGridValues(String fileName, String varName,
+        double scale) throws Exception {
+
+        String2.log("\n*** Projects.tallyGridValues(\n" + 
+            fileName + "\n" + 
+            varName + " scale=" + scale);
+        NetcdfFile file = NcHelper.openFile(fileName);
+        Variable var = file.findVariable(varName);
+        PrimitiveArray pa = NcHelper.getPrimitiveArray(var);
+        int n = pa.size();
+        Tally tally = new Tally();
+        for (int i = 0; i < n; i++)
+            tally.add("value", "" + Math2.roundToInt(pa.getDouble(i) * scale));
+        String2.log(tally.toString());
+    }
+
+    /** 
+     * This un-gzips a bunch of files that don't have the extension .gz but should.
+     */
+    public static void unGz(String dirName, String fileNameRegex) throws Exception {
+
+        String2.log("\n*** Projects.unGz(" + dirName + ", " + fileNameRegex + ")");
+
+        //get the list of file names
+        String[] fileNames = RegexFilenameFilter.list(dirName, fileNameRegex);
+
+        //process each file
+        int nFail = 0;
+        for (int i = 0; i < fileNames.length; i++) {
+            String tName = fileNames[i];
+            String2.log(tName);
+            InputStream is  = null;
+            OutputStream os = null;
+            try {
+                //rename to .gz
+                File2.rename(dirName, tName, tName + ".gz");
+
+                //unGz
+                is = File2.getDecompressedBufferedInputStream(     dirName + tName + ".gz");
+                os = new BufferedOutputStream(new FileOutputStream(dirName + tName));
+                File2.copy(is, os);
+                is.close();
+                os.close();
+                File2.delete(dirName + tName + ".gz");
+            } catch (Exception e) {
+                nFail++;
+                String2.log("* Exception for #" + i + "=" + dirName + tName + "\n" +
+                    MustBe.throwableToString(e));
+                try {
+                    if (is != null) is.close(); 
+                } catch (Exception e2) {
+                    String2.log(MustBe.throwableToString(e2));
+                }
+                try {
+                    if (os != null) os.close(); 
+                } catch (Exception e2) {
+                    String2.log(MustBe.throwableToString(e2));
+                }
+                try {
+                    File2.rename(dirName, tName + ".gz", tName);
+                } catch (Exception e2) {
+                    String2.log(MustBe.throwableToString(e2));
+                }
+            }
+        }                
+        String2.log("\n*** Projects.unGz finished. nTry=" + fileNames.length + " nFail=" + nFail);
+    }
+
+    /**
+     * This converts a NOAA Passive Acoustic Spectrum csv file into a .nc file.
+     */
+    public static void acousticCsvToNc(String sourceFullName, String destFullName) throws Exception {
+
+        //read the csv
+        Table table = new Table();
+        table.readASCII(sourceFullName, 0, 1, ",",
+            null, null, null, null, true);  //simplify
+        String2.log("acousticCsvToNc " + sourceFullName + "\n" +
+            table.toString(3));
+
+/*
+        int po = fileNames[fn].lastIndexOf('_');
+        int year  = String2.parseInt(fileNames[fn].substring(po + 1, po + 5));
+        int month = String2.parseInt(fileNames[fn].substring(po + 5, po + 7)); //1..
+        int months = (year - 1950) * 12 + month - 1;
+//if (year < 2007) continue;
+//if (year == 2007 && month < 2) continue;
+        String2.log("  year=" + year + " month=" + month + " monthsSinceJan1950=" + months);
+*/
+
+        //open the new file
+        NetcdfFileWriter newFile = NetcdfFileWriter.createNew(
+            NetcdfFileWriter.Version.netcdf3, destFullName);
+        try {
+            boolean nc3Mode = true;
+            DataType dataType = DataType.DOUBLE;
+            Group rootGroup = newFile.addGroup(null, "");
+            String cDate = Calendar2.getCurrentISODateStringZulu();
+
+            int nRows = table.nRows();
+            int nCols = table.nColumns();
+            int nCols1 = nCols - 1;
+            ArrayList<Dimension> dimensions = new ArrayList();
+            Attributes atts; 
+            Variable newVars[] = new Variable[3];
+            Array array[] = new Array[3];
+
+            //create the time dimension and variable
+            //??? what is the meaning of the column name, e.g., 1213?
+            Dimension timeDimension = newFile.addDimension(rootGroup, "timeStamp", nRows);
+            dimensions.clear();
+            dimensions.add(timeDimension);
+            PrimitiveArray pa = table.getColumn(0);
+            array[0] = NcHelper.get1DArray(pa.toObjectArray());
+            atts = new Attributes(); 
+            //atts.add("_CoordinateAxisType", "Lon");
+            atts.add("actual_range", new DoubleArray(new double[]{pa.getDouble(0), pa.getDouble(nRows-1)}));
+            atts.add("axis", "T");
+            atts.add("long_name", "Time Stamp");
+            atts.add("standard_name", "time");
+            atts.add("units", "seconds");
+            newVars[0] = newFile.addVariable(rootGroup, "timeStamp", dataType, dimensions); 
+            NcHelper.setAttributes(nc3Mode, newVars[0], atts);
+
+            //create the freq dimension
+            Dimension freqDimension = newFile.addDimension(rootGroup, "frequency", nCols1);
+            dimensions.clear();
+            dimensions.add(freqDimension);
+            DoubleArray da = new DoubleArray();
+            for (int col = 1; col < nCols; col++)
+                da.addDouble(String2.parseDouble(table.getColumnName(col)));           
+            array[1] = NcHelper.get1DArray(da.toObjectArray());
+            atts = new Attributes(); 
+            //atts.add("_CoordinateAxisType", "Lon");
+            atts.add("actual_range", new DoubleArray(new double[]{da.get(0), da.get(da.size() - 1)}));
+            atts.add("comment", "The frequency associated with a 1/3 octave band.");
+            atts.add("long_name", "frequency");
+            atts.add("standard_name", "sound_frequency");
+            atts.add("units", "s-1");
+            newVars[1] = newFile.addVariable(rootGroup, "frequency", dataType, dimensions); 
+            NcHelper.setAttributes(nc3Mode, newVars[1], atts);
+
+            //create the acoustic variable
+            dimensions.clear();
+            dimensions.add(timeDimension);
+            dimensions.add(freqDimension);
+            da = new DoubleArray(nCols1 * nRows, false);
+            for (int col = 1; col < nCols; col++)
+                for (int row = 0; row < nRows; row++)
+                    da.add(table.getDoubleData(col, row));
+            array[2] = NcHelper.get1DArray(da.toObjectArray());
+            array[2] = array[2].reshape(new int[]{nRows, nCols1});
+            da = null;
+            atts = new Attributes(); 
+            atts.add("comment", "This is the acoustic energy in this 1/3 octave band.");
+            atts.add("long_name", "Acoustic Amplitude");
+            atts.add("standard_name", "sound_intensity_level_in_water");
+            atts.add("units", "dB");
+            newVars[2] = newFile.addVariable(rootGroup, "acoustic", dataType, dimensions); 
+            NcHelper.setAttributes(nc3Mode, newVars[2], atts);
+
+            //define newVar in new file
+
+            //define GLOBAL metadata 
+            Attributes gatts = new Attributes();
+            gatts.add("acknowledgement", "This project received funding from the U.S. Navy."); 
+            gatts.add("cdm_data_type", "Grid");
+            gatts.add("comment", "This metadata is a placeholder for future data submissions. " +
+                "This information is not 100&#37; accurate and will change.");
+            gatts.add("contributor_name", "U.S. Navy");
+            gatts.add("contributor_role", "funding");
+            gatts.add("Conventions", "COARDS, CF-1.6, ACDD-1.3");
+            gatts.add("creator_email", "carrie.wall@noaa.gov");
+            gatts.add("creator_name", "Carrie Wall");
+            gatts.add("creator_type", "person");
+            gatts.add("creator_url", "https://www.ngdc.noaa.gov/mgg/pad/");
+            gatts.add("date_created", cDate);
+            gatts.add("date_issued", cDate);
+            gatts.add("history", "Raw acoustic data files are retrieved from stationary acoustic " +
+                "recorders every 6 months and then processed in the respective NOAA NMFS lab. " +
+                "The raw acoustic data and processed data files are sent to NCEI for archive. " +
+                "The processed data files are then sent to NOAA NMFS SWFSC ERD for enhanced access.\n" +
+                cDate + " NOAA NMFS SWFSC ERD (erd.data@noaa.gov) converted from .csv to .nc and added metadata and time dimension");
+            gatts.add("id", "NOAA-NAVY-StetsonSP1"); 
+            gatts.add("infoUrl", "https://www.ngdc.noaa.gov/mgg/pad/");
+            gatts.add("institution", "NOAA NCEI"); 
+            gatts.add("keywords", "acoustic, agreement, centers, data, environmental, " +
+                "information, monitory, national, navy, ncei, nesdis, noaa, noaa-navy, passive, " +
+                "settlement, surtass, " +
+                "Earth Science &gt; Oceans &gt; Ocean Acoustics &gt; Acoustic Frequency, " +
+                "Earth Science &gt; Oceans &gt; Ocean Acoustics &gt; Acoustic Attenuation/Transmission");
+            gatts.add("keywords_vocabulary", "GCMD Science Keywords");
+            gatts.add("license", "The data may be used and redistributed for free " +
+                "but is not intended for legal use, since it may contain inaccuracies. " +
+                "Neither the data Creator, NOAA, nor the United States Government, " +
+                "nor any of their employees or contractors, makes any warranty, express or implied, " +
+                "including warranties of merchantability and fitness for a particular purpose, " +
+                "or assumes any legal liability for the accuracy, completeness, or usefulness, " +
+                "of this information.");
+            gatts.add("naming_authority", "NOAA-NAVY");
+            gatts.add("product_version", "2019");
+            gatts.add("project", "NOAA Passive Acoustic Data");
+            //gatts.add("references", "...");
+            //gatts.add("platform", "");
+            gatts.add("sensor", "hydrophone"); 
+            //gatts.add("source", "");
+            gatts.add("standard_name_vocabulary", FileNameUtility.getStandardNameVocabulary());
+            gatts.add("summary", 
+                "Passive acoustic data collected over 5 years across numerous national marine sanctuaries and monuments.");
+            gatts.add("title", 
+                "NOAA-Navy Surtass Settlement Agreement Passive Acoustic Monitory"); //?surtass misleading?
+            //set the globalAttributes
+            NcHelper.setAttributes(nc3Mode, rootGroup, gatts);
+        
+            //leave define mode
+            newFile.create();
+
+            //write data for each variable
+            for (int v = 0; v < 3; v++) {
+                Variable var = newVars[v];
+                newFile.write(newVars[v], array[v]);
+            }
+        } finally {
+            try {newFile.close(); } catch (Exception e) {}
+            newFile = null;
+        }
+    }
+
 
 
 }

@@ -4,6 +4,7 @@
  */
 package gov.noaa.pfel.coastwatch.griddata;
 
+import com.cohort.util.MustBe;
 import com.cohort.util.String2;
 import java.util.Arrays;
 import java.util.Enumeration;
@@ -33,8 +34,8 @@ public class OpendapDump {
         boolean verbose = true;
         boolean acceptDeflate = true;
         String urlName = 
-            //"http://data.nodc.noaa.gov/cgi-bin/nph-dods/pathfinder/Version5.0/5day/1990/1990001-1990005.s0451pfv50-sst-16b.hdf";
-            //"http://data.nodc.noaa.gov/cgi-bin/nph-dods/pathfinder/Version5.0/Monthly/1985/198501.m04m1pfv50-qual.hdf";
+            //"https://data.nodc.noaa.gov/cgi-bin/nph-dods/pathfinder/Version5.0/5day/1990/1990001-1990005.s0451pfv50-sst-16b.hdf";
+            //"https://data.nodc.noaa.gov/cgi-bin/nph-dods/pathfinder/Version5.0/Monthly/1985/198501.m04m1pfv50-qual.hdf";
             "http://las.pfeg.noaa.gov/cgi-bin/nph-dods/data/oceanwatch/nrt/gac/AG1day.nc";
         String expr = 
             //"?qual[0:2:20][0:2:20]";
@@ -50,13 +51,13 @@ public class OpendapDump {
         DConnect dConnect = null;
         long time = System.currentTimeMillis();
         dConnect = new DConnect(urlName, acceptDeflate, 1, 1);
-        String2.log("DConnect time=" + (System.currentTimeMillis() - time));
+        String2.log("DConnect time=" + (System.currentTimeMillis() - time) + "ms");
 
         //getDas
         if (getDas) {
             time = System.currentTimeMillis();
             DAS das = dConnect.getDAS(OpendapHelper.DEFAULT_TIMEOUT);
-            String2.log("getDAS time=" + (System.currentTimeMillis() - time));
+            String2.log("getDAS time=" + (System.currentTimeMillis() - time) + "ms");
             String2.log("DAS:");
             //das.print(System.out); 
             indent = 2;
@@ -85,7 +86,7 @@ public class OpendapDump {
         if (getDds) {
             time = System.currentTimeMillis();
             DDS dds = dConnect.getDDS(OpendapHelper.DEFAULT_TIMEOUT);
-            String2.log("getDDS time=" + (System.currentTimeMillis() - time));
+            String2.log("getDDS time=" + (System.currentTimeMillis() - time) + "ms");
             String2.log("BEGIN DDS:");
             //dds.print(System.out);
             Enumeration e = dds.getVariables();
@@ -104,7 +105,7 @@ public class OpendapDump {
                 try {
                     time = System.currentTimeMillis();
                     DataDDS dds = dConnect.getData(expr, null);
-                    String2.log("getData time=" + (System.currentTimeMillis() - time));
+                    String2.log("getData time=" + (System.currentTimeMillis() - time) + "ms");
                     //if (dumpData) 
                     //    dds.externalize(System.out, compress, true);
                     //else 
@@ -117,7 +118,7 @@ public class OpendapDump {
                     String2.log("End enumeration to get variables...");
 
                 } catch (Exception e) {
-                    String2.log(e);
+                    String2.log(MustBe.throwableToString(e));
                     e.printStackTrace();
                     System.exit(1);
                 }
@@ -255,5 +256,4 @@ public class OpendapDump {
             String2.log(indentation(indent) + "Int32PrimitiveVector[" + (length-1) + "] = " + iLast);
         } else String2.log(indentation(indent) + "Unknown PrimitiveVector type = " + pv.toString());
     }
-
 }

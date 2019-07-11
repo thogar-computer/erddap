@@ -83,7 +83,7 @@ public class Document implements Parent {
     ContentList content = new ContentList(this);
 
     /**
-     *  See http://www.w3.org/TR/2003/WD-DOM-Level-3-Core-20030226/core.html#baseURIs-Considerations
+     *  See https://www.w3.org/TR/2003/WD-DOM-Level-3-Core-20030226/core.html#baseURIs-Considerations
      */
     protected String baseURI = null;
 
@@ -581,9 +581,9 @@ public class Document implements Parent {
      * a call to one of the {@link #getContent} methods will also change
      * to reflect the new content.  In addition, all content in the supplied
      * collection will have their parentage set to this Document.  If the user
-     * wants to continue working with a <b>"live"</b> list of this Document's
+     * wants to continue working with a <strong>"live"</strong> list of this Document's
      * child, then a call to setContent should be followed by a call to one
-     * of the {@link #getContent} methods to obtain a <b>"live"</b>
+     * of the {@link #getContent} methods to obtain a <strong>"live"</strong>
      * version of the children.
      * <p>
      * Passing a null child clears the existing content.

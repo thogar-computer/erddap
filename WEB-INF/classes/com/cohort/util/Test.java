@@ -5,6 +5,7 @@
 package com.cohort.util;
 
 import com.cohort.array.Attributes;
+import com.cohort.array.PrimitiveArray;
 
 import java.awt.Color;
 import java.awt.Graphics;
@@ -286,39 +287,49 @@ public class Test {
         int po = 0;
         int line = 1;
         int lastNewlinePo = -1;
-        if (s1 != null && s2!=null)
-            while (po < s1.length() && po < s2.length() && s1.charAt(po) == s2.charAt(po)) {
-                if (s1.charAt(po) == '\n') {line++; lastNewlinePo = po;}
-                po++;
-            }
-        String c1 = po >= s1.length()? "" : String2.annotatedString("" + s1.charAt(po));
-        String c2 = po >= s2.length()? "" : String2.annotatedString("" + s2.charAt(po));
+        int s1length = s1.length();
+        int s2length = s2.length();
+        while (po < s1length && po < s2length && s1.charAt(po) == s2.charAt(po)) {
+            if (s1.charAt(po) == '\n') {line++; lastNewlinePo = po;}
+            po++;
+        }
+        String c1 = po >= s1length? "" : String2.annotatedString("" + s1.charAt(po));
+        String c2 = po >= s2length? "" : String2.annotatedString("" + s2.charAt(po));
         //find end of lines
         int line1End = po;
         int line2End = po;
-        while (line1End < s1.length() && s1.charAt(line1End) != '\n') line1End++;
-        while (line2End < s2.length() && s2.charAt(line2End) != '\n') line2End++;
+        while (line1End < s1length && "\r\n".indexOf(s1.charAt(line1End)) < 0) line1End++;
+        while (line2End < s2length && "\r\n".indexOf(s2.charAt(line2End)) < 0) line2End++;
         String line1Sample = String2.annotatedString(s1.substring(lastNewlinePo+1, line1End));
         String line2Sample = String2.annotatedString(s2.substring(lastNewlinePo+1, line2End));
         String annS1 = String2.annotatedString(s1);
         String annS2 = String2.annotatedString(s2);
+        int poM30 = Math.max(po-30, 0);
+        int po1P30 = Math.min(po+30, s1length);
+        int po2P30 = Math.min(po+30, s2length);
+        String local1 = s1.substring(poM30, po1P30);
+        String local2 = s2.substring(poM30, po2P30);
+        boolean showArrow = line1Sample.length() < 100 || line2Sample.length() < 100;
+        String lineCol = "line #" + line + ", col #" + (po - lastNewlinePo);
 
-        String lineString = "line=" + line + ": ";
-        return "\n" + String2.ERROR + " in Test.ensureEqual(Strings) line=" + 
-            line + " col=" + (po - lastNewlinePo) + " '" + c1 + "'!='" + c2+ "':\n" + 
-            message + "\n" +
-            (line > 1? "\"" + annS1 + "\" != \n\"" + annS2 + "\""  : "") + 
-            "\n\nSpecifically:\n" +                 
-            "s1 " + lineString + line1Sample + "\n" +
-            "s2 " + lineString + line2Sample+ "\n" +
-            String2.makeString(' ', (3 + lineString.length() + po - lastNewlinePo - 1)) + "^" + "\n";
+        return "\n" + String2.ERROR + " in Test.ensureEqual(Strings) " + lineCol + " '" + c1 + "'!='" + c2+ "':\n" + 
+            (message.length() > 0? message + "\n" : "") +
+            (line > 1? "\"" + annS1 + "\" != \n\"" + annS2 + "\"\n"  : "") + 
+            "Specifically, at " + lineCol + ":\n" +                 
+            "s1: " + line1Sample + "\n" +
+            "s2: " + line2Sample + "\n" +
+            (showArrow? 
+                String2.makeString(' ', 3 + po - lastNewlinePo) + "^" + "\n" : 
+                "More specifically, at " + lineCol + ":\n" +                 
+                "s1.substring(" + poM30 + ", " + po1P30 + ")=" + String2.annotatedString(local1) + "\n" +
+                "s2.substring(" + poM30 + ", " + po2P30 + ")=" + String2.annotatedString(local2) + "\n");
     }  
 
     /** 
      * This tests each line of the source against the regex in each line of the destination
      * to ensure each matches.  If not, this throws a RuntimeException 
      * with the specified message. 
-     * To prepare plain text for this method, you MUST add \\ before these characters {}[]()^$? .
+     * To prepare plain text for this method, you MUST add \\ before these characters {}[]()^$?+*.| .
      * Adding \\ before . is optional (since it will match).
      *
      * @param tText a newline-separated block of text.    Carriage returns are ignored.
@@ -370,6 +381,46 @@ public class Test {
         if (error.length() == 0)
             return;
         error(error);
+    }  
+
+    /** 
+     * This is like ensureLinesMatch, but will test all lines even if there are 
+     * failures on individual lines.
+     *
+     * @param tText a newline-separated block of text
+     * @param tRegex  a newline-separated set of regexes
+     * @param message
+     * @throws RuntimeException if a line of tText doesn't match a regex in tRegex
+     */
+    public static void repeatedlyTestLinesMatch(String tText, String tRegex, String message)
+        throws RuntimeException {
+
+        tText  = tText  == null? "" : String2.replaceAll(tText,  "\r", "");
+        tRegex = tRegex == null? "" : String2.replaceAll(tRegex, "\r", "");
+        String[] text  = String2.splitNoTrim(tText,  '\n');
+        String[] regex = String2.splitNoTrim(tRegex, '\n');
+        int n = Math.min(text.length, regex.length);
+        int nDifferences = 0;
+        for (int line = 0; line < n; line++) {
+            //String2.log("t" + line + "=" + text[line] + "\n" +
+            //            "r" + line + "=" + regex[line] + "\n\n");
+            if (!text[line].matches(regex[line]))
+                String2.pressEnterToContinue(
+                    message + "\n" + 
+                    MustBe.getStackTrace() +
+                    "\n" + String2.ERROR + " in Test.repeatedlyEnsureLinesMatch():\n" + 
+                    "Differentce #" + (++nDifferences) + " is:\n" +
+                    "  text [" + line + "]=" + String2.annotatedString(text[line]) + "\n" +
+                    "  regex[" + line + "]=" + String2.annotatedString(regex[line]) + "\n" +
+                    "Press Enter to see the next error. "); 
+                    //testEqual(text[line], regex[line], "");  //diagnostic
+        }
+        if (text.length != regex.length)
+            String2.pressEnterToContinue(
+                message + "\n" +                 
+                MustBe.getStackTrace() +
+                "\n" + String2.ERROR + " in Test.ensureLinesMatch():\n" + 
+                "The number of lines differs: text.length=" + text.length + " != regex.length=" + regex.length); 
     }  
 
     /** 
@@ -620,6 +671,12 @@ public class Test {
             return;
         }
 
+        if (a instanceof PrimitiveArray) {
+            String err = ((PrimitiveArray)a).testEquals(b);
+            if (err.length() > 0)
+                error(err);
+        }
+
         //fall through to most general case
         if (!a.equals(b))
             error(errorInObjectEquals + message + "\nSpecifically:\n" +
@@ -642,22 +699,24 @@ public class Test {
     }
 
     /** 
-     * This ensures s is something (not null or "") and is valid utf-8 (see String2.findInvalidUtf8(s, "\n\t")).
+     * This ensures s is something (not null or "") and is valid Unicode 
+     * (see String2.findInvalidUnicode(s, "\r\n\t")).
      *
      * @param s
      * @param message ending with the item's name
      */
-    public static void ensureSomethingUtf8(String s, String message)
+    public static void ensureSomethingUnicode(String s, String message)
         throws RuntimeException {
         if (s == null || s.trim().length() == 0)
-            error("\n" + String2.ERROR + " in Test.ensureSomethingUtf8():\n" + 
+            error("\n" + String2.ERROR + " in Test.ensureSomethingUnicode():\n" + 
                 message + " wasn't set.");
 
-        int po = String2.findInvalidUtf8(s, "\r\n\t");
+        int po = String2.findInvalidUnicode(s, "\r\n\t");
         if (po >= 0) {
             int max = Math.min(po + 20, s.length());
-            error("\n" + String2.ERROR + " in Test.ensureSomthingUtf8():\n" + 
-                message + " has an invalid UTF-8 character (#" + (int)s.charAt(po) + ") at position=" + po + 
+            error("\n" + String2.ERROR + " in Test.ensureSomthingUnicode():\n" + 
+                message + " has an invalid Unicode character (#" + 
+                (int)s.charAt(po) + ") at position=" + po + 
                 (po > 80? 
                   "\n[#] at the center of \"" + String2.annotatedString(s.substring(po - 20, max)) + "\"" :
                   "\n[#] in \"" + String2.annotatedString(s) + "\""));
@@ -665,24 +724,26 @@ public class Test {
     }  
 
     /** 
-     * This ensures atts isn't null, and the names and attributes in atts are something (not null or "") 
-     * and are valid utf-8 (see String2.findInvalidUtf8(s, "\n\t")).
+     * This ensures atts isn't null, and the names and attributes in atts are 
+     * something (not null or "") and are valid Unicode 
+     * (see String2.findInvalidUnicode(s, "\n\t")).
      * 0 names+attributes is valid.
      *
      * @param atts
      * @param message 
      */
-    public static void ensureSomethingUtf8(Attributes atts, String message)
+    public static void ensureSomethingUnicode(Attributes atts, String message)
         throws RuntimeException {
 
         if (atts == null)
-            error("\n" + String2.ERROR + " in Test.ensureSomethingUtf8():\n" + 
+            error("\n" + String2.ERROR + " in Test.ensureSomethingUnicode():\n" + 
                 message + " wasn't set.");
         String names[] = atts.getNames();
         int n = names.length;
         for (int i = 0; i < n; i++) {
-            ensureSomethingUtf8(names[i], message + ": an attribute name");
-            ensureSomethingUtf8(atts.get(names[i]).toString(), message + ": the attribute value for name=" + names[i]);
+            ensureSomethingUnicode(names[i], message + ": an attribute name");
+            ensureSomethingUnicode(atts.get(names[i]).toString(), message + 
+                ": the attribute value for name=" + names[i]);
         }
     }  
 

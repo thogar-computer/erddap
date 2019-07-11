@@ -89,13 +89,13 @@ public class GenerateThreddsXml {
      * </ul>
      * 
      * <p> Very terse catalog.xml documentation is at 
-     *   http://www.unidata.ucar.edu/software/thredds/current/tds/catalog/InvCatalogSpec.html
+     *   https://www.unidata.ucar.edu/software/thredds/current/tds/catalog/InvCatalogSpec.html
      * <p> The finished files are in, e.g., on otter
      *   /opt/tomcat1/content/thredds/Satellite/aggregsatAG/ssta/catalog.xml
      * <p> Bob has some of Jerome/Yao's handmade files
      *   e.g., c:/temp/oceanwatch new tomcat/ ...catalogHandMade70122.xml
      * <p> Bob has some sample files from Motherload
-     *   (http://motherlode.ucar.edu:8080/thredds/catalog.html):
+     *   (https://motherlode.ucar.edu/thredds/catalog.html):
      *   e.g., c:/temp/otterTomcat/MotherlodeDatasetCatalog.xml
      *
      * <p>It requires 4 parameters:
@@ -174,7 +174,7 @@ public class GenerateThreddsXml {
         StringArray allShortTitles = new StringArray();
         StringArray longShortTitles = new StringArray();
         StringArray warnings = new StringArray();
-        String skipTwoName[] = {"G1", "GR", "MW"}; //these are in ERDDAP, but not CWBrowsers
+        String skipTwoName[] = {"G1", "GR", "MW", "VN"}; //these are in ERDDAP, but not CWBrowsers
 
         for (int twoNameI = 0; twoNameI < twoNames.length; twoNameI++) {
             twoName = twoNames[twoNameI];
@@ -268,9 +268,9 @@ public class GenerateThreddsXml {
                     //it is good if maxShow=MAX_TITLE_LENGTH, but more important that info fit without wrapping
                     int maxShow = Math.min(60, MAX_TITLE_LENGTH); 
                     String2.log(
-                      "    boldTitle =" + (boldTitle  == null || boldTitle.length()  <= maxShow? boldTitle  : boldTitle.substring( 0, maxShow) + " ...") +
-                    "\n    shortTitle=" + (shortTitle == null || shortTitle.length() <= maxShow? shortTitle : shortTitle.substring(0, maxShow) + " ...") +
-                    "\n    summary="    + (summary    == null || summary.length()    <= maxShow? summary    : summary.substring(   0, maxShow) + " ...") +
+                      "    boldTitle =" + boldTitle +
+                    "\n    shortTitle=" + shortTitle +
+                    "\n    summary="    + summary +
                     "\n    units=" + units +
                     "\n    standardName=" + standardName +
                     "\n    category=" + category);
@@ -281,8 +281,8 @@ public class GenerateThreddsXml {
                 xml.append(
                     "<?xml version=\"1.0\" encoding=\"UTF-8\"?> \n" +
                     "<catalog xmlns=\"http://www.unidata.ucar.edu/namespaces/thredds/InvCatalog/v1.0\" \n" +
-                    "         xmlns:xlink=\"http://www.w3.org/1999/xlink\" \n" +
-                    "         xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" \n" +
+                    "         xmlns:xlink=\"https://www.w3.org/1999/xlink\" \n" +
+                    "         xmlns:xsi=\"https://www.w3.org/2001/XMLSchema-instance\" \n" +
                     "         xsi:schemaLocation=\"http://www.unidata.ucar.edu/namespaces/thredds/InvCatalog/v1.0 http://www.unidata.ucar.edu/schemas/thredds/InvCatalog.1.0.xsd\" \n" +
                     //Yao AGssta has GLOBEC for name(!); others have Satellite Data Server; or CA Data Server
                     //documentation isn't clear.   2006/10/11 I'll try "Oceanwatch THREDDS Data Server" for everything
@@ -296,7 +296,7 @@ public class GenerateThreddsXml {
                     "    <service name=\"wcs\" serviceType=\"WCS\" base=\"/thredds/wcs/\" \n" +
                     "      suffix=\"?request=GetCapabilities&amp;version=1.0.0&amp;service=WCS\" />\n" +
                     //"    <!-- <service name=\"HTTPServer\" serviceType=\"HTTPServer\" base=\"/thredds/fileServer/\" />\n" +
-                    //"    <service name=\"rdbmDods\" serviceType=\"OPENDAP\" base=\"http://oceanwatch.pfeg.noaa.gov/dods/\" /> -->\n" +
+                    //"    <service name=\"rdbmDods\" serviceType=\"OPENDAP\" base=\"https://oceanwatch.pfeg.noaa.gov/dods/\" /> -->\n" +
                     "  </service>\n" +
                     "\n" +
                     "  <dataset name=\"" + shortTitle + "\">\n");
@@ -475,13 +475,13 @@ public class GenerateThreddsXml {
                                  "urlPath=\"" + dataSubDir + twoFourTime + "\">\n" +
                         "      <serviceName>all</serviceName>\n" +
                         //2006/10/11 I added netcdf tag:
-                        //documentation: http://oceanwatch.pfeg.noaa.gov/thredds/docs/NcML.htm
+                        //documentation: https://oceanwatch.pfeg.noaa.gov/thredds/docs/NcML.htm
                         "      <netcdf xmlns=\"http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2\"> \n" +
                         "        <aggregation dimName=\"time\" type=\"joinExisting\" recheckEvery=\"" + recheckEvery + " min\"> \n" +
                         "          <variableAgg name=\"" + twoName + fourName + "\" /> \n" +
                         //Eeek! Is dateFormatMark correct?  it catches start date and treats composite end date as HHmmss
                         //Is it even relevant? (I think it is for joinNew, not joinExisting)
-                        //see http://www.unidata.ucar.edu/software/netcdf/ncml/v2.2/Aggregation.html
+                        //see https://www.unidata.ucar.edu/software/netcdf/ncml/v2.2/Aggregation.html
                         //10/11/06 let's try not having it
                         "          <scan " + 
                         //             "dateFormatMark=\"" + twoName + "#yyyyDDD_HHmmss\" " + 
@@ -502,9 +502,9 @@ public class GenerateThreddsXml {
                         "          The data may be used and redistributed for free but is not intended for legal use, since it may contain inaccuracies. Neither the data Contributor, CoastWatch, NOAA, nor the United States Government, nor any of their employees or contractors, makes any warranty, express or implied, including warranties of merchantability and fitness for a particular purpose, or assumes any legal liability for the accuracy, completeness, or usefulness, of this information.\n" +
                         "        </documentation>\n" +
                         "        <documentation xlink:href=\"" +
-                                   "http://coastwatch.pfeg.noaa.gov/infog/" + twoName + "_" + fourName + "_las.html\" \n" +  //Yao QNux10 had no info
+                                   "https://coastwatch.pfeg.noaa.gov/infog/" + twoName + "_" + fourName + "_las.html\" \n" +  //Yao QNux10 had no info
                         "          xlink:title=\"Dataset Summary\" /> \n" +
-                        "        <documentation xlink:href=\"http://oceanwatch.pfeg.noaa.gov\" \n" +
+                        "        <documentation xlink:href=\"https://oceanwatch.pfeg.noaa.gov\" \n" +
                         "          xlink:title=\"Oceanwatch Live Access Server\" /> \n" +
                         //add link to CWBrowsers?
                         "\n" +
@@ -524,7 +524,7 @@ public class GenerateThreddsXml {
                         //originally Jerome had something like:
                         //"        <creator>\n" +
                         //"          <name vocabulary=\"DIF\">NOAA NESDIS CoastWatch West Coast Regional Node</name>\n" +
-                        //"          <contact url=\"http://coastwatch.pfeg.noaa.gov\" email=\"dave.foley@noaa.gov\" />\n" +
+                        //"          <contact url=\"https://coastwatch.pfeg.noaa.gov\" email=\"erd.data@noaa.gov\" />\n" +
                         //"        </creator>\n" +
                         "\n" +
                         "        <geospatialCoverage>\n" +
@@ -552,13 +552,13 @@ public class GenerateThreddsXml {
                                       Calendar2.SECONDS_SINCE_1970 + "\">time</variable>\n" +
                         "          <variable name=\"altitude\" vocabulary_name=\"altitude\" units=\"m\">altitude</variable>\n" +
                         "          <variable name=\"lat\" vocabulary_name=\"latitude\" units=\"degrees_north\">lat</variable>\n" + //Yao had degrees North
-                        "          <variable name=\"lon\" vocabulary_name=\"longtitude\" units=\"degrees_east\">lon</variable>\n" +
+                        "          <variable name=\"lon\" vocabulary_name=\"longitude\" units=\"degrees_east\">lon</variable>\n" +
                         "          <variable name=\"" + twoName + fourName + "\" " + 
                                      //vocabulary name is required, but CF standard name list (and hence
                                      //DataSet.properties) often doesn't have an appropriate standardName!    
                                      //Yao had non-standard name, e.g., Wind Stress.  
                                      //Examples in 
-                                     //http://www.unidata.ucar.edu/software/thredds/current/tds/catalog/InvCatalogSpec.html
+                                     //https://www.unidata.ucar.edu/software/thredds/current/tds/catalog/InvCatalogSpec.html
                                      //  are like Yao's -- not strict CF, but closer -- just humanized versions.
                                      //Tests with thredds show that value = "" is fine with Thredds.
                                      "vocabulary_name=\"" + standardName + "\" " + 
@@ -762,7 +762,7 @@ String2.log("***end catalog.xml");
      * which is only useful while testing shortenBoldTitles.
      */
     public static void testShortenBoldTitles() {
-        String2.log("\n*** testing GenerateThreddsXml.testShortenBoldTitles");
+        String2.log("\n*** GenerateThreddsXml.testShortenBoldTitles");
         ResourceBundle2 dataSetRB2 = new ResourceBundle2("gov.noaa.pfel.coastwatch.DataSet");
         String validDataSets[] = String2.split(
             dataSetRB2.getString("validDataSets", null), '`');

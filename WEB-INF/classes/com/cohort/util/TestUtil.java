@@ -25,9 +25,8 @@ import java.util.TimeZone;
 import java.util.Vector;
 import javax.imageio.ImageIO;
 
-import org.joda.time.DateTimeZone;
-import org.joda.time.format.DateTimeFormat;
-import org.joda.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatter;
+import java.time.ZoneId; 
 
 /**
  * This is a Java program to test all of the methods in com.cohort.util.
@@ -42,7 +41,7 @@ public class TestUtil {
      * Test the methods in Test.
      */
     public static void testTest() {
-        String2.log("\n********************************************************* testTest");
+        String2.log("\n*** TestUtil.testTest");
         Test.ensureTrue(true,   "a");
         Test.ensureEqual(   true, true,   "a");
         Test.ensureEqual(   false, false, "b");
@@ -104,21 +103,60 @@ public class TestUtil {
      * Test the methods in Math2.
      */
     public static void testMath2() {
-        String2.log("\n********************************************************* testMath2");
+        String2.log("\n*** TestUtil.testMath2");
 
         //can 215.1125 be exactly represented in a float?
         float f = 215.1125f;
         String2.log("test 215.1125 = " + f);
+        String2.log("test log10 20215.1125 = " + f);
         Test.ensureEqual("215.1125", "" + f, "215.1125");
+
+        double d0 = 5.0;
+        double d1 = Double.POSITIVE_INFINITY;
+        double d2 = Double.NEGATIVE_INFINITY;
+        double d3 = Double.NaN;
+        Test.ensureTrue(Math2.equalsIncludingNanOrInfinite(d0, d0), "");
+        Test.ensureTrue(Math2.equalsIncludingNanOrInfinite(d1, d1), "");
+        Test.ensureTrue(Math2.equalsIncludingNanOrInfinite(d2, d2), "");
+        Test.ensureTrue(Math2.equalsIncludingNanOrInfinite(d3, d3), "");
+        Test.ensureTrue(!Math2.equalsIncludingNanOrInfinite(d0, d1), "");
+        Test.ensureTrue(!Math2.equalsIncludingNanOrInfinite(d0, d2), "");
+        Test.ensureTrue(!Math2.equalsIncludingNanOrInfinite(d0, d3), "");
+        Test.ensureTrue(!Math2.equalsIncludingNanOrInfinite(d1, d0), "");
+        Test.ensureTrue(!Math2.equalsIncludingNanOrInfinite(d1, d2), "");
+        Test.ensureTrue(!Math2.equalsIncludingNanOrInfinite(d1, d3), "");
+        Test.ensureTrue(!Math2.equalsIncludingNanOrInfinite(d2, d0), "");
+        Test.ensureTrue(!Math2.equalsIncludingNanOrInfinite(d2, d1), "");
+        Test.ensureTrue(!Math2.equalsIncludingNanOrInfinite(d2, d3), "");
+        Test.ensureTrue(!Math2.equalsIncludingNanOrInfinite(d3, d0), "");
+        Test.ensureTrue(!Math2.equalsIncludingNanOrInfinite(d3, d1), "");
+        Test.ensureTrue(!Math2.equalsIncludingNanOrInfinite(d3, d2), "");
+
+        //longToDoubleNaN
+        String2.log("test longToDoubleNaN");
+        Test.ensureEqual(Math.round(Math2.longToDoubleNaN(-9223372036854775808L)), 
+                                                          -9223372036854775808L, "k-"); 
+        Test.ensureEqual(String2.parseDouble("" + Math2.longToDoubleNaN(
+            -9223372036854775808L)), 
+           -9.223372036854776E18, "k-2"); 
+        Test.ensureEqual(Math.round(-9.223372036854776E18), 
+                                     -9223372036854775808L, "k-3"); 
+        Test.ensureEqual(Math2.roundToLong(-9.223372036854776E18), 
+                                            -9223372036854775808L, "k-3"); 
+        Test.ensureEqual(Math.round(Math2.longToDoubleNaN( 9223372036854775806L)), 
+                                                           9223372036854774784L, "k+"); //Not good, but best available
+
+        Test.ensureEqual(Math2.longToDoubleNaN(9223372036854775807L),  Double.NaN, "kMV"); 
+        Test.ensureEqual(Math2.longToDoubleNaN(Long.MAX_VALUE),        Double.NaN, "kMV2"); 
 
         //log10
         String2.log("test log10");
-        Test.ensureEqual(Math2.log10(100), 2, "a"); 
-        Test.ensureEqual(Math2.log10(0.01), -2, "b"); 
-        Test.ensureEqual(Math2.log10(0), Double.NEGATIVE_INFINITY, "c"); 
-        Test.ensureEqual(Math2.log10(-1), Double.NaN, "d"); 
-        Test.ensureEqual(Math2.log10(Double.POSITIVE_INFINITY), Double.POSITIVE_INFINITY, "e"); 
-        Test.ensureEqual(Math2.log10(Double.NaN), Double.NaN, "f"); 
+        Test.ensureEqual(Math.log10(100), 2, "a"); 
+        Test.ensureEqual(Math.log10(0.01), -2, "b"); 
+        Test.ensureEqual(Math.log10(0), Double.NEGATIVE_INFINITY, "c"); 
+        Test.ensureEqual(Math.log10(-1), Double.NaN, "d"); 
+        Test.ensureEqual(Math.log10(Double.POSITIVE_INFINITY), Double.POSITIVE_INFINITY, "e"); 
+        Test.ensureEqual(Math.log10(Double.NaN), Double.NaN, "f"); 
 
         //trunc
         String2.log("test trunc");
@@ -197,13 +235,13 @@ public class TestUtil {
 
         //isFinite
         String2.log("test isFinite");
-        Test.ensureEqual(Math2.isFinite(0.0234), true, "a");
-        Test.ensureEqual(Math2.isFinite(-0.0234), true, "b");
-        Test.ensureEqual(Math2.isFinite(0), true, "c");
-        Test.ensureEqual(Math2.isFinite(1e301), true, "d");
-        Test.ensureEqual(Math2.isFinite(Double.NaN), false, "e");
-        Test.ensureEqual(Math2.isFinite(Double.POSITIVE_INFINITY), false, "f");
-        Test.ensureEqual(Math2.isFinite(Double.NEGATIVE_INFINITY), false, "g");
+        Test.ensureEqual(Double.isFinite(0.0234), true, "a");
+        Test.ensureEqual(Double.isFinite(-0.0234), true, "b");
+        Test.ensureEqual(Double.isFinite(0), true, "c");
+        Test.ensureEqual(Double.isFinite(1e301), true, "d");
+        Test.ensureEqual(Double.isFinite(Double.NaN), false, "e");
+        Test.ensureEqual(Double.isFinite(Double.POSITIVE_INFINITY), false, "f");
+        Test.ensureEqual(Double.isFinite(Double.NEGATIVE_INFINITY), false, "g");
 
         //NaNCheck
         String2.log("test NaNCheck");
@@ -479,8 +517,12 @@ public class TestUtil {
         Test.ensureEqual(Math2.roundToLong(0.5),    1, "g");
         Test.ensureEqual(Math2.roundToLong(0.6),    1, "h");
         Test.ensureEqual(Math2.roundToLong(1.49),   1, "i");
-        Test.ensureEqual(Math2.roundToLong(Long.MIN_VALUE - 0.499), Long.MAX_VALUE, "k"); //unusual: limited double precision throws this to mv
-        Test.ensureEqual(Math2.roundToLong(Long.MAX_VALUE + 0.499), Long.MAX_VALUE, "l");
+        //                  MIN_VALUE      -9223372036854775808.0
+        Test.ensureEqual(Math2.roundToLong(-9223372036854777000.0), Long.MAX_VALUE, "k"); //unusual: limited double precision throws this to mv
+        Test.ensureEqual(Math2.roundToLong(Long.MIN_VALUE), Long.MIN_VALUE, "k"); //unusual: limited double precision throws this to mv
+        Test.ensureEqual(Math2.roundToLong(9.223372036854774784E18),  //largest that can do round trip
+                                            9223372036854774784L, "l");
+        Test.ensureEqual(Math2.roundToLong(Long.MAX_VALUE), Long.MAX_VALUE, "l");
         Test.ensureEqual(Math2.roundToLong(Double.NaN), Long.MAX_VALUE, "m");
         Test.ensureEqual(Math2.roundToLong(Double.POSITIVE_INFINITY), Long.MAX_VALUE, "o");
         Test.ensureEqual(Math2.roundToLong(Double.NEGATIVE_INFINITY), Long.MAX_VALUE, "p");
@@ -756,12 +798,24 @@ public class TestUtil {
         //suggestLowHigh
         String2.log("test suggestLowHigh");
         double lowHigh[];
-        lowHigh = Math2.suggestLowHigh(0, Double.NaN); //one is NaN
+        lowHigh = Math2.suggestLowHigh(432, Double.NaN); //low is NaN
+        Test.ensureEqual(lowHigh[0], 400, "");
+        Test.ensureEqual(lowHigh[1], 900, "");
+        lowHigh = Math2.suggestLowHigh(-432, Double.NaN); //low is NaN
+        Test.ensureEqual(lowHigh[0], -450, "");
+        Test.ensureEqual(lowHigh[1], -200, "");
+        lowHigh = Math2.suggestLowHigh(Double.NaN, 1547); //high is NaN
+        Test.ensureEqual(lowHigh[0], 600, "");
+        Test.ensureEqual(lowHigh[1], 1600, "");
+        lowHigh = Math2.suggestLowHigh(Double.NaN, -1547); //high is NaN
+        Test.ensureEqual(lowHigh[0], -3500, "");
+        Test.ensureEqual(lowHigh[1], -1500, "");
+        lowHigh = Math2.suggestLowHigh(Double.NaN, Double.NaN); //one is NaN
         Test.ensureEqual(lowHigh[0], 0, "");
         Test.ensureEqual(lowHigh[1], 1, "");
-        lowHigh = Math2.suggestLowHigh(0,0);  //positive and ==
+        lowHigh = Math2.suggestLowHigh(0,0);  //both 0
         Test.ensureEqual(lowHigh[0], -1, "");
-        Test.ensureEqual(lowHigh[1],  1, "");
+        Test.ensureEqual(lowHigh[1], 1, "");
         lowHigh = Math2.suggestLowHigh(2,2);  //positive and ==
         Test.ensureEqual(lowHigh[0], 1.9, "");
         Test.ensureEqual(lowHigh[1], 2.1, "");
@@ -771,12 +825,18 @@ public class TestUtil {
         lowHigh = Math2.suggestLowHigh(0, 10); //0 low is special case, high has buffer zone
         Test.ensureEqual( lowHigh[0], 0, "a");
         Test.ensureEqual( lowHigh[1], 15, "b");
-        lowHigh = Math2.suggestLowHigh(5, 10); //0 low is special case, high has buffer zone
+        lowHigh = Math2.suggestLowHigh(0, 1214); //0 low is special case, high has buffer zone
+        Test.ensureEqual( lowHigh[0], 0, "a");
+        Test.ensureEqual( lowHigh[1], 1500, "b");
+        lowHigh = Math2.suggestLowHigh(5, 10); //high has buffer zone
         Test.ensureEqual( lowHigh[0], 4, "a2");
         Test.ensureEqual( lowHigh[1], 11, "b2");
         lowHigh = Math2.suggestLowHigh(0.1, 9.9);
         Test.ensureEqual( lowHigh[0], 0, "c");
         Test.ensureEqual( lowHigh[1], 10, "d");
+        lowHigh = Math2.suggestLowHigh(0, 14234);
+        Test.ensureEqual( lowHigh[0], 0, "c2");
+        Test.ensureEqual( lowHigh[1], 15000, "d2");
         lowHigh = Math2.suggestLowHigh(-9.9, -0.1);
         Test.ensureEqual( lowHigh[0], -10, "e");
         Test.ensureEqual( lowHigh[1], 0, "f");
@@ -1039,6 +1099,7 @@ public class TestUtil {
         Test.ensureEqual(Math2.binaryFindClosest(sortedDuplicates, 2.9),  6, "");
         Test.ensureEqual(Math2.binaryFindClosest(sortedDuplicates, 3.1),  6, "");
 
+        String2.log("test reduceHashCode");
         Random random = new Random();
         for (i = 0; i < 100; i++) {
             int j = random.nextInt();  
@@ -1049,6 +1110,7 @@ public class TestUtil {
             for (int k = 0; k < n; k++)
                 Test.ensureTrue(String2.isDigit(s.charAt(k)), error);
         }
+
     }
 
     public static void timeCurrentTimeMillis() {
@@ -1093,14 +1155,17 @@ public class TestUtil {
      * Test String2LogOutputStream.
      */
     public static void testString2LogOutputStream() throws Exception {
-        String2.log("***************************************** testString2LogOutputStream");
+        String2.log("\n*** TestUtil.testString2LogOutputStream");
 
         String2LogOutputStream out = new String2LogOutputStream();
-        out.write('a');
-        out.write(new byte[]{(byte)'b', (byte)'c', (byte)13, (byte)10, (byte)'a'});
-        out.write(new byte[]{(byte)'b', (byte)'c', (byte)13, (byte)10, (byte)'a'});
-        out.close();
-        String2.log("It should have just logged \"abc\" twice.");
+        try {
+            out.write('a');
+            out.write(new byte[]{(byte)'b', (byte)'c', (byte)13, (byte)10, (byte)'a'});
+            out.write(new byte[]{(byte)'b', (byte)'c', (byte)13, (byte)10, (byte)'a'});
+        } finally {
+            out.close();
+        }
+        String2.log("It should have just logged \"bc\\r\\na\" twice.");
     }
         
 
@@ -1109,7 +1174,7 @@ public class TestUtil {
      * Test the methods in String2.
      */
     public static void testString2() throws Exception {
-        String2.log("*********************************************************** testString2");
+        String2.log("\n*** TestUtil.testString2");
         String sar[];
         StringBuilder sb;
         double dar[];
@@ -1184,6 +1249,41 @@ public class TestUtil {
         s = "-1.0e1+5"; Test.ensureEqual(String2.isNumber(s), false, "s=" + s);
         s = "-1.0ee+5"; Test.ensureEqual(String2.isNumber(s), false, "s=" + s);
         s = "e2";       Test.ensureEqual(String2.isNumber(s), false, "s=" + s);
+
+        //isSomething
+        Test.ensureEqual(String2.isSomething(null), false, "");
+        Test.ensureEqual(String2.isSomething(""), false, "");
+        Test.ensureEqual(String2.isSomething(" "), false, "");
+        Test.ensureEqual(String2.isSomething("\n"), false, "");
+        Test.ensureEqual(String2.isSomething(" \n"), false, "");
+        Test.ensureEqual(String2.isSomething("ab"), true, "");
+
+        Test.ensureEqual(String2.isSomething("."), true, "");
+        Test.ensureEqual(String2.isSomething("?"), true, "");
+
+        //isSomething2
+        Test.ensureEqual(String2.isSomething2(null), false, "");
+        Test.ensureEqual(String2.isSomething2(""), false, "");
+        Test.ensureEqual(String2.isSomething2(" "), false, "");
+        Test.ensureEqual(String2.isSomething2("\n"), false, "");
+        Test.ensureEqual(String2.isSomething2(" \n"), false, "");
+        Test.ensureEqual(String2.isSomething2("ab"), true, "");
+
+        //things different in isSomething2   (case insensitive)
+        Test.ensureEqual(String2.isSomething2("."), false, "");
+        Test.ensureEqual(String2.isSomething2("-"), false, "");
+        Test.ensureEqual(String2.isSomething2("?"), false, "");
+        Test.ensureEqual(String2.isSomething2("n/a"), false, "");
+        Test.ensureEqual(String2.isSomething2("N/A"), false, "");
+        Test.ensureEqual(String2.isSomething2("na"), false, "");
+        Test.ensureEqual(String2.isSomething2(" None "), false, "");
+        Test.ensureEqual(String2.isSomething2("none."), false, "");
+        Test.ensureEqual(String2.isSomething2("not Applicable"), false, "");
+        Test.ensureEqual(String2.isSomething2("null"), false, "");
+        Test.ensureEqual(String2.isSomething2("unKnown"), false, "");
+        Test.ensureEqual(String2.isSomething2("unSpecified"), false, "");
+        Test.ensureEqual(String2.isSomething2("..."), false, "");
+        Test.ensureEqual(String2.isSomething2("???"), false, "");
 
         //removeLeading
         Test.ensureEqual(String2.removeLeading(null, ' '), null, "");
@@ -1404,8 +1504,8 @@ public class TestUtil {
 
         //toJson
         String2.log("test toJson");
-        String a = "\\ \f\n\r\t\" z\u0000\uffffÿ";
-        String b = "\"\\\\ \\f\\n\\r\\t\\\" z\\u0000\\uffffÿ\"";
+        String a = "\\ \f\n\r\t\" z\u0000\uffff\u00ff";
+        String b = "\"\\\\ \\f\\n\\r\\t\\\" z\\u0000\\uffff\\u00ff\"";
         Test.ensureEqual(String2.toJson(a),   b, "");
         Test.ensureEqual(String2.fromJson(b), a, "");
         Test.ensureEqual(String2.fromJson("\\?\\'"), "?'", "");
@@ -1419,18 +1519,79 @@ public class TestUtil {
         Test.ensureEqual(String2.fromJson("\\x6m"), "", "");
         Test.ensureEqual(String2.fromJson("\\u006m"), "", "");
 
+        Test.ensureEqual(String2.fromJson("null"),        "null", "");
+        Test.ensureEqual(String2.fromJson(null),           null, "");
+        Test.ensureEqual(String2.fromJsonNotNull("null"), "null",   "");
+        Test.ensureEqual(String2.fromJsonNotNull(null),    "",   "");
+
+        //toIso88591String
+        String2.log("test toIso88591String");
+        s = String2.annotatedString(String2.toIso88591String("\u0000\n\r\t\f aA\u0091\u00fc\u20ac"));
+        Test.ensureEqual(s, "[0][10]\n[13][9][12] aA?[252]?[end]", "results=" + s);
+
+        //fromNccsvChar
+        String2.log("test fromNccsvChar");
+        Test.ensureEqual("" + String2.fromNccsvChar("a"),            "a", "");
+        Test.ensureEqual("" + String2.fromNccsvChar(" "),            " ", "");
+        Test.ensureEqual("" + String2.fromNccsvChar("' '"),          " ", "");
+        Test.ensureEqual("" + String2.fromNccsvChar("\" \""),        " ", "");
+        Test.ensureEqual("" + String2.fromNccsvChar("\"' '\""),      " ", "");
+        Test.ensureEqual("" + String2.fromNccsvChar("\"'\"\"'\""),   "\"", "");
+        Test.ensureEqual("" + String2.fromNccsvChar("\\t"),          "\t", "");
+        Test.ensureEqual("" + String2.fromNccsvChar("\\n"),          "\n", "");
+        Test.ensureEqual("" + String2.fromNccsvChar("\u20AC"),       "\u20ac", "");
+        Test.ensureEqual("" + String2.fromNccsvChar("'\u20AC'"),     "\u20ac", "");
+        Test.ensureEqual("" + String2.fromNccsvChar("\"\u20AC\""),   "\u20ac", "");
+        Test.ensureEqual("" + String2.fromNccsvChar("\"'\u20AC'\""), "\u20ac", "");
+        Test.ensureEqual("" + String2.fromNccsvChar("\"\""),         "?", "");
+        Test.ensureEqual("" + String2.fromNccsvChar("\'\'"),         "?", "");
+        Test.ensureEqual("" + String2.fromNccsvChar(""),             "?", "");
+        Test.ensureEqual("" + String2.fromNccsvChar(null),           "?", "");
+
+
+        //toNccsvString
+        String2.log("test toNccsvString");
+        a = "\\ \f\n\r\t\"' z\u0000\uffffÿ";
+        b = "\"\\\\ \\f\\n\\r\\t\"\"' z\\u0000\\uffff\\u00ff\"";
+        Test.ensureEqual(String2.toNccsvDataString(a),   b, "");
+
+
+        //PERSON_REGEX
+        String2.log("test PERSON_REGEX");
+        Test.ensureTrue("Dr. Kenneth S. Jones, something".matches(String2.ACDD_PERSON_REGEX2), "");
+        Test.ensureTrue("Dr. Kenneth S. Jones".matches(String2.ACDD_PERSON_REGEX2), "");
+        Test.ensureTrue("Dr. K S. Jones".matches(String2.ACDD_PERSON_REGEX2), "");
+        Test.ensureTrue("Ken S. Jones".matches(String2.ACDD_PERSON_REGEX2), "");
+        Test.ensureTrue("Ken S Jones".matches(String2.ACDD_PERSON_REGEX2), "");
+        Test.ensureTrue("Ken Jones".matches(String2.ACDD_PERSON_REGEX2), "");
+        Test.ensureTrue("K Jones".matches(String2.ACDD_PERSON_REGEX2), "");
+        Test.ensureTrue("Ke Jo".matches(String2.ACDD_PERSON_REGEX2), "");
+        Test.ensureTrue("Mary McKibbon".matches(String2.ACDD_PERSON_REGEX2), "");
+        Test.ensureTrue("Mary MacKibbon".matches(String2.ACDD_PERSON_REGEX2), "");
+
+        Test.ensureTrue(!"Dr. Kenneth S. Jones,".matches(String2.ACDD_PERSON_REGEX2), "");
+        Test.ensureTrue(!"Kenneth R S Jones".matches(String2.ACDD_PERSON_REGEX2), "");
+        Test.ensureTrue(!"D. K S. Jones".matches(String2.ACDD_PERSON_REGEX2), "");
+        Test.ensureTrue(!"K S. CJones".matches(String2.ACDD_PERSON_REGEX2), "");
+        Test.ensureTrue(!"K S.. Jones".matches(String2.ACDD_PERSON_REGEX2), "");
+        Test.ensureTrue(!"KS Jones".matches(String2.ACDD_PERSON_REGEX2), "");
+        Test.ensureTrue(!"Ke. Jones".matches(String2.ACDD_PERSON_REGEX2), "");
+        Test.ensureTrue(!"Jones".matches(String2.ACDD_PERSON_REGEX2), "");
+        Test.ensureTrue(!"Ken MdKelty".matches(String2.ACDD_PERSON_REGEX2), "");
+
+
         //annotatedString
         String2.log("test annotatedString");
         Test.ensureEqual(String2.annotatedString("\ta\nb"), "[9]a[10]\nb[end]", "a");
 
         //extractRegex
         String2.log("test extractRegex");
-        String regex = "<b>[-]?[0-9]+\\.[0-9]+ [SN]\\s+[-]?[0-9]+\\.[0-9]+ [WE] \\(";
+        String regex = "<strong>[-]?[0-9]+\\.[0-9]+ [SN]\\s+[-]?[0-9]+\\.[0-9]+ [WE] \\(";
         Test.ensureEqual(
-            String2.extractRegex("JUNK<b>9.9 S 105.2 W (JUNK", regex, 0), 
-            "<b>9.9 S 105.2 W (", "a");
+            String2.extractRegex("JUNK<strong>9.9 S 105.2 W (JUNK", regex, 0), 
+            "<strong>9.9 S 105.2 W (", "a");
         Test.ensureEqual(
-            String2.extractRegex("JUNK<b>9.9 Sz 105.2 W (JUNK", //extra z in middle
+            String2.extractRegex("JUNK<strong>9.9 Sz 105.2 W (JUNK", //extra z in middle
                 regex, 0), 
             null, "b");
 
@@ -1446,6 +1607,24 @@ public class TestUtil {
         String2.log("test extractRegex");
         Test.ensureEqual(String2.extractCaptureGroup("bc&a&", "b(\\w+)&.*", 1), "c", "a");
         Test.ensureEqual(String2.extractCaptureGroup("bedad", "b(.+?)d.*", 1),  "e", "b"); //reluctant
+
+        //utf8 conversions
+        String os = " s\\\n\tÃ\u20ac ";
+
+        byte bar[] = String2.stringToUtf8Bytes(os);
+        Test.ensureEqual(String2.toCSSVString(bar), "32, 115, 92, 10, 9, -61, -125, -30, -126, -84, 32", "");
+        s = String2.utf8BytesToString(bar); 
+        Test.ensureEqual(s, os, "s=" + String2.annotatedString(s));
+
+        s = String2.stringToUtf8String(os);
+        Test.ensureEqual(String2.annotatedString(s), 
+            " s\\[10]\n" +
+            "[9][195][131][226][130][172] [end]" , 
+            "s=" + String2.annotatedString(s));
+        s = String2.utf8StringToString(s);
+        Test.ensureEqual(s, os, "s=" + String2.annotatedString(s));
+
+        
 
         //indexOfIgnoreCase(s)
         String2.log("test indexOfIgnoreCase(s)");
@@ -1784,6 +1963,14 @@ public class TestUtil {
         Test.ensureEqual(String2.replaceAllIgnoreCase("Abcbcd", "B",  "qt"), "Aqtcqtcd", "");
         Test.ensureEqual(String2.replaceAllIgnoreCase("ABcbcd", "b",  "qt"), "Aqtcqtcd", "");
         Test.ensureEqual(String2.replaceAllIgnoreCase("ABcbcd", "B",  "qt"), "Aqtcqtcd", "");
+
+        //repeatedlyReplaceAll
+        Test.ensureEqual(String2.repeatedlyReplaceAll("AbBbBaBBaB", "bb", "b", true), "AbabaB", "");
+        Test.ensureEqual(String2.repeatedlyReplaceAll("AbBbBaBBaB", "c",  "c", true), "AbBbBaBBaB", "");
+        sb = new StringBuilder("AbBbBaBBaB");
+        Test.ensureEqual(String2.repeatedlyReplaceAll(sb, "bb", "b", true).toString(), "AbabaB", "");
+        sb = new StringBuilder("AbBbBaBBaB");
+        Test.ensureEqual(String2.repeatedlyReplaceAll(sb, "c",  "c", true).toString(), "AbBbBaBBaB", "");
 
         //combine spaces
         String2.log("test combineSpaces");
@@ -2448,17 +2635,20 @@ public class TestUtil {
             "ThisIsReallyLongThisIsReallyLongThisIsReallyLong"), 
             "ThisIsReallyLongThisIsReaxhdce7_15a4_56ff", "");
 
-        //encodeVariableNameSafe
-        String2.log("test String2.encodeVariableNameSafe");
-        Test.ensureEqual(String2.encodeVariableNameSafe(null), "x_1", "");
-        Test.ensureEqual(String2.encodeVariableNameSafe(""), "x_0", "");
-        Test.ensureEqual(String2.encodeVariableNameSafe("1z"), "x31z", "");
-        Test.ensureEqual(String2.encodeVariableNameSafe(".z"), "x2ez", "");
-        Test.ensureEqual(String2.encodeVariableNameSafe("aBc"), "aBc", "");
-        Test.ensureEqual(String2.encodeVariableNameSafe(
+        //encodeMatlabNameSafe
+        String2.log("test String2.encodeMatlabNameSafe");
+        Test.ensureEqual(String2.encodeMatlabNameSafe(null), "x_1", "");
+        Test.ensureEqual(String2.encodeMatlabNameSafe(""), "x_0", "");
+        Test.ensureEqual(String2.encodeMatlabNameSafe("1z"), "x31z", "");
+        Test.ensureEqual(String2.encodeMatlabNameSafe(".z"), "x2ez", "");
+        Test.ensureEqual(String2.encodeMatlabNameSafe("aBc"), "aBc", "");
+        Test.ensureEqual(String2.encodeMatlabNameSafe("maxLength"), "max78Length", "");
+        Test.ensureEqual(String2.encodeMatlabNameSafe("max_length"), "max78_length", "");
+        Test.ensureEqual(String2.encodeMatlabNameSafe("max!length"), "max78x21length", "");
+        Test.ensureEqual(String2.encodeMatlabNameSafe(
             "1-._ xA&°\u1234"), 
             "x31x2dx2e_x20x78Ax26xb0xx1234", "");
-        Test.ensureEqual(String2.encodeVariableNameSafe(
+        Test.ensureEqual(String2.encodeMatlabNameSafe(
             "ThisIsReallyLongThisIsReallyLongThisIsReallyLong"), 
             "ThisIsReallyLongThisIsReaxhdce7_15a4_56ff", "");
 
@@ -2473,6 +2663,10 @@ public class TestUtil {
         Test.ensureEqual(String2.toTitleCase(""), "", "");
         Test.ensureEqual(String2.toTitleCase("a"), "A", "");
         Test.ensureEqual(String2.toTitleCase("a b"), "A B", "");
+
+        //camelCaseToTitleCase
+        String2.log("test String2.camelCaseToTitleCase");
+        Test.ensureEqual(String2.camelCaseToTitleCase("camelCase9.9String"), "Camel Case 9.9 String", "");
 
         //toVariableName
         String2.log("test String2.toVariableName");
@@ -2534,154 +2728,1413 @@ public class TestUtil {
     }
 
     /**
+     * @param dts dateTimeString
+     * @param dtf dateTimeFormat
+     * @param tzs timeZoneString
+     * @param es expected epochSeconds
+     * @throws RuntimeException if trouble
+     */
+    public static void testDateTimeFormatters(String dts, String dtf, String tzs, double es) {
+        testDateTimeFormatters(dts, dtf, tzs, 
+            Calendar2.epochSecondsToIsoStringT3Z(es));
+    }
+
+    /**
+     * These tests that the Java DateTimeFormatter and Calendar2.parseDateTime
+     * parse dateTimeString the same way.
+     *
+     * @param dts dateTimeString
+     * @param dtf dateTimeFormat
+     * @param tzs timeZoneString
+     * @param eis expected ISO 8601 string
+     * @throws RuntimeException if trouble
+     */
+    public static void testDateTimeFormatters(String dts, String dtf, String tzs, String eis) {
+        DateTimeFormatter dtfr = Calendar2.makeDateTimeFormatter(dtf, tzs);
+        String s = Calendar2.epochSecondsToIsoStringT3Z(
+            Calendar2.parseToEpochSecondsViaBuggyDateTimeFormatter(dts, dtfr)); 
+        Test.ensureEqual(s, eis, "viaBuggyOfficialJavaDateTimeFormatter: " + dts + "  " + dtf + "  " + tzs); 
+        s = Calendar2.epochSecondsToIsoStringT3Z(
+            Calendar2.parseToEpochSeconds(dts, dtf, tzs));
+        Test.ensureEqual(s, eis, "via my parseDateTime: " + dts + "  " + dtf + "  " + tzs); 
+    }
+
+
+    /**
      * Test the methods in Calendar2.
      */
     public static void testCalendar2() throws Exception {
-        String2.log("*********************************************************** testCalendar2");
+        String2.log("\n*** TestUtil.testCalendar2");
         String s, expected;
         double d;
         GregorianCalendar gc;
+        DateTimeFormatter dtfr; 
 
-        //suggestDateTimeFormat
+        String2.log("current time local: " + Calendar2.getCurrentISODateTimeStringLocalTZ());
+        String2.pressEnterToContinue(); 
+
+        testDateTimeFormatters("20151012", "yyyyMMdd", "Zulu", "2015-10-12T00:00:00.000Z"); 
+        testDateTimeFormatters("2015",     "yyyy",     "Zulu", "2015-01-01T00:00:00.000Z"); 
+
+        Test.ensureEqual(String2.parseInt("+8"), 8, "");
+        Test.ensureEqual(String2.parseInt("+08"), 8, "");
+
+        //timePrecisionToTimeFormat
+        Test.ensureEqual(Calendar2.timePrecisionToTimeFormat("1970-01-01T00:00:00.000Z"), "yyyy-MM-dd'T'HH:mm:ss.SSSZ", "");
+        Test.ensureEqual(Calendar2.timePrecisionToTimeFormat("1970-01-01T00:00:00.0Z"),   "yyyy-MM-dd'T'HH:mm:ss.SZ", "");
+        Test.ensureEqual(Calendar2.timePrecisionToTimeFormat("1970-01-01T00:00:00Z"),     "yyyy-MM-dd'T'HH:mm:ssZ", "");
+        Test.ensureEqual(Calendar2.timePrecisionToTimeFormat("1970-01-01T00:00Z"),        "yyyy-MM-dd'T'HH:mmZ", "");
+        Test.ensureEqual(Calendar2.timePrecisionToTimeFormat("1970-01-01T00Z"),           "yyyy-MM-dd'T'HHZ", "");
+        Test.ensureEqual(Calendar2.timePrecisionToTimeFormat("1970-01-01"),               "yyyy-MM-dd", "");
+        Test.ensureEqual(Calendar2.timePrecisionToTimeFormat("1970-01"),                  "yyyy-MM", "");
+        Test.ensureEqual(Calendar2.timePrecisionToTimeFormat("1970"),                     "yyyy-MM-dd'T'HH:mm:ssZ", "");
+        Test.ensureEqual(Calendar2.timePrecisionToTimeFormat("zz"),                       "yyyy-MM-dd'T'HH:mm:ssZ", "");
+        Test.ensureEqual(Calendar2.timePrecisionToTimeFormat(null),                       "yyyy-MM-dd'T'HH:mm:ssZ", "");
+
+        //convertToJavaDateTimeFormat(String s) -> yyyy-MM-dd'T'HH:mm:ssZ
+        // y-m-d  --> push to Calendar2.parseISODateTime
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("Y-M-D"),               "yyyy-MM-dd", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("Y-M-D H:M"),           "yyyy-MM-dd' 'HH:mm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("Y-M-DTH:M:SZ"),        "yyyy-MM-dd'T'HH:mm:ssZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("y-m-d"),               "yyyy-MM-dd", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("y-m-d h:m"),           "yyyy-MM-dd' 'HH:mm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("y-m-dTh:m:sZ"),        "yyyy-MM-dd'T'HH:mm:ssZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("YY-MM-DD"),            "yyyy-MM-dd", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("YY-MM-DD HH:MM"),      "yyyy-MM-dd' 'HH:mm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("YY-MM-DDTHH:MM:SSZ"),  "yyyy-MM-dd'T'HH:mm:ssZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("yy-mm-dd"),            "yyyy-MM-dd", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("yy-mm-dd hh:mm"),      "yyyy-MM-dd' 'HH:mm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("yy-mm-ddThh:mm:ssZ"),  "yyyy-MM-dd'T'HH:mm:ssZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("YYYY-MM-DD"),          "yyyy-MM-dd", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("YYYY-MM-DD HH:MM"),    "yyyy-MM-dd' 'HH:mm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("YYYY-MM-DDTHH:MM:SSZ"),"yyyy-MM-dd'T'HH:mm:ssZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("yyyy-mm-dd"),          "yyyy-MM-dd", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("yyyy-mm-dd hh:mm"),    "yyyy-MM-dd' 'HH:mm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("yyyy-mm-ddThh:mm:ssZ"),"yyyy-MM-dd'T'HH:mm:ssZ", "");
+ 
+        //compact
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("YMD"),                 "yyMd", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("YMDHM"),               "yyMdHm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("YMDHMSZ"),             "yyMdHmsZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("ymd"),                 "yyMd", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("ymdhm"),               "yyMdHm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("ymdhmsZ"),             "yyMdHmsZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("YYYYMMDD"),            "yyyyMMdd", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("YYYYMMDDHHMM"),        "yyyyMMddHHmm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("YYYYMMDDHHMMSSZ"),     "yyyyMMddHHmmssZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("yyyymmdd"),            "yyyyMMdd", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("yyyymmddhhmm"),        "yyyyMMddHHmm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("yyyymmddhhmmssZ"),     "yyyyMMddHHmmssZ", "");
+
+        //m/d/y
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("M/D/Y"),               "M/d/yy", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("M/D/Y H:M"),           "M/d/yy' 'H:m", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("M/D/YTH:M:SZ"),        "M/d/yy'T'H:m:sZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("m/d/y"),               "M/d/yy", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("m/d/y h:m"),           "M/d/yy' 'H:m", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("m/d/yTh:m:sZ"),        "M/d/yy'T'H:m:sZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("MM/DD/YY"),            "MM/dd/yy", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("MM/DD/YY HH:MM"),      "MM/dd/yy' 'HH:mm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("MM/DD/YYTHH:MM:SSZ"),  "MM/dd/yy'T'HH:mm:ssZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("mm/dd/yy"),            "MM/dd/yy", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("mm/dd/yy hh:mm"),      "MM/dd/yy' 'HH:mm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("mm/dd/yyThh:mm:ssZ"),  "MM/dd/yy'T'HH:mm:ssZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("MM/DD/YYYY"),          "MM/dd/yyyy", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("MM/DD/YYYY HH:MM"),    "MM/dd/yyyy' 'HH:mm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("MM/DD/YYYYTHH:MM:SSZ"),"MM/dd/yyyy'T'HH:mm:ssZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("mm/dd/yyyy"),          "MM/dd/yyyy", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("mm/dd/yyyy hh:mm"),    "MM/dd/yyyy' 'HH:mm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("mm/dd/yyyyThh:mm:ssZ"),"MM/dd/yyyy'T'HH:mm:ssZ", "");
+
+        //compact
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("MDY"),                 "Mdyy", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("MDYHM"),               "MdyyHm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("MDYHMSZ"),             "MdyyHmsZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("mdy"),                 "Mdyy", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("mdyhm"),               "MdyyHm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("mdyhmsZ"),             "MdyyHmsZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("MMDDYYYY"),            "MMddyyyy", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("MMDDYYYYHHMM"),        "MMddyyyyHHmm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("MMDDYYYYHHMMSSZ"),     "MMddyyyyHHmmssZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("mmddyyyy"),            "MMddyyyy", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("mmddyyyyhhmm"),        "MMddyyyyHHmm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("mmddyyyyhhmmssZ"),     "MMddyyyyHHmmssZ", "");
+
+        //d/m/y
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("D/M/Y"),               "d/M/yy", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("D/M/Y H:M"),           "d/M/yy' 'H:m", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("D/M/YTH:M:SZ"),        "d/M/yy'T'H:m:sZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("d/m/y"),               "d/M/yy", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("d/m/y h:m"),           "d/M/yy' 'H:m", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("d/m/yTh:m:sZ"),        "d/M/yy'T'H:m:sZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("DD/MM/YY"),            "dd/MM/yy", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("DD/MM/YY HH:MM"),      "dd/MM/yy' 'HH:mm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("DD/MM/YYTHH:MM:SSZ"),  "dd/MM/yy'T'HH:mm:ssZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("dd/mm/yy"),            "dd/MM/yy", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("dd/mm/yy hh:mm"),      "dd/MM/yy' 'HH:mm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("dd/mm/yyThh:mm:ssZ"),  "dd/MM/yy'T'HH:mm:ssZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("DD/MM/YYYY"),          "dd/MM/yyyy", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("DD/MM/YYYY HH:MM"),    "dd/MM/yyyy' 'HH:mm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("DD/MM/YYYYTHH:MM:SSZ"),"dd/MM/yyyy'T'HH:mm:ssZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("dd/mm/yyyy"),          "dd/MM/yyyy", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("dd/mm/yyyy hh:mm"),    "dd/MM/yyyy' 'HH:mm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("dd/mm/yyyyThh:mm:ssZ"),"dd/MM/yyyy'T'HH:mm:ssZ", "");
+
+        //compact
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("DMY"),                 "dMyy", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("DMYHM"),               "dMyyHm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("DMYHMSZ"),             "dMyyHmsZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("dmy"),                 "dMyy", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("dmyhm"),               "dMyyHm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("dmyhmsZ"),             "dMyyHmsZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("DDMMYYYY"),            "ddMMyyyy", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("DDMMYYYYHHMM"),        "ddMMyyyyHHmm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("DDMMYYYYHHMMSSZ"),     "ddMMyyyyHHmmssZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("ddmmyyyy"),            "ddMMyyyy", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("ddmmyyyyhhmm"),        "ddMMyyyyHHmm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("ddmmyyyyhhmmssZ"),     "ddMMyyyyHHmmssZ", "");
+
+        //just time
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("H:M"),                 "H:m", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("H:M:SZ"),              "H:m:sZ", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("h:m"),                 "H:m", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("h:m:sZ"),              "H:m:sZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("HH:MM"),               "HH:mm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("HH:MM:SSZ"),           "HH:mm:ssZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("hh:mm"),               "HH:mm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("hh:mm:ssZ"),           "HH:mm:ssZ", "");
+ 
+        //compact
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("HM"),                  "Hm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("HMSZ"),                "HmsZ", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("hm"),                  "Hm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("hmsZ"),                "HmsZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("HHMM"),                "HHmm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("HHMMSSZ"),             "HHmmssZ", "");
+
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("hhmm"),                "HHmm", "");
+        Test.ensureEqual(Calendar2.convertToJavaDateTimeFormat("hhmmssZ"),             "HHmmssZ", "");
+
+        //isNumericTimeUnits
+        Test.ensureTrue(Calendar2.isNumericTimeUnits("HoURs  SInCE  1980-01-01T00:00:00Z"), "");
+        Test.ensureTrue(Calendar2.isNumericTimeUnits("daYs SINCE 1-1-1"), "");
+        Test.ensureTrue(Calendar2.isNumericTimeUnits("days SINCE -4713-01-01"), "");
+
+
+        //convert local time (Standard or DST) to UTC
+        //IDs are TZ strings from https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+        String2.log(String2.toCSSVString(ZoneId.getAvailableZoneIds()));
+        //Most common in the US (with comments in parentheses):
+        //US/Hawaii, Pacific/Honolulu (no DST), 
+        //US/Aleutian, America/Adak, 
+        //US/Alaska, America/Anchorage, 
+        //US/Pacific, America/Los_Angeles, 
+        //US/Mountain, America/Denver (Mountain with DST), 
+        //US/Arizona, America/Phoenix (Mountain without DST),
+        //US/Central, America/Chicago,  (but there are exceptions like US/Michigan, US/Indiana-Starke)
+        //US/Eastern, America/New_York,
+        //Zulu
+
+
+
+        //parse iso format
+        String2.log("\nparse iso format");
+        //zulu time zone
+        //In US, DST change has Sunday March 13, 2016
+        TimeZone zuluTZ    = TimeZone.getTimeZone("Zulu"); //java
+        TimeZone pacificTZ = TimeZone.getTimeZone("America/Los_Angeles"); //java
+        s = "2016-03-12T00";
+        s = s + " Zulu => " + Calendar2.formatAsISODateTimeT(
+            Calendar2.parseISODateTime(new GregorianCalendar(zuluTZ), s)) + "Z";
+        String2.log(s);
+        Test.ensureEqual(s, "2016-03-12T00 Zulu => 2016-03-12T00:00:00Z", "");
+
+        s = "2016-03-14T00";
+        s = s + " Zulu => " + Calendar2.formatAsISODateTimeT(
+            Calendar2.parseISODateTime(new GregorianCalendar(zuluTZ), s)) + "Z";
+        String2.log(s);
+        Test.ensureEqual(s, "2016-03-14T00 Zulu => 2016-03-14T00:00:00Z", "");
+
+        //pacific time zone
+        s = "2016-03-12T00";
+        gc = Calendar2.parseISODateTime(new GregorianCalendar(pacificTZ), s);
+        gc.setTimeZone(zuluTZ);
+        s = s + " Pacific => " + Calendar2.formatAsISODateTimeT(gc) + "Z";
+        String2.log(s);
+        Test.ensureEqual(s, "2016-03-12T00 Pacific => 2016-03-12T08:00:00Z", "");
+
+        s = "2016-03-14T00";
+        gc = Calendar2.parseISODateTime(new GregorianCalendar(pacificTZ), s);
+        gc.setTimeZone(zuluTZ);
+        s = s + " Pacific => " + Calendar2.formatAsISODateTimeT(gc) + "Z";
+        String2.log(s);
+        Test.ensureEqual(s, "2016-03-14T00 Pacific => 2016-03-14T07:00:00Z", "");
+
+
+        //parse 
+        String2.log("\nparse time format (was java.time, was joda)");
+        //zulu time zone
+        //In US, DST change has Sunday March 13, 2016
+        String zulu    = Calendar2.zulu; 
+        String pacific = "America/Los_Angeles"; 
+
+        //zulu
+        testDateTimeFormatters("3/12/2016",     "M/d/yyyy",     zulu, "2016-03-12T00:00:00.000Z"); 
+        testDateTimeFormatters("3/14/2016",     "M/d/yyyy",     zulu, "2016-03-14T00:00:00.000Z"); 
+
+        //pacific time zone
+        testDateTimeFormatters("3/12/2016",     "M/d/yyyy",  pacific, "2016-03-12T08:00:00.000Z"); 
+        testDateTimeFormatters("3/14/2016",     "M/d/yyyy",  pacific, "2016-03-14T07:00:00.000Z"); 
+
+        Test.ensureTrue(Calendar2.isIsoDate("1234-01-01T00"), "");
+        Test.ensureTrue(Calendar2.isIsoDate("0000-0"), "");
+        Test.ensureTrue(Calendar2.isIsoDate("-9999-9"), "");
+        Test.ensureTrue(Calendar2.isIsoDate("-0001-01"), "");
+
+        Test.ensureTrue(!Calendar2.isIsoDate("2016-112"), ""); //uuuu-DDD
+        Test.ensureTrue(!Calendar2.isIsoDate("a1234-01-01T00"), "");
+        Test.ensureTrue(!Calendar2.isIsoDate("1234=01-01T00"), "");
+        Test.ensureTrue(!Calendar2.isIsoDate("1234e2"), "");
+        Test.ensureTrue(!Calendar2.isIsoDate("123-01-01T00"), "");
+        Test.ensureTrue(!Calendar2.isIsoDate("12a4-01-01T00"), "");
+        Test.ensureTrue(!Calendar2.isIsoDate("+1234-01-01T00"), "");
+        Test.ensureTrue(!Calendar2.isIsoDate("1234-"), "");
+        Test.ensureTrue(!Calendar2.isIsoDate("-0001"), "");
+
+        //test year 0000 manipulations
+        int ymdhmsmom[];
+        gc = new GregorianCalendar(Calendar2.zuluTimeZone);
+        gc.set(1970, 0, 1, 0, 0, 0);
+        gc.set(Calendar2.YEAR, 0);
+        gc.set(Calendar2.DAY_OF_YEAR, 5);
+        gc.get(Calendar2.MONTH); //force recalculations
+        //epSec = Calendar2.gcToEpochSeconds(gc);
+        s = Calendar2.epochSecondsToIsoStringTZ(Calendar2.gcToEpochSeconds(gc));
+        Test.ensureEqual(s, "0000-01-05T00:00:00Z", "");
+
+        //test how Java DateTimeFormatter works by seeing what it writes out
+        //M is for numeric Month, L is for text Month
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")), "1970-01-01T00:00:00.000Z", "");
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy-MM-dd'T'HH:mm:ss.SSSZ")), "1970-01-01T00:00:00.000+0000", "");  //!
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy-MM-dd")), "1970-01-01", "");  
+        try {
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy-MMM-dd")), "1970-Jan-01", "");  //MMM -> Jan   !  Really should be done by LLL?
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy-MMMM-dd")), "1970-January-01", "");  //MMMM -> January   !  Really should be done by LLLL?
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern( 
+            "yyyy-LL-dd")),  "1970-01-01", "");   //LL -> 01     !  Really should be done by MM
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy-LLL-dd")), "1970-Jan-01", "");   //oracle java LLL->Jan  adoptOpenJDK8->1 !
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy-LLLL-dd")), "1970-January-01", ""); 
+        } catch (Exception e) {
+            String2.pressEnterToContinue(MustBe.throwableToString(e) + 
+                "\nOracle Java versus AdoptOpenJDK may be slightly different for these."); 
+        }
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy QQQQ")), "1970 1st quarter", ""); 
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy QQQ")), "1970 Q1", "");  
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy QQ")), "1970 01", "");  
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy Q")), "1970 1", "");  
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy qq")), "1970 01", "");  
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy q")), "1970 1", "");  
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy EEEEE")), "1970 T", "");  //! the "narrow" form
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy EEEE")), "1970 Thursday", "");  
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy EEE")), "1970 Thu", "");  
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy EE")), "1970 Thu", "");  
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy E")), "1970 Thu", "");  
+        //do lots of 0's parse without error to 0?
+        Test.ensureEqual(String2.parseInt("000000000"), 0, ""); //e.g. nano of day
+        //Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+        //    "yyyy aa")), "1970 AM", "");  //error: too many pattern letters
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy a")), "1970 AM", "");  
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy hh")), "1970 12", "");  
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy h")), "1970 12", "");  //clock hour
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy KK")), "1970 00", "");  //hour of am pm
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy K")), "1970 0", "");  //hour of am pm
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy xxx")), "1970 +00:00", "");  
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy xx")), "1970 +0000", "");  
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy x")), "1970 +00", "");  
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy XXX")), "1970 Z", "");  //like x, but Z if 00
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy XX")), "1970 Z", "");  
+        Test.ensureEqual(Calendar2.format(0, DateTimeFormatter.ofPattern(
+            "yyyy X")), "1970 Z", "");  
+
+
+        //tryToIsoStringZ(someDateTimeString) 
+        Test.ensureEqual(Calendar2.tryToIsoString(" 2 Jan 1985  "),        "1985-01-02", ""); //removes time if unused
+        Test.ensureEqual(Calendar2.tryToIsoString("1985-01-02T01:02:34Z"), "1985-01-02T01:02:34Z", "");
+        Test.ensureEqual(Calendar2.tryToIsoString("1985-01-02Z"),          "1985-01-02", "");
+        Test.ensureEqual(Calendar2.tryToIsoString("1985-1-2Z"),            "1985-01-02", "");
+        Test.ensureEqual(Calendar2.tryToIsoString("1985-1-2T1:2:3Z"),      "1985-01-02T01:02:03Z", "");
+        Test.ensureEqual(Calendar2.tryToIsoString("1985-1-2T1:2:3"),       "1985-01-02T01:02:03Z", "");
+        Test.ensureEqual(Calendar2.tryToIsoString("1985-1-2 1:2"),         "1985-01-02T01:02:00Z", "");
+        Test.ensureEqual(Calendar2.tryToIsoString("15Z9dec2013"),          "2013-12-09T15:00:00Z", "");
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999 UTC"), "9985-01-02T23:59:59.999Z", "");
+        Test.ensureEqual(Calendar2.tryToIsoString("1-1-1 00:00:0.0Z"),     "0001-01-01T00:00:00.000Z", "");
+        Test.ensureEqual(Calendar2.tryToIsoString("1-1-1 00:00:0Z"),       "0001-01-01T00:00:00Z", "");
+        Test.ensureEqual(Calendar2.tryToIsoString("20171221T023531Z"),     "2017-12-21T02:35:31Z", "");
+
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2017-12-21T023531"), "yyyy-MM-dd'T'HHmmss", "");
+        Test.ensureEqual(Calendar2.tryToIsoString("2017-12-21T023531"),    "2017-12-21T02:35:31Z", "");
+        Test.ensureEqual(Calendar2.tryToIsoString("2017-12-21T023531Z"),   "2017-12-21T02:35:31Z", "");
+        Test.ensureEqual(Calendar2.tryToIsoString("2017-12-21T0235"),      "2017-12-21T02:35:00Z", "");
+        Test.ensureEqual(Calendar2.tryToIsoString("2017-12-21T0235Z"),     "2017-12-21T02:35:00Z", "");
+
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat(
+                                                  "Sun, 20 Nov 1994 08:49:37 -0800"),   
+                                                  "EEE, d MMM yyyy HH:mm:ss xx", ""); 
+        dtfr = DateTimeFormatter.ofPattern(        "EEE, d MMM yyyy HH:mm:ss xx");
+        dtfr.parse(                                "Sun, 20 Nov 1994 08:49:37 -0800");
+        Test.ensureEqual(Calendar2.tryToIsoString("Sun, 20 Nov 1994 08:49:37 -0800"), "1994-11-20T16:49:37Z", "");
+        Test.ensureEqual(Calendar2.tryToIsoString("sun, 06 nov 1994 08:49:37 -0800"), "1994-11-06T16:49:37Z", "");
+        Test.ensureEqual(Calendar2.tryToIsoString("SUN, 6 NOV 1994 08:49:37 -0800"),  "1994-11-06T16:49:37Z", "");
+
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat(
+                                                  "Wed Dec 20 17:36:16 2017"),   
+                                                  "EEE MMM d HH:mm:ss yyyy", ""); 
+        dtfr = DateTimeFormatter.ofPattern(        "EEE MMM d HH:mm:ss yyyy");
+        dtfr.parse(                                "Wed Dec 20 17:36:16 2017");
+        Test.ensureEqual(Calendar2.tryToIsoString("Wed Dec 20 17:36:16 2017"), "2017-12-20T17:36:16Z", "");
+        Test.ensureEqual(Calendar2.tryToIsoString("WED DEC 06 17:36:16 2017"), "2017-12-06T17:36:16Z", "");
+        Test.ensureEqual(Calendar2.tryToIsoString("wed dec 6 17:36:16 2017"),  "2017-12-06T17:36:16Z", "");
+
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat(
+                                                  "1994-11-20T08:49:37-0800"),   
+                                                  "yyyy-MM-dd'T'HH:mm:ssxx", ""); 
+        dtfr = DateTimeFormatter.ofPattern(       "yyyy-MM-dd'T'HH:mm:ssxx");
+        dtfr.parse(                               "1994-11-20T08:49:37-0800");
+        Test.ensureEqual(Calendar2.tryToIsoString("1994-11-20T08:49:37-0800"), 
+                                                  "1994-11-20T16:49:37Z", "");
+        Test.ensureEqual(Calendar2.tryToIsoString("1994-11-20T08:49:37-0830"), 
+                                                  "1994-11-20T17:19:37Z", "");
+
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat(
+                                                  "1858-11-17 00:00:00 +0:00"),   
+                                                  "yyyy-MM-dd HH:mm:ss xxx", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("1858-11-17 00:00:00 +0:00"), 
+                                                  "1858-11-17T00:00:00Z", "");
+
+        //suggestDateTimeFormat and tryToIsoString
         Test.ensureEqual(Calendar2.suggestDateTimeFormat((String)null),      "", ""); 
         Test.ensureEqual(Calendar2.suggestDateTimeFormat(""),                "", ""); 
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("zztop"),           "", ""); 
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("1985"),            "", ""); 
 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("0000-001"),        "yyyy-DDD", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2999-366"),        "yyyy-DDD", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9999-399"),        "yyyy-DDD", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("1985-400"),        "", ""); 
+        String2.log("\nlots of expected error messages...");
+        Test.ensureEqual(Calendar2.tryToIsoString((String)null),      "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString(""),                "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("zztop"),           "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("1985"),            "", ""); 
 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("0000001"),        "yyyyDDD", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2999366"),        "yyyyDDD", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("4999399"),        "yyyyDDD", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("5000034"),        "", "");        //5000 invalid for compact formats
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("1985400"),        "", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2016-035"),   "yyyy-DDD", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2999-366"),   "yyyy-DDD", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("0000-001"),   "yyyy-DDD", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9999-399"),   "yyyy-DDD", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-001"),  "yyyy-DDD", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("1985-400"),   ""        , ""); 
 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59:59.999-08:00"), "yyyy-MM-dd'T'HH:mm:ss.sssZ", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59:59.999"),       "yyyy-MM-dd'T'HH:mm:ss.sss", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59:59-08:00"),     "yyyy-MM-dd'T'HH:mm:ssZ", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59:59"),           "yyyy-MM-dd'T'HH:mm:ss", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59"),              "yyyy-MM-dd'T'HH:mm", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23"),                 "yyyy-MM-dd'T'HH", ""); 
+//Tests that give Java DateTimeFormatter trouble are marked with /**/
+        Test.ensureEqual(Calendar2.tryToIsoString("2016-035"),        "2016-02-04", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("2999-366"),        "3000-01-01", ""); 
+/**/    Test.ensureEqual(Calendar2.tryToIsoString("0000-001"),        "0000-01-01", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9999-399"),        "10000-02-03", ""); 
+/**/    Test.ensureEqual(Calendar2.tryToIsoString("-4713-001"),       "-4713-01-01", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("1985-400"),        "", ""); 
+
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2016035"),   "yyyyDDD", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("0000001"),   "yyyyDDD", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2999366"),   "yyyyDDD", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2999399"),   "yyyyDDD", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("3000034"),   "", ""); //3000 invalid for compact formats
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("1985400"),   "", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713400"),  "", ""); 
+
+        Test.ensureEqual(Calendar2.tryToIsoString("2016035"),        "2016-02-04", ""); 
+/**/    Test.ensureEqual(Calendar2.tryToIsoString("0000001"),        "0000-01-01", ""); 
+/**/    Test.ensureEqual(Calendar2.tryToIsoString("2999366"),        "3000-01-01", ""); 
+/**/    Test.ensureEqual(Calendar2.tryToIsoString("2999399"),        "3000-02-03", "");
+        Test.ensureEqual(Calendar2.tryToIsoString("3000034"),        "", "");        //3000 invalid for compact formats
+        Test.ensureEqual(Calendar2.tryToIsoString("1985400"),        "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713400"),       "", ""); 
+
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.001 UTC"),   "yyyy-MM-dd HH:mm:ss.SSS 'UTC'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999 GMT"),   "yyyy-MM-dd HH:mm:ss.SSS 'GMT'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.000UTC"),    "yyyy-MM-dd HH:mm:ss.SSS'UTC'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999GMT"),    "yyyy-MM-dd HH:mm:ss.SSS'GMT'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999-08:00"), "yyyy-MM-dd HH:mm:ss.SSSxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999-08:30"), "yyyy-MM-dd HH:mm:ss.SSSxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999-0800"),  "yyyy-MM-dd HH:mm:ss.SSSxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999-0830"),  "yyyy-MM-dd HH:mm:ss.SSSxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999-08"),    "yyyy-MM-dd HH:mm:ss.SSSx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999+08:00"), "yyyy-MM-dd HH:mm:ss.SSSxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999+8:00"),  "yyyy-MM-dd HH:mm:ss.SSSxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999+0800"),  "yyyy-MM-dd HH:mm:ss.SSSxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999+800"),   "yyyy-MM-dd HH:mm:ss.SSSxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999+08"),    "yyyy-MM-dd HH:mm:ss.SSSx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999 08:00"), "yyyy-MM-dd HH:mm:ss.SSSxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999 8:00"),  "yyyy-MM-dd HH:mm:ss.SSSxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999 0800"),  "yyyy-MM-dd HH:mm:ss.SSSxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999 800"),   "yyyy-MM-dd HH:mm:ss.SSSxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999 08"),    "yyyy-MM-dd HH:mm:ss.SSSx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999Z"),      "yyyy-MM-dd HH:mm:ss.SSS'Z'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999"),       "yyyy-MM-dd HH:mm:ss.SSS", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59-08:00"),     "yyyy-MM-dd HH:mm:ssxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59"),           "yyyy-MM-dd HH:mm:ss", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02-23:59:59"),           "yyyy-MM-dd-HH:mm:ss", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02:23:59:59"),           "yyyy-MM-dd:HH:mm:ss", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59"),              "yyyy-MM-dd HH:mm", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23 UTC"),             "yyyy-MM-dd HH 'UTC'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23 GMT"),             "yyyy-MM-dd HH 'GMT'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23UTC"),              "yyyy-MM-dd HH'UTC'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23GMT"),              "yyyy-MM-dd HH'GMT'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23-08:00"),           "yyyy-MM-dd HHxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23-0800"),            "yyyy-MM-dd HHxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23Z"),                "yyyy-MM-dd HH'Z'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23"),                 "yyyy-MM-dd HH", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 UTC"),                "yyyy-MM-dd 'UTC'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 GMT"),                "yyyy-MM-dd 'GMT'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02UTC"),                 "yyyy-MM-dd'UTC'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02GMT"),                 "yyyy-MM-dd'GMT'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02Z"),                   "yyyy-MM-dd'Z'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02"),                    "yyyy-MM-dd", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("0000-01"),                       "yyyy-MM", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9999-19"),                       "yyyy-MM", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02-08:00"),              "yyyy-MM-dd-HH:mm", ""); //ambiguous (time or timezone). treat as time
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02-08"),                 "yyyy-MM-dd-HH", "");    //ambiguous (time or timezone). treat as time
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02-0800"),               "", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("1985-20"),                       "", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-1009-01-02 23:59:59.999Z"),     "yyyy-MM-dd HH:mm:ss.SSS'Z'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("0000-01-02 23:59:59.999Z"),      "yyyy-MM-dd HH:mm:ss.SSS'Z'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2010-01-19 00:00:00-1:00"),      "yyyy-MM-dd HH:mm:ssxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2010-01-19 00:00:00+1:00"),      "yyyy-MM-dd HH:mm:ssxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2010-01-19 00:00:00 1:00"),      "yyyy-MM-dd HH:mm:ssxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2010-01-19 00:00:00-100"),       "yyyy-MM-dd HH:mm:ssxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2010-01-19 00:00:00+100"),       "yyyy-MM-dd HH:mm:ssxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2010-01-19 00:00:00 100"),       "yyyy-MM-dd HH:mm:ssxx", ""); 
+
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.001 UTC"),   "9985-01-02T23:59:59.001Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999 GMT"),   "9985-01-02T23:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.000UTC"),    "9985-01-02T23:59:59.000Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999GMT"),    "9985-01-02T23:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999-08:00"), "9985-01-03T07:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999-8:00"),  "9985-01-03T07:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999-08:30"), "9985-01-03T08:29:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999-0800"),  "9985-01-03T07:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999-0830"),  "9985-01-03T08:29:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999-08"),    "9985-01-03T07:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999+08:00"), "9985-01-02T15:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999+8:00"),  "9985-01-02T15:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999+0800"),  "9985-01-02T15:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999+800"),   "9985-01-02T15:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999-0030"),  "9985-01-03T00:29:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999+0030"),  "9985-01-02T23:29:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999+08"),    "9985-01-02T15:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999 08:00"),
+                                                         "yyyy-MM-dd HH:mm:ss.SSSxxx", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999 08:00"), "9985-01-02T15:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999 8:00"),  "9985-01-02T15:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999 0800"),  "9985-01-02T15:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999 800"),   "9985-01-02T15:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999 0030"),  "9985-01-02T23:29:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999 030"),   "9985-01-02T23:29:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999 08"),    "9985-01-02T15:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999Z"),      "9985-01-02T23:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999"),       "9985-01-02T23:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59-08:00"),     "9985-01-03T07:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59"),           "9985-01-02T23:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02-23:59:59"),           "9985-01-02T23:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02:23:59:59"),           "9985-01-02T23:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59"),              "9985-01-02T23:59:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23UTC"),              "9985-01-02T23:00:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23GMT"),              "9985-01-02T23:00:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23-08:00"),           "9985-01-03T07:00:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23-0800"),            "9985-01-03T07:00:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23-08"),              "9985-01-03T07:00:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23Z"),                "9985-01-02T23:00:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23"),                 "9985-01-02T23:00:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02UTC"),                 "9985-01-02", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02Z"),                   "9985-01-02", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02"),                    "9985-01-02", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("0000-01"),                       "0000-01-01", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9999-19"),                       "10000-07-01", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02-08:00"),              "9985-01-02T08:00:00Z", ""); //ambiguous (time or timezone). treat as time
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02-08"),                 "9985-01-02T08:00:00Z", ""); //ambiguous (time or timezone). treat as time
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02-0800"),               "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("1985-20"),                       "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-1009-01-02 23:59:59.999Z"),     "-1009-01-02T23:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("0000-01-02 23:59:59.000Z"),      "0000-01-02T23:59:59.000Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("2010-01-19 00:00:00-1:30"),      "2010-01-19T01:30:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("2010-01-19 00:00:00+1:30"),      "2010-01-18T22:30:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("2010-01-19 00:00:00 1:30"),      "2010-01-18T22:30:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("2010-01-19 00:00:00-130"),       "2010-01-19T01:30:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("2010-01-19 00:00:00+130"),       "2010-01-18T22:30:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("2010-01-19 00:00:00 130"),       "2010-01-18T22:30:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("2010-01-19 00:00:00-01"),        "2010-01-19T01:00:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("2010-01-19 00:00:00+01"),        "2010-01-18T23:00:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("2010-01-19 00:00:00 01"),        "2010-01-18T23:00:00Z", ""); 
+
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2 3:9:9.999 UTC"),   "yyyy-M-d H:m:s.S 'UTC'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2 3:9:9.9 GMT"),     "yyyy-M-d H:m:s.S 'GMT'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2 3:9:9.99UTC"),     "yyyy-M-d H:m:s.S'UTC'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2 3:9:9.1GMT"),      "yyyy-M-d H:m:s.S'GMT'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2 3:9:9.01-08:00"),  "yyyy-M-d H:m:s.Sxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2 3:9:9.001+08:00"), "yyyy-M-d H:m:s.Sxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2 3:9:9.0-0800"),    "yyyy-M-d H:m:s.Sxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2 3:9:9.00+0800"),   "yyyy-M-d H:m:s.Sxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2 3:9:9.000-08"),    "yyyy-M-d H:m:s.Sx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2 3:9:9.999+08"),    "yyyy-M-d H:m:s.Sx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2 3:9:9.999Z"),      "yyyy-M-d H:m:s.S'Z'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2 3:9:9.999"),       "yyyy-M-d H:m:s.S", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2 3:9:9-08:00"),     "yyyy-M-d H:m:sxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2 3:9:9-0800"),      "yyyy-M-d H:m:sxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2 3:9:9Z"),          "yyyy-M-d H:m:s'Z'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2 3:9:9"),           "yyyy-M-d H:m:s", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2-3:9:9"),           "yyyy-M-d-H:m:s", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2:3:9:9"),           "yyyy-M-d:H:m:s", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2 3:9"),             "yyyy-M-d H:m", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2 3:9Z"),            "yyyy-M-d H:m'Z'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2 3Z"),              "yyyy-M-d H'Z'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2 3"),               "yyyy-M-d H", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2Z"),                "yyyy-M-d'Z'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2"),                 "yyyy-M-d", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("0000-1"),                   "yyyy-M", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("1985-2"),                   "yyyy-M", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-1009-1-2 3:9:9"),          "yyyy-M-d H:m:s", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("0000-1-2 3:9:9"),           "yyyy-M-d H:m:s", ""); 
+
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9.999 UTC"),   "9985-01-02T03:09:09.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9.99UTC"),     "9985-01-02T03:09:09.990Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9.9-08:00"),   "9985-01-02T11:09:09.900Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9.1+08:00"),   "9985-01-01T19:09:09.100Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9.1 08:00"),   "9985-01-01T19:09:09.100Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9.01-08:30"),  "9985-01-02T11:39:09.010Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9.01 08:30"),  "9985-01-01T18:39:09.010Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9.001+08:30"), "9985-01-01T18:39:09.001Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9.001 08:30"), "9985-01-01T18:39:09.001Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9.0-0800"),    "9985-01-02T11:09:09.000Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9.00+0800"),   "9985-01-01T19:09:09.000Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9.0 800"),     "9985-01-01T19:09:09.000Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9.00 800"),    "9985-01-01T19:09:09.000Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9.000Z"),      "9985-01-02T03:09:09.000Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9.9999"),      "9985-01-02T03:09:10.000Z", ""); //test of rounding
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9-08:00"),     "9985-01-02T11:09:09Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9-0800"),      "9985-01-02T11:09:09Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9 08:00"),     "9985-01-01T19:09:09Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9 0800"),      "9985-01-01T19:09:09Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9 8:00"),      "9985-01-01T19:09:09Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9 800"),       "9985-01-01T19:09:09Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9Z"),          "9985-01-02T03:09:09Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9:9"),           "9985-01-02T03:09:09Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2-3:9:9"),           "9985-01-02T03:09:09Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2:3:9:9"),           "9985-01-02T03:09:09Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9"),             "9985-01-02T03:09:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3:9Z"),            "9985-01-02T03:09:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2 3"),               "9985-01-02T03:00:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2Z"),                "9985-01-02", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2"),                 "9985-01-02", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("0000-1"),                   "0000-01-01", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("1985-2"),                   "1985-02-01", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-1009-1-2 3:9:9"),          "-1009-01-02T03:09:09Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("0000-1-2 3:9:9"),           "0000-01-02T03:09:09Z", ""); 
+
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59:59.999 UTC"),   "yyyy-MM-dd'T'HH:mm:ss.SSS 'UTC'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59:59.999UTC"),    "yyyy-MM-dd'T'HH:mm:ss.SSS'UTC'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59:59.999-08:00"), "yyyy-MM-dd'T'HH:mm:ss.SSSxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59:59.999-8:00"),  "yyyy-MM-dd'T'HH:mm:ss.SSSxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59:59.999-0830"),  "yyyy-MM-dd'T'HH:mm:ss.SSSxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59:59.999-830"),   "yyyy-MM-dd'T'HH:mm:ss.SSSxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59:59.999-08"),    "yyyy-MM-dd'T'HH:mm:ss.SSSx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59:59.999 08:00"), "yyyy-MM-dd'T'HH:mm:ss.SSSxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59:59.999 8:00"),  "yyyy-MM-dd'T'HH:mm:ss.SSSxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59:59.999 0830"),  "yyyy-MM-dd'T'HH:mm:ss.SSSxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59:59.999 830"),   "yyyy-MM-dd'T'HH:mm:ss.SSSxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59:59.999 08"),    "yyyy-MM-dd'T'HH:mm:ss.SSSx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59:59.999Z"),      "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59:59.999"),       "yyyy-MM-dd'T'HH:mm:ss.SSS", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59:59-00:30"),     "yyyy-MM-dd'T'HH:mm:ssxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59:59+0030"),      "yyyy-MM-dd'T'HH:mm:ssxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59:59 UTC"),       "yyyy-MM-dd'T'HH:mm:ss 'UTC'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59:59UTC"),        "yyyy-MM-dd'T'HH:mm:ss'UTC'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23:59Z"),             "yyyy-MM-dd'T'HH:mm'Z'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02T23-0800"),            "yyyy-MM-dd'T'HHxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02Z"),                   "yyyy-MM-dd'Z'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02"),                    "yyyy-MM-dd", ""); 
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("0000-01"),                       "yyyy-MM", ""); 
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("9999-19"),                       "yyyy-MM", ""); 
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("1985-20"),                       "", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-1009-01-02T23:59Z"),            "yyyy-MM-dd'T'HH:mm'Z'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-1010-01-02"),                   "yyyy-MM-dd", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("0000-01-02T23:59Z"),             "yyyy-MM-dd'T'HH:mm'Z'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("0000-01-02"),                    "yyyy-MM-dd", ""); 
 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59.999 UTC"),   "9985-01-02T23:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59.010-08:00"), "9985-01-03T07:59:59.010Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59.001-0830"),  "9985-01-03T08:29:59.001Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59.000-08"),    "9985-01-03T07:59:59.000Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59.999Z"),      "9985-01-02T23:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59.999"),       "9985-01-02T23:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59-08:30"),     "9985-01-03T08:29:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59+08:30"),     "9985-01-02T15:29:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59 08:30"),     "9985-01-02T15:29:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59-8:30"),      "9985-01-03T08:29:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59+8:30"),      "9985-01-02T15:29:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59 8:30"),      "9985-01-02T15:29:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59-0830"),      "9985-01-03T08:29:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59+0830"),      "9985-01-02T15:29:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59 0830"),      "9985-01-02T15:29:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59-830"),       "9985-01-03T08:29:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59+830"),       "9985-01-02T15:29:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59 830"),       "9985-01-02T15:29:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59-08"),        "9985-01-03T07:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59+08"),        "9985-01-02T15:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59 08"),        "9985-01-02T15:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59 UTC"),       "9985-01-02T23:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59:59 GMT"),       "9985-01-02T23:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23:59Z"),             "9985-01-02T23:59:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02T23-0800"),            "9985-01-03T07:00:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02Z"),                   "9985-01-02", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02"),                    "9985-01-02", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("0000-01"),                       "0000-01-01", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9999-19"),                       "10000-07-01", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("1985-20"),                       "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-1009-01-02T23:59Z"),            "-1009-01-02T23:59:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-1010-01-02"),                   "-1010-01-02", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("0000-01-02T23:59Z"),             "0000-01-02T23:59:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("0000-01-02"),                    "0000-01-02", ""); 
 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999"),       "yyyy-MM-dd HH:mm:ss.sss", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.9"),         "yyyy-MM-dd HH:mm:ss.sss", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59-08:00"),     "yyyy-MM-dd HH:mm:ssZ", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3:9:9.999500 UTC"),"yyyy-M-d'T'H:m:s.S 'UTC'", ""); //test 6 digits
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3:9:9.999500UTC"), "yyyy-M-d'T'H:m:s.S'UTC'", ""); //test 6 digits
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3:9:9.9995-08:00"),"yyyy-M-d'T'H:m:s.Sxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3:9:9.999-0800"),  "yyyy-M-d'T'H:m:s.Sxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3:9:9.999Z"),      "yyyy-M-d'T'H:m:s.S'Z'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3:9:9.999"),       "yyyy-M-d'T'H:m:s.S", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3:9:9+00:30"),     "yyyy-M-d'T'H:m:sxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3:9:9-00:30"),     "yyyy-M-d'T'H:m:sxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3:9:9 00:30"),     "yyyy-M-d'T'H:m:sxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3:9:9+0:30"),      "yyyy-M-d'T'H:m:sxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3:9:9-0:30"),      "yyyy-M-d'T'H:m:sxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3:9:9 0:30"),      "yyyy-M-d'T'H:m:sxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3:9:9+0030"),      "yyyy-M-d'T'H:m:sxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3:9:9-0030"),      "yyyy-M-d'T'H:m:sxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3:9:9 0030"),      "yyyy-M-d'T'H:m:sxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3:9:9+030"),       "yyyy-M-d'T'H:m:sxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3:9:9-030"),       "yyyy-M-d'T'H:m:sxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3:9:9 030"),       "yyyy-M-d'T'H:m:sxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3:9:9Z"),          "yyyy-M-d'T'H:m:s'Z'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3:9:9"),           "yyyy-M-d'T'H:m:s", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3:9"),             "yyyy-M-d'T'H:m", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3:9Z"),            "yyyy-M-d'T'H:m'Z'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2T3"),               "yyyy-M-d'T'H", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-1-2"),                 "yyyy-M-d", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("0000-1"),                   "yyyy-M", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("1985-2"),                   "yyyy-M", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-1009-1-2T3:9:9"),          "yyyy-M-d'T'H:m:s", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("0000-1-2T3:9:9"),           "yyyy-M-d'T'H:m:s", ""); 
+
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2T3:9:9.999500 UTC"),"9985-01-02T03:09:10.000Z", ""); //test rounding.  Why millis .000, not .0?
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2T3:9:9.9995-08:00"),"9985-01-02T11:09:10.000Z", "");   
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2T3:9:9.999-0800"),  "9985-01-02T11:09:09.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2T3:9:9.000Z"),      "9985-01-02T03:09:09.000Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2T3:9:9.01"),        "9985-01-02T03:09:09.010Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2T3:9:9+00:30"),     "9985-01-02T02:39:09Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2T3:9:9+0030"),      "9985-01-02T02:39:09Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2T3:9:9 0030"),      "9985-01-02T02:39:09Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2T3:9:9-0030"),      "9985-01-02T03:39:09Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2T3:9:9+030"),       "9985-01-02T02:39:09Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2T3:9:9 030"),       "9985-01-02T02:39:09Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2T3:9:9-030"),       "9985-01-02T03:39:09Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2T3:9:9Z"),          "9985-01-02T03:09:09Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2T3:9:9"),           "9985-01-02T03:09:09Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2T3:9"),             "9985-01-02T03:09:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2T3:9Z"),            "9985-01-02T03:09:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2T3"),               "9985-01-02T03:00:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-1-2"),                 "9985-01-02", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("0000-1"),                   "0000-01-01", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("1985-2"),                   "1985-02-01", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-1009-1-2T3:9:9"),          "-1009-01-02T03:09:09Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("0000-1-2T3:9:9"),           "0000-01-02T03:09:09Z", ""); 
+
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02T23:59:59.999 UTC"),   "yyyy-MM-dd'T'HH:mm:ss.SSS 'UTC'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02T23:59:59.999UTC"),    "yyyy-MM-dd'T'HH:mm:ss.SSS'UTC'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02T23:59:59 UTC"),       "yyyy-MM-dd'T'HH:mm:ss 'UTC'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02T23:59:59UTC"),        "yyyy-MM-dd'T'HH:mm:ss'UTC'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02T23:59:59-08:00"),     "yyyy-MM-dd'T'HH:mm:ssxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02T23:59:59-8:00"),      "yyyy-MM-dd'T'HH:mm:ssxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02T23:59:59-0800"),      "yyyy-MM-dd'T'HH:mm:ssxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02T23:59:59-800"),       "yyyy-MM-dd'T'HH:mm:ssxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02T23:59:59-08"),        "yyyy-MM-dd'T'HH:mm:ssx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02T23:59:59 08:00"),     "yyyy-MM-dd'T'HH:mm:ssxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02T23:59:59 8:00"),      "yyyy-MM-dd'T'HH:mm:ssxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02T23:59:59 0800"),      "yyyy-MM-dd'T'HH:mm:ssxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02T23:59:59 800"),       "yyyy-MM-dd'T'HH:mm:ssxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02T23:59:59 08"),        "yyyy-MM-dd'T'HH:mm:ssx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02T23:59:59Z"),          "yyyy-MM-dd'T'HH:mm:ss'Z'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02T23:59:59"),           "yyyy-MM-dd'T'HH:mm:ss", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02T23:59+00:30"),        "yyyy-MM-dd'T'HH:mmxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02T23:59-0030"),         "yyyy-MM-dd'T'HH:mmxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02T23:59+00"),           "yyyy-MM-dd'T'HH:mmx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02T23:59Z"),             "yyyy-MM-dd'T'HH:mm'Z'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02T23:59"),              "yyyy-MM-dd'T'HH:mm", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02T23"),                 "yyyy-MM-dd'T'HH", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01-02"),                    "yyyy-MM-dd", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713-01"),                       "yyyy-MM", ""); 
+
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59:59.999 UTC"),   "-4713-01-02T23:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59:59 UTC"),       "-4713-01-02T23:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59:59-08:00"),     "-4713-01-03T07:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59:59-0800"),      "-4713-01-03T07:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59:59-08"),        "-4713-01-03T07:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59:59-8:00"),      "-4713-01-03T07:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59:59-800"),       "-4713-01-03T07:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59:59+08:00"),     "-4713-01-02T15:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59:59+0800"),      "-4713-01-02T15:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59:59+08"),        "-4713-01-02T15:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59:59+8:00"),      "-4713-01-02T15:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59:59+800"),       "-4713-01-02T15:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59:59 08:00"),     "-4713-01-02T15:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59:59 0800"),      "-4713-01-02T15:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59:59 08"),        "-4713-01-02T15:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59:59 8:00"),      "-4713-01-02T15:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59:59 800"),       "-4713-01-02T15:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59:59Z"),          "-4713-01-02T23:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59:59"),           "-4713-01-02T23:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59+00:30"),        "-4713-01-02T23:29:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59-0030"),         "-4713-01-03T00:29:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59+00"),           "-4713-01-02T23:59:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59Z"),             "-4713-01-02T23:59:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23:59"),              "-4713-01-02T23:59:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02T23"),                 "-4713-01-02T23:00:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01-02"),                    "-4713-01-02", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713-01"),                       "-4713-01-01", ""); 
+
+        Test.ensureEqual(Calendar2.tryToIsoString("07-2013"),                        "2013-07-01", ""); 
+
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999 UTC"),   "yyyy-MM-dd HH:mm:ss.SSS 'UTC'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.999UTC"),    "yyyy-MM-dd HH:mm:ss.SSS'UTC'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.000"),       "yyyy-MM-dd HH:mm:ss.SSS", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59.9"),         "yyyy-MM-dd HH:mm:ss.S", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59 UTC"),       "yyyy-MM-dd HH:mm:ss 'UTC'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59 GMT"),       "yyyy-MM-dd HH:mm:ss 'GMT'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59UTC"),        "yyyy-MM-dd HH:mm:ss'UTC'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59GMT"),        "yyyy-MM-dd HH:mm:ss'GMT'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59+00:30"),     "yyyy-MM-dd HH:mm:ssxxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59-0030"),      "yyyy-MM-dd HH:mm:ssxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59-08"),        "yyyy-MM-dd HH:mm:ssx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59Z"),          "yyyy-MM-dd HH:mm:ss'Z'", ""); 
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59:59"),           "yyyy-MM-dd HH:mm:ss", ""); 
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23:59"),              "yyyy-MM-dd HH:mm", ""); 
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02 23"),                 "yyyy-MM-dd HH", ""); 
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("9985-01-02"),                    "yyyy-MM-dd", ""); 
 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("00000101000000"),  "yyyyMMddHHmmss", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("49991939295959"),  "yyyyMMddHHmmss", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("50000102235959"),  "", ""); //5000 invalid for compact formats 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("19852002235959"),  "", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("19850942235959"),  "", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("19850909335959"),  "", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("19850909296959"),  "", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("19850909295969"),  "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.999 UTC"),   "9985-01-02T23:59:59.999Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.000"),       "9985-01-02T23:59:59.000Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59.9"),         "9985-01-02T23:59:59.900Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59UTC"),        "9985-01-02T23:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59GMT"),        "9985-01-02T23:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59+00:30"),     "9985-01-02T23:29:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59-0030"),      "9985-01-03T00:29:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59-08"),        "9985-01-03T07:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59Z"),          "9985-01-02T23:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59:59"),           "9985-01-02T23:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23:59"),              "9985-01-02T23:59:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02 23"),                 "9985-01-02T23:00:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("9985-01-02"),                    "9985-01-02", ""); 
 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("20180208123456"),  "yyyyMMddHHmmss", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("00000101000000"),  "yyyyMMddHHmmss", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("29991939295959"),  "yyyyMMddHHmmss", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("30000102235959"),  "", ""); //3000 invalid for compact formats 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("19852002235959"),  "", ""); //invalid month
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("19850942235959"),  "", ""); //invalid date
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("19850909335959"),  "", ""); //invalid hour
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("19850909296959"),  "", ""); //invalid minute
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("19850909295969"),  "", ""); //invalid second
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-47130909295969"), "", ""); //looks too much like a number 
+
+        Test.ensureEqual(Calendar2.tryToIsoString("20180208123456"),  "2018-02-08T12:34:56Z", ""); 
+/**/    Test.ensureEqual(Calendar2.tryToIsoString("00000101000000"),  "0000-01-01T00:00:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("29991939295959"),  "3000-08-09T05:59:59Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("30000102235959"),  "", ""); //3000 invalid for compact formats 
+        Test.ensureEqual(Calendar2.tryToIsoString("19852002235959"),  "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("19850942235959"),  "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("19850909335959"),  "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("19850909296959"),  "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("19850909295969"),  "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-47130909295969"), "", ""); 
+
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("201802081234"),  "yyyyMMddHHmm", ""); 
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("000001010000"),  "yyyyMMddHHmm", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("499919392959"),  "yyyyMMddHHmm", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("500001022359"),  "", ""); //5000 invalid for compact formats
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("299919392959"),  "yyyyMMddHHmm", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("300001022359"),  "", ""); //3000 invalid for compact formats
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("198520022359"),  "", ""); 
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("198509422359"),  "", ""); 
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("198509093359"),  "", ""); 
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("198509092969"),  "", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-471309092969"), "", ""); 
 
+        Test.ensureEqual(Calendar2.tryToIsoString("201802081234"),  "2018-02-08T12:34:00Z", ""); 
+/**/    Test.ensureEqual(Calendar2.tryToIsoString("000001010000"),  "0000-01-01T00:00:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("299919392959"),  "3000-08-09T05:59:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("300001022359"),  "", ""); //3000 invalid for compact formats
+        Test.ensureEqual(Calendar2.tryToIsoString("198520022359"),  "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("198509422359"),  "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("198509093359"),  "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("198509092969"),  "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-471309092969"), "", ""); 
+
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2018020812"),  "yyyyMMddHH", ""); 
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("0000010100"),  "yyyyMMddHH", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("4999193929"),  "yyyyMMddHH", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("5000010223"),  "", ""); //5000 invalid for compact formats
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2999193929"),  "yyyyMMddHH", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("3000010223"),  "", ""); //3000 invalid for compact formats
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("1985200223"),  "", ""); 
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("1985094223"),  "", ""); 
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("1985090933"),  "", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-4713090933"), "", ""); 
 
+        Test.ensureEqual(Calendar2.tryToIsoString("2018020812"),  "2018-02-08T12:00:00Z", ""); 
+/**/    Test.ensureEqual(Calendar2.tryToIsoString("0000010100"),  "0000-01-01T00:00:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("2999193929"),  "3000-08-09T05:00:00Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("3000010223"),  "", ""); //3000 invalid for compact formats
+        Test.ensureEqual(Calendar2.tryToIsoString("1985200223"),  "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("1985094223"),  "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("1985090933"),  "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-4713090933"), "", ""); 
+
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("20180208"),  "yyyyMMdd", ""); 
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("00000101"),  "yyyyMMdd", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("49991939"),  "yyyyMMdd", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("50000102"),  "", ""); //5000 invalid for compact formats
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("29991939"),  "yyyyMMdd", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("30000102"),  "", ""); //3000 invalid for compact formats
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("19852002"),  "", ""); 
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("19850942"),  "", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-47130942"), "", ""); 
 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("000001"),  "yyyyMM", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("499919"),  "yyyyMM", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("500001"),  "", ""); //5000 invalid for compact formats
+        Test.ensureEqual(Calendar2.tryToIsoString("20180208"),  "2018-02-08", ""); 
+/**/    Test.ensureEqual(Calendar2.tryToIsoString("00000101"),  "0000-01-01", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("29991939"),  "3000-08-08", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("30000102"),  "", ""); //3000 invalid for compact formats
+        Test.ensureEqual(Calendar2.tryToIsoString("19852002"),  "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("19850942"),  "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-47130942"), "", ""); 
+
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("201802"),  "yyyyMM", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("100001"),  "yyyyMM", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("299919"),  "yyyyMM", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("300001"),  "", ""); //3000 invalid for compact formats
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("000001"),  "", ""); //0 millenia invalid to avoid confusion w 6 digit numbers
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("198520"),  "", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("-471320"), "", ""); 
 
+        Test.ensureEqual(Calendar2.tryToIsoString("201802"),  "2018-02-01", ""); 
+/**/    Test.ensureEqual(Calendar2.tryToIsoString("100001"),  "1000-01-01", ""); 
+/**/    Test.ensureEqual(Calendar2.tryToIsoString("299919"),  "3000-07-01", "");   //invalid date. Why not okay since lenient?
+        Test.ensureEqual(Calendar2.tryToIsoString("300001"),  "", ""); //3000 invalid for compact formats
+        Test.ensureEqual(Calendar2.tryToIsoString("000001"),  "", ""); //0 millenia invalid to avoid confusion w 6 digit numbers
+        Test.ensureEqual(Calendar2.tryToIsoString("198520"),  "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("-471320"), "", ""); 
 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("1/2/85"),          "M/d/yy", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("11/22/85"),        "M/d/yy", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("1/2/1985"),        "M/d/yy", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("11/22/1985"),      "M/d/yy", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("Jan 2, 85"),       "MMM d, yy", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("Jan 22, 85"),      "MMM d, yy", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("Jan 2, 1985"),     "MMM d, yy", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2 Jan 85"),        "d MMM yy", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2 Jan 1985"),      "d MMM yy", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("22 Jan 1985"),     "d MMM yy", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2-JAN-85"),        "d-MMM-yy", ""); 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat("02-JAN-1985"),     "d-MMM-yy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("1/2/85"),          "", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("01/2/85"),         "", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("1/02/85"),         "", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("11/22/85"),        "", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("Jan 2, 85"),       "", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("Jan 02, 85"),      "", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("Jan 22, 85"),      "", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2 Jan 85"),        "", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2-JAN-85"),        "", ""); 
+
+        Test.ensureEqual(Calendar2.tryToIsoString("1/2/85"),          "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("01/2/85"),         "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("1/02/85"),         "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("11/22/85"),        "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("Jan 2, 85"),       "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("Jan 02, 85"),      "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("Jan 22, 85"),      "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("2 Jan 85"),        "", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("2-JAN-85"),        "", ""); 
+
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("1/2/1985"),        "M/d/yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("01/2/1985"),       "M/d/yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("1/02/1985"),       "M/d/yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("11/22/1985"),      "M/d/yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("11/31/1985"),      "M/d/yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2 Jan 1985"),      "d MMM yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("02 Jan 1985"),     "d MMM yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("22 Jan 1985"),     "d MMM yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2-JAN-1985"),      "d-MMM-yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("02-JAN-1985"),     "d-MMM-yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2 January 1985"),      "d MMMM yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("02 January 1985"),     "d MMMM yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("22 January 1985"),     "d MMMM yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("2-JANuary-1985"),      "d-MMMM-yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("02-JANuary-1985"),     "d-MMMM-yyyy", ""); 
+
+        Test.ensureEqual(Calendar2.tryToIsoString("1/2/1985"),        "1985-01-02", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("01/2/1985"),       "1985-01-02", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("1/02/1985"),       "1985-01-02", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("11/22/1985"),      "1985-11-22", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("11/31/1985"),      "1985-12-01", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("2 Jan 1985"),      "1985-01-02", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("02 Jan 1985"),     "1985-01-02", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("22 Jan 1985"),     "1985-01-22", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("2-JAN-1985"),      "1985-01-02", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("02-JAN-1985"),     "1985-01-02", ""); 
+
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("Jan 2, 1985"),     "MMM d, yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("Jan 22, 1985"),    "MMM d, yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("Jan 02, 1985"),    "MMM d, yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("Jan 2, 0000"),     "MMM d, yyyy", ""); 
+
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("July 2, 1985"),    "MMMM d, yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("july 2, 1985"),    "MMMM d, yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("JULY 2, 1985"),    "MMMM d, yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("July 22, 1985"),   "MMMM d, yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("July 02, 1985"),   "MMMM d, yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("July 2, 0000"),    "MMMM d, yyyy", ""); 
+
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("Sun, 06 Nov 1994 08:49:37 GMT"),   
-                                                         "EEE, dd MMM yyyy HH:mm:ss 'GMT'", ""); 
+                                                         "EEE, d MMM yyyy HH:mm:ss 'GMT'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("Sun, 06 Nov 1994 08:49:37 -08"),
+                                                         "EEE, d MMM yyyy HH:mm:ss x", ""); 
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("Sun, 06 Nov 1994 08:49:37 -0800"),
-                                                         "EEE, dd MMM yyyy HH:mm:ss Z", ""); 
+                                                         "EEE, d MMM yyyy HH:mm:ss xx", ""); 
         Test.ensureEqual(Calendar2.suggestDateTimeFormat("Sun, 06 Nov 1994 08:49:37 -08:00"),
-                                                         "EEE, dd MMM yyyy HH:mm:ss Z", ""); 
+                                                         "EEE, d MMM yyyy HH:mm:ss xxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("Sun Nov 20 17:36:16 1994"),
+                                                         "EEE MMM d HH:mm:ss yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("Sun Nov 6 17:36:16 1994"),
+                                                         "EEE MMM d HH:mm:ss yyyy", ""); 
 
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat(StringArray.fromCSV(", 1985-01-02, 9990-10-11")),
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("Sunday, 06 November 1994 08:49:37 GMT"),   
+                                                         "EEEE, d MMMM yyyy HH:mm:ss 'GMT'", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("Sunday, 06 November 1994 08:49:37 -08"),
+                                                         "EEEE, d MMMM yyyy HH:mm:ss x", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("Sun, 06 November 1994 08:49:37 -0800"), //3 letter day
+                                                         "EEEE, d MMMM yyyy HH:mm:ss xx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("Sunday, 06 Nov 1994 08:49:37 -08:00"), //3 letter month
+                                                         "EEEE, d MMMM yyyy HH:mm:ss xxx", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("Sunday November 20 17:36:16 1994"),
+                                                         "EEEE MMMM d HH:mm:ss yyyy", ""); 
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat("Sunday November 6 17:36:16 1994"),
+                                                         "EEEE MMMM d HH:mm:ss yyyy", ""); 
+
+        Test.ensureEqual(Calendar2.tryToIsoString("Jan 2, 1985"),     "1985-01-02", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("JAN 22, 1985"),    "1985-01-22", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("jan 02, 1985"),    "1985-01-02", ""); 
+/**/    Test.ensureEqual(Calendar2.tryToIsoString("Jan 2, 0000"),     "0000-01-02", ""); 
+
+        Test.ensureEqual(Calendar2.tryToIsoString("January 2, 1985"),     "1985-01-02", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("january 22, 1985"),    "1985-01-22", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("JANUARY 02, 1985"),    "1985-01-02", ""); 
+/**/    Test.ensureEqual(Calendar2.tryToIsoString("January 2, 0000"),     "0000-01-02", ""); 
+
+        Test.ensureEqual(Calendar2.tryToIsoString("Sun, 06 Nov 1994 08:49:37 GMT"),   "1994-11-06T08:49:37Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("Sun, 06 Nov 1994 08:49:37 -0800"), "1994-11-06T16:49:37Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("Sun, 06 Nov 1994 08:49:37 -08:00"),"1994-11-06T16:49:37Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("Sun, 06 Nov 1994 08:49:37 +0030"), "1994-11-06T08:19:37Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("Sun, 06 Nov 1994 08:49:37 -00:30"),"1994-11-06T09:19:37Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("Sun Nov 20 17:36:16 1994"),        "1994-11-20T17:36:16Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("Sun Nov 6 17:36:16 1994"),         "1994-11-06T17:36:16Z", ""); 
+
+        Test.ensureEqual(Calendar2.tryToIsoString("Sunday, 06 November 1994 08:49:37 GMT"),   "1994-11-06T08:49:37Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("Sun, 06 November 1994 08:49:37 -0800"),    "1994-11-06T16:49:37Z", ""); //3 letter day
+        Test.ensureEqual(Calendar2.tryToIsoString("Sunday, 06 Nov 1994 08:49:37 -08:00"),     "1994-11-06T16:49:37Z", ""); //3 letter month
+        Test.ensureEqual(Calendar2.tryToIsoString("Sunday, 06 November 1994 08:49:37 +0030"), "1994-11-06T08:19:37Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("Sunday, 06 November 1994 08:49:37 -00:30"),"1994-11-06T09:19:37Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("sunday NOVember 20 17:36:16 1994"),        "1994-11-20T17:36:16Z", ""); 
+        Test.ensureEqual(Calendar2.tryToIsoString("SUNDAY november 6 17:36:16 1994"),         "1994-11-06T17:36:16Z", ""); 
+
+        //arrays
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat(StringArray.fromCSV(", 1985-01-02, 9990-10-11"), false), //evenIfPurelyNumeric),
             "yyyy-MM-dd", "");
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat(StringArray.fromCSV(", 1985-01-02, 9000-10-a1")),
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat(StringArray.fromCSV(", 19851011, 21001231"), true), //evenIfPurelyNumeric), 
+            "yyyyMMdd", "");
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat(StringArray.fromCSV(", 19851011, 21001231"), false), //evenIfPurelyNumeric), 
             "", "");
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat(StringArray.fromCSV(", 4 Feb 9999, 2 Jan 1985")),
-            "d MMM yy", "");
-        Test.ensureEqual(Calendar2.suggestDateTimeFormat(StringArray.fromCSV(", 1985-01-02, Jan 2, 1985")),
+        //test finding one, then move on to another and go back and check the previous
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat(StringArray.fromCSV(", 1985-10-11, 9990-1-2"), false), //evenIfPurelyNumeric), 
+            "yyyy-M-d", "");
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat(StringArray.fromCSV(", 1985-01-02, 9000-10-a1"), false), //evenIfPurelyNumeric),
+            "", "");
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat(StringArray.fromCSV(", 4 Feb 9999, 2 Jan 1985"), false), //evenIfPurelyNumeric),
+            "d MMM yyyy", "");
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat(StringArray.fromCSV(", 12 Feb 9999, 2 Jan 1985"), false), //evenIfPurelyNumeric),
+            "d MMM yyyy", "");
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat(StringArray.fromCSV(", 4 FEB 9999, 2 january 1985"), false), //evenIfPurelyNumeric),
+            "d MMMM yyyy", "");
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat(StringArray.fromCSV(", 12 FEBRUARY 9999, 2 jan 1985"), false), //evenIfPurelyNumeric),
+            "d MMMM yyyy", "");
+        Test.ensureEqual(Calendar2.suggestDateTimeFormat(StringArray.fromCSV(", 1985-01-02, Jan 2, 1985"), false), //evenIfPurelyNumeric),
             "", "");
 
         //toEpochSeconds(source, format)
-        Test.ensureEqual(Calendar2.toEpochSeconds(
-            "2015-10-12T11:13:22", "yyyy-MM-dd"), 1.444648402E9, ""); //parsed by Calendar2.parseIsoDateTime
-        Test.ensureEqual(Calendar2.toEpochSeconds(
-            "6015-10-12T11:13:22", "yyyy-MM-dd"), 1.27672456402E11, ""); 
-        Test.ensureEqual(Calendar2.toEpochSeconds(
-            "2015-1a-12T11:13:22", "yyyy-MM-dd"), Double.NaN, ""); 
-        Test.ensureEqual(Calendar2.toEpochSeconds(
+        Test.ensureEqual(Calendar2.parseToEpochSeconds(
+            "2015-10-12", "yyyy-MM-dd"), 1.444608E9, ""); 
+        Test.ensureEqual(Calendar2.parseToEpochSeconds(
+            "6015-10-12", "yyyy-MM-dd"), 1.27672416E11, ""); 
+        Test.ensureEqual(Calendar2.parseToEpochSeconds(
+            "2015-1a-12", "yyyy-MM-dd"), Double.NaN, ""); 
+        d = -6.21357696E10;
+        Test.ensureEqual(Calendar2.parseToEpochSeconds(
+            "0001-01-01", "yyyy-MM-dd"), d, ""); 
+        Test.ensureEqual(Calendar2.parseToEpochSeconds(
+            "0000-01-01", "yyyy-MM-dd"), d -= 366*86400, ""); 
+        Test.ensureEqual(Calendar2.parseToEpochSeconds(
+            "-0001-01-01","yyyy-MM-dd"), d -= 365*86400, ""); 
+        Test.ensureEqual(Calendar2.parseToEpochSeconds(
+            "-0002-01-01","yyyy-MM-dd"), d -= 365*86400, ""); 
+        Test.ensureEqual(Calendar2.parseToEpochSeconds(
             "Sun, 06 Nov 1994 08:49:37 GMT",
             "EEE, dd MMM yyyy HH:mm:ss 'GMT'"), 7.84111777E8, "");
-        Test.ensureEqual(Calendar2.toEpochSeconds(
+        Test.ensureEqual(Calendar2.parseToEpochSeconds(
             "Sun, 06 Nov 1994 08:49:3a GMT",
             "EEE, dd MMM yyyy HH:mm:ss 'GMT'"), Double.NaN, "");
-        Test.ensureEqual(Calendar2.toEpochSeconds(
-            "4 Feb 9999", "d MMM yy"), 2.533737024E11, "");
-        Test.ensureEqual(Calendar2.toEpochSeconds(
+        Test.ensureEqual(Calendar2.parseToEpochSeconds(
+            "4 Feb 9999", "d MMM yyyy"), 2.533737024E11, "");
+        Test.ensureEqual(Calendar2.parseToEpochSeconds(
+            "4 Feb 9999 '", "d MMM yyyy ''"), 2.533737024E11, "");
+        Test.ensureEqual(Calendar2.parseToEpochSeconds(
             "1985-01-04", "d MMM yy"), Double.NaN, "");
 
         //convert StringArray 
-        Test.ensureEqual(Calendar2.toEpochSeconds(
-            StringArray.fromCSV(", 1985-01-02, 9990-10-11"), "yyyy-MM").toString(), 
+        Test.ensureEqual(Calendar2.parseToEpochSeconds(
+            //since regex starts with yyyy-M it is parsed by parseISODateTime
+            StringArray.fromCSV(", 1985-01-02, 9990-10-11"), "yyyy-M").toString(), 
             "NaN, 4.73472E8, 2.531112192E11", "");
-        Test.ensureEqual(Calendar2.toEpochSeconds(
-            StringArray.fromCSV(", 1985-01-02, 2 Jan 1985"), "yyyy-MM").toString(), 
+        Test.ensureEqual(Calendar2.parseToEpochSeconds(
+            StringArray.fromCSV(", 1985-01-02, 2 Jan 1985"), "yyyy-M").toString(), 
             "NaN, 4.73472E8, NaN", "");
-        Test.ensureEqual(Calendar2.toEpochSeconds(
-            StringArray.fromCSV(", 4 Feb 9999, 2 Jan 1985"), "d MMM yy").toString(), 
+        Test.ensureEqual(Calendar2.parseToEpochSeconds(
+            StringArray.fromCSV(", 4 Feb 9999, 2 Jan 1985"), "d MMM yyyy").toString(), 
             "NaN, 2.533737024E11, 4.73472E8", "");
-        Test.ensureEqual(Calendar2.toEpochSeconds(
-            StringArray.fromCSV(", 4 Feb 9999, 1985-01-03"), "d MMM yy").toString(), 
+        Test.ensureEqual(Calendar2.parseToEpochSeconds(
+            StringArray.fromCSV(", 4 Feb 9999, 1985-01-03"), "d MMM yyyy").toString(), 
             "NaN, 2.533737024E11, NaN", ""); 
+
+        //cleanUpNumericTimeUnits(tUnits)
+        Test.ensureEqual(Calendar2.cleanUpNumericTimeUnits("sec since 2 Jan 1985"),              "seconds since 1985-01-02T00:00:00Z", ""); //adds time if unused
+        Test.ensureEqual(Calendar2.cleanUpNumericTimeUnits("m    Since  1985-01-02T01:02:34Z"),  "minutes since 1985-01-02T01:02:34Z", "");
+        Test.ensureEqual(Calendar2.cleanUpNumericTimeUnits("hrs SINce 1985-01-02Z"),             "hours since 1985-01-02T00:00:00Z", "");
+        Test.ensureEqual(Calendar2.cleanUpNumericTimeUnits("year sinCE 1985-1-2Z"),              "years since 1985-01-02T00:00:00Z", "");
+        Test.ensureEqual(Calendar2.cleanUpNumericTimeUnits("day since 1985-1-2T1:2:3.0Z"),       "days since 1985-01-02T01:02:03.000Z", ""); //adds millis if used
+        Test.ensureEqual(Calendar2.cleanUpNumericTimeUnits("day since 1985-1-2T1:2:3Z"),         "days since 1985-01-02T01:02:03Z", "");
+        Test.ensureEqual(Calendar2.cleanUpNumericTimeUnits("mon since 1985-1-2T1:2:3"),          "months since 1985-01-02T01:02:03Z", "");
+        Test.ensureEqual(Calendar2.cleanUpNumericTimeUnits("ms  since 1985-1-2 1:2"),            "milliseconds since 1985-01-02T01:02:00Z", "");
+        Test.ensureEqual(Calendar2.cleanUpNumericTimeUnits("millis since 15Z9dec2013"),          "milliseconds since 2013-12-09T15:00:00Z", "");
+        Test.ensureEqual(Calendar2.cleanUpNumericTimeUnits(" julian days since January 2, 1985 "),"days since 1985-01-02T00:00:00Z", "");
+
+        /* DISABLED, not used anywhere
+        //tryToIsoString(StringArray someDateTimeStrings) 
+        Test.ensureEqual(Calendar2.tryToIsoString(
+            new StringArray(new String[]{"2 Jan 1985", "31 Dec 1986"}), false),
+            new StringArray(new String[]{"1985-01-02", "1986-12-31"}), //removes time if unused
+            "");
+        Test.ensureEqual(Calendar2.tryToIsoString(
+            new StringArray(new String[]{"1985-01-02T01:02:34Z", "1986-12-31T05:06:07Z"}), false), 
+            new StringArray(new String[]{"1985-01-02T01:02:34Z", "1986-12-31T05:06:07Z"}),
+            "");
+        Test.ensureEqual(Calendar2.tryToIsoString(
+            new StringArray(new String[]{"19850102", "19861231"}), true),    //evenIfPurelyNumeric
+            new StringArray(new String[]{"1985-01-02", "1986-12-31"}),
+            "");
+        Test.ensureEqual(Calendar2.tryToIsoString(
+            new StringArray(new String[]{"19850102", "19861231"}), false),   //evenIfPurelyNumeric
+            new StringArray(new String[]{"19850102", "19861231"}),  //unchanged
+            "");
+        Test.ensureEqual(Calendar2.tryToIsoString(
+            new StringArray(new String[]{"1985zztop", "1986-12-31T05:06:07Z"}), false), 
+            new StringArray(new String[]{"",          ""}),
+            "");
+        */
+
+        //more tests of parseDateTime
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT3Z(
+            Calendar2.formattedStringToMillis(
+            "2 Jan 1985", //optional space is present
+            "d MMM yyyy", null)/1000.0),
+            "1985-01-02T00:00:00.000Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT3Z(
+            Calendar2.formattedStringToMillis(
+            "2 Jan 1985 10 UTC", 
+            "d MMM yyyy HH 'UTC'", null)/1000.0),
+            "1985-01-02T10:00:00.000Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT3Z(
+            Calendar2.formattedStringToMillis(
+            "2 Jan 1985 10:11:12 UTC", 
+            "d MMM yyyy HH:mm:ss 'UTC'", null)/1000.0),
+            "1985-01-02T10:11:12.000Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT3Z(
+            Calendar2.formattedStringToMillis(
+            "2 Jan 1985 10:11:12.123 GMT", 
+            "d MMM yyyy HH:mm:ss.SSS 'GMT'", null)/1000.0),
+            "1985-01-02T10:11:12.123Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT3Z(
+            Calendar2.formattedStringToMillis(
+            "2 Jan 1985 20:11:12.123UTC",  
+            "d MMM yyyy HH:mm:ss.SSS'UTC'", null)/1000.0),
+            "1985-01-02T20:11:12.123Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT3Z(
+            Calendar2.formattedStringToMillis(
+            "2 jAn 1985 1:2:3.4 UTC", //jAn
+            "d MMM y H:m:s.S[ ]'UTC'", null)/1000.0), //flexi digits
+            "1985-01-02T01:02:03.400Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT3Z(
+            Calendar2.formattedStringToMillis(
+            "12 Jan 1985 10:20:30.5 UTC", //flexi digits
+            "d MMM yyyy H:m:s.S 'UTC'", null)/1000.0),
+            "1985-01-12T10:20:30.500Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT3Z(
+            Calendar2.formattedStringToMillis(
+            "12 Jan 1985 10:20:30.55 UTC", //flexi digits
+            "d MMM yyyy H:m:s.S 'UTC'", null)/1000.0),
+            "1985-01-12T10:20:30.550Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT3Z(
+            Calendar2.formattedStringToMillis(
+            "12 Jan 1985 10:20:30.555UTC", //flexi digits
+            "d MMM yyyy H:m:s.S'UTC'", null)/1000.0),
+            "1985-01-12T10:20:30.555Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT3Z(
+            Calendar2.formattedStringToMillis(
+            "12 Jan 1985 10:20:30.5555 UTC", //flexi digits
+            "d MMM yyyy H:m:s.S 'UTC'", null)/1000.0),
+            "1985-01-12T10:20:30.556Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT3Z(
+            Calendar2.formattedStringToMillis(   //{}# are reserved
+            "12 Jan 1985 !@(10~20$30%5555&*_=|\";:<>,) UTC", //other punctuation are literal
+            "dd MMM yyyy !@(HH~mm$ss%SSSS&*_=|\";:<>,)[ <>,]'UTC'", null)/1000.0),
+            "1985-01-12T10:20:30.556Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(
+            Calendar2.formattedStringToMillis(
+            "12 jan 1985 12:20:30.555 am",  //am      clock hour  12, 1- 11
+            "d MMM yyyy h:m:s.S a", null)/1000.0), //h a
+            "1985-01-12T00:20:30Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(
+            Calendar2.formattedStringToMillis(
+            "12 jan 1985 12:20:30.555 pm",  //pm      clock hour  12, 1- 11
+            "d MMM yyyy h:m:s.S a", null)/1000.0), //h a
+            "1985-01-12T12:20:30Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(
+            Calendar2.formattedStringToMillis(
+            "12 jan 1985 1:2:3 AM",  //am
+            "d MMM yyyy h:m:s a", null)/1000.0), //h a
+            "1985-01-12T01:02:03Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(
+            Calendar2.formattedStringToMillis(
+            "12 jan 1985 10:20:30PM",  //pm
+            "d MMM yyyy h:m:sa", null)/1000.0), //h a
+            "1985-01-12T22:20:30Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(
+            Calendar2.formattedStringToMillis(
+            "12 jan 1985 00:20:30.555 am",  //am      hour of am/pm
+            "d MMM yyyy K:m:s.S a", null)/1000.0), //h a
+            "1985-01-12T00:20:30Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(
+            Calendar2.formattedStringToMillis(
+            "12 jan 1985 00:20:30.555 pm",  //pm      hour of am/pm
+            "d MMM yyyy KK:m:s.S a", null)/1000.0), //h a
+            "1985-01-12T12:20:30Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(
+            Calendar2.formattedStringToMillis(
+            "12 jan 1985 12:20:30.555 am",  //am      hour of am/pm 0-11, out-of-range->rolls to 12
+            "d MMM yyyy K:m:s.S a", null)/1000.0), //h a
+            "1985-01-12T12:20:30Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(
+            Calendar2.formattedStringToMillis(
+            "12 jan 1985 12:20:30.555 pm",  //am      hour of am/pm 0-11  out-of-range->rolls to 12
+            "d MMM yyyy K:m:s.S a", null)/1000.0), //h a
+            "1985-01-13T00:20:30Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT3Z(
+            Calendar2.formattedStringToMillis(
+            "12 jan 1985 00000000",  //millis of day
+            "d MMM yyyy A", null)/1000.0), 
+            "1985-01-12T00:00:00.000Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT3Z(
+            Calendar2.formattedStringToMillis(
+            "12 jan 1985 86399999",  //millis of day
+            "d MMM yyyy A", null)/1000.0), 
+            "1985-01-12T23:59:59.999Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT3Z(
+            Calendar2.formattedStringToMillis(
+            "12 jan 1985 86399999",  //millis of day
+            "d MMM yyyy AAAAAAAA", null)/1000.0), 
+            "1985-01-12T23:59:59.999Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT3Z(
+            Calendar2.formattedStringToMillis(
+            "12 jan 1985 00000000000000",  //nano of day
+            "d MMM yyyy N", null)/1000.0), 
+            "1985-01-12T00:00:00.000Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT3Z(
+            Calendar2.formattedStringToMillis(
+            "12 jan 1985 86399999999999",  //nano of day
+            "d MMM yyyy N", null)/1000.0), 
+            "1985-01-12T23:59:59.999Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT3Z(
+            Calendar2.formattedStringToMillis(
+            "12 jan 1985 86399999999999",  //nano of day
+            "d MMM yyyy NNNNNNNNNNNNNN", null)/1000.0), 
+            "1985-01-12T23:59:59.999Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT3Z(
+            Calendar2.formattedStringToMillis(
+            "12 jan 1985 01:02:03 00000000000000",  //nano of second
+            "d MMM yyyy H:m:s N", null)/1000.0), 
+            "1985-01-12T01:02:03.000Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT3Z(
+            Calendar2.formattedStringToMillis(
+            "12 jan 1985 01:02:03 86399999999999",  //nano of second
+            "d MMM yyyy H:m:s N", null)/1000.0), 
+            "1985-01-13T01:02:02.999Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT3Z(
+            Calendar2.formattedStringToMillis(
+            "12 jan 1985 01:02:03 86399999999999",  //nano of second
+            "d MMM yyyy H:m:s NNNNNNNNNNNNNN", null)/1000.0), 
+            "1985-01-13T01:02:02.999Z", "");
+
+        //test catching errors in parseDateTime
+        String tryIt[] = { //alternate: dateTime, format, error string
+            "2 Jan 1985 10:11:12.123  UTC",  //2 spaces
+            "d MMM yyyy HH:mm:ss.SSS[ ]'UTC'", 
+            "java.lang.RuntimeException: ERROR: parseDateTime was unable to parse " +
+                "\"2 Jan 1985 10:11:12.123  UTC\" as \"d MMM yyyy HH:mm:ss.SSS[ ]'UTC'\": " +
+                "The time string doesn't match the format at time string character #25.",               
+
+            "2 Jan 985 10:11:12.123 UTC",  //3 digit year
+            "d MMM yyyy HH:mm:ss.SSS[ ]'UTC'", 
+            "java.lang.RuntimeException: ERROR: parseDateTime was unable to parse " +
+                "\"2 Jan 985 10:11:12.123 UTC\" as \"d MMM yyyy HH:mm:ss.SSS[ ]'UTC'\": " +
+                "The time string doesn't match the format at time string character #10.",               
+
+            "2 Jan 1985 10:11:12.123 UT",  //C missing
+            "d MMM yyyy HH:mm:ss.SSS[ ]'UTC'", 
+            "java.lang.RuntimeException: ERROR: parseDateTime was unable to parse " +
+                "\"2 Jan 1985 10:11:12.123 UT\" as \"d MMM yyyy HH:mm:ss.SSS[ ]'UTC'\": " +
+                "The time string lacks information specified at end of format.",               
+
+            "2 Jan 1985 1:11:12.123 UTC",  //not right fixed #digits
+            "d MMM yyyy HH:mm:ss.SSS[ ]'UTC'", 
+            "java.lang.RuntimeException: ERROR: parseDateTime was unable to parse " +
+                "\"2 Jan 1985 1:11:12.123 UTC\" as \"d MMM yyyy HH:mm:ss.SSS[ ]'UTC'\": " +
+                "The time string doesn't match the format at time string character #13.",               
+
+            "2 Jan 1985 10:11:12.123 UTC", 
+            "d MMM yyyy HH:mm:ss.SSS[ ]'UT'",  //C missing
+            "java.lang.RuntimeException: ERROR: parseDateTime was unable to parse " +
+                "\"2 Jan 1985 10:11:12.123 UTC\" as \"d MMM yyyy HH:mm:ss.SSS[ ]'UT'\": " +
+                "The time string doesn't match the format at time string character #27.", 
+                
+            "2 Jan 1985 10:11:12.123 UTC",  
+            "d DDD yyyy HH:mm:ss.SSS[ ]'UTC'", //DDD text 
+            "java.lang.RuntimeException: ERROR: parseDateTime was unable to parse " +
+                "\"2 Jan 1985 10:11:12.123 UTC\" as \"d DDD yyyy HH:mm:ss.SSS[ ]'UTC'\": " +
+                "The time string doesn't match the format at time string character #3.", 
+                
+            "2 Jan 1985 10:11:12.123 UTC",  
+            "d MMM yyyy HH:mm:ss.SSS[[ ]]'UTC'", //[[
+            "java.lang.RuntimeException: ERROR: parseDateTime was unable to parse " +
+                "\"2 Jan 1985 10:11:12.123 UTC\" as \"d MMM yyyy HH:mm:ss.SSS[[ ]]'UTC'\": " +
+                "Unexpected or unsupported format character count: '[[' at #24.", 
+                
+            "2 Jan 1985 10:11:12.123 UTC",  
+            "d MMM yyyy BB:mm:ss.SSS[ ]'UTC'", //unsupported B
+            "java.lang.RuntimeException: ERROR: parseDateTime was unable to parse " +
+                "\"2 Jan 1985 10:11:12.123 UTC\" as \"d MMM yyyy BB:mm:ss.SSS[ ]'UTC'\": " +
+                "Unexpected or unsupported format character 'B' at #12.", 
+                
+            "1985 3rd quarter",  
+            "yyyy QQQ", //unsupported Q
+            "java.lang.RuntimeException: ERROR: parseDateTime was unable to parse " +
+                "\"1985 3rd quarter\" as \"yyyy QQQ\": " +
+                "Unexpected or unsupported format character 'Q' at #6.", 
+                
+            "2 Jan 1985 10:11:12.123 UTC",  
+            "d MMM yyyy HH{mm:ss.SSS[ ]'UTC'", //{} are reserved
+            "java.lang.RuntimeException: ERROR: parseDateTime was unable to parse " +
+                "\"2 Jan 1985 10:11:12.123 UTC\" as \"d MMM yyyy HH{mm:ss.SSS[ ]'UTC'\": " +
+                "Unexpected or unsupported format character '{' at #14.", 
+                
+            "2 Jan 1985 10:11:12.123 UTC",  
+            "d MMM yyyy HH#mm:ss.SSS[ ]'UTC'", //# is reserved
+            "java.lang.RuntimeException: ERROR: parseDateTime was unable to parse " +
+                "\"2 Jan 1985 10:11:12.123 UTC\" as \"d MMM yyyy HH#mm:ss.SSS[ ]'UTC'\": " +
+                "Unexpected or unsupported format character '#' at #14.", 
+                
+            "2 Jan 1985 10:11:12+123 UTC",  //  +
+            "d MMM yyyy HH:mm:ss.SSS[ ]'UTC'", 
+            "java.lang.RuntimeException: ERROR: parseDateTime was unable to parse " +
+                "\"2 Jan 1985 10:11:12+123 UTC\" as \"d MMM yyyy HH:mm:ss.SSS[ ]'UTC'\": " +
+                "The time string doesn't match the format at time string character #20."};
+
+        for (int i = 0; i < tryIt.length; i += 3) {
+            String msg = "shouldn't get here 1";
+            try {
+                Calendar2.formattedStringToMillis(tryIt[i], tryIt[i+1], null); //timezone=null
+                msg = "shouldn't get here 2";
+            } catch (Exception e) {
+                msg = e.toString();
+            }
+            Test.ensureEqual(msg, tryIt[i+2], "tryIt i=" + i + "  " + tryIt[i] + "  " + tryIt[i+1]);
+        }
 
 
         //isTimeUnits
-        s = "mm-dd-yy";    Test.ensureTrue(Calendar2.isTimeUnits(s), s);
-        s = "mm-dd-YY";    Test.ensureTrue(Calendar2.isTimeUnits(s), s);
+        s = "mm-dd-yyyy";  Test.ensureTrue(Calendar2.isTimeUnits(s), s);
+        s = "mm-dd-yyyy";  Test.ensureTrue(Calendar2.isTimeUnits(s), s);
         s = "d since 1-";  Test.ensureTrue(Calendar2.isTimeUnits(s), s);
         s = "d  since 1-"; Test.ensureTrue(Calendar2.isTimeUnits(s), s);
         s = "d since  1-"; Test.ensureTrue(Calendar2.isTimeUnits(s), s);
         s = " hours since 1970-01-01T00:00:00Z "; Test.ensureTrue(Calendar2.isTimeUnits(s), s);
+        s = " hours since 0000-01-01T00:00:00Z "; Test.ensureTrue(Calendar2.isTimeUnits(s), s);
+        s = " hours since -0001-01-01T00:00:00Z ";Test.ensureTrue(Calendar2.isTimeUnits(s), s);
         s = "millis since 1970-01-01";            Test.ensureTrue(Calendar2.isTimeUnits(s), s);
         s = "d SiNCE 2001";                       Test.ensureTrue(Calendar2.isTimeUnits(s), s);
 
@@ -2694,98 +4147,41 @@ public class TestUtil {
         s = "d1 since 2001";    Test.ensureTrue(!Calendar2.isTimeUnits(s), s);
         s = "d since analysis"; Test.ensureTrue(!Calendar2.isTimeUnits(s), s);
         s = "d since2001";      Test.ensureTrue(!Calendar2.isTimeUnits(s), s);
+        s = "mm-dd-yy";         Test.ensureTrue(!Calendar2.isTimeUnits(s), s);
+        s = "mm-dd-YY";         Test.ensureTrue(!Calendar2.isTimeUnits(s), s);
 
-        //test that all of thos formats work
-        DateTimeFormatter dtf; 
-        dtf = DateTimeFormat.forPattern("yyyy-DDD").withZone(DateTimeZone.UTC);
-        Test.ensureEqual(Calendar2.millisToIsoZuluString(dtf.parseMillis(
-                                        "2002-027")),
-                                        "2002-01-27T00:00:00", "");
-        dtf = DateTimeFormat.forPattern("yyyyDDD").withZone(DateTimeZone.UTC);
-        Test.ensureEqual(Calendar2.millisToIsoZuluString(dtf.parseMillis(
-                                        "2002027")),
-                                        "2002-01-27T00:00:00", "");
-        dtf = DateTimeFormat.forPattern("yyyyMMddHHmmss").withZone(DateTimeZone.UTC);
-        Test.ensureEqual(Calendar2.millisToIsoZuluString(dtf.parseMillis(
-                                        "19850102235959")),
-                                        "1985-01-02T23:59:59", "");
-        dtf = DateTimeFormat.forPattern("yyyyMMddHHmm").withZone(DateTimeZone.UTC);
-        Test.ensureEqual(Calendar2.millisToIsoZuluString(dtf.parseMillis(
-                                        "198501022359")),
-                                        "1985-01-02T23:59:00", "");
-        dtf = DateTimeFormat.forPattern("yyyyMMddHH").withZone(DateTimeZone.UTC);
-        Test.ensureEqual(Calendar2.millisToIsoZuluString(dtf.parseMillis(
-                                        "1985010223")),
-                                        "1985-01-02T23:00:00", "");
-        dtf = DateTimeFormat.forPattern("yyyyMMdd").withZone(DateTimeZone.UTC);
-        Test.ensureEqual(Calendar2.millisToIsoZuluString(dtf.parseMillis(
-                                        "19850102")),
-                                        "1985-01-02T00:00:00", "");
-        dtf = DateTimeFormat.forPattern("yyyyMM").withZone(DateTimeZone.UTC);
-        Test.ensureEqual(Calendar2.millisToIsoZuluString(dtf.parseMillis(
-                                        "198501")),
-                                        "1985-01-01T00:00:00", "");
-        dtf = DateTimeFormat.forPattern("M/d/yy").withZone(DateTimeZone.UTC);
-        Test.ensureEqual(Calendar2.millisToIsoZuluString(dtf.parseMillis(
-                                        "1/2/85")),
-                                        "1985-01-02T00:00:00", "");
-        Test.ensureEqual(Calendar2.millisToIsoZuluString(dtf.parseMillis(
-                                        "11/22/85")),
-                                        "1985-11-22T00:00:00", "");
-        Test.ensureEqual(Calendar2.millisToIsoZuluString(dtf.parseMillis(
-                                        "1/2/1985")),
-                                        "1985-01-02T00:00:00", "");
-        Test.ensureEqual(Calendar2.millisToIsoZuluString(dtf.parseMillis(
-                                        "11/22/1985")),
-                                        "1985-11-22T00:00:00", "");
-        dtf = DateTimeFormat.forPattern("MMM d, yy").withZone(DateTimeZone.UTC);
-        Test.ensureEqual(Calendar2.millisToIsoZuluString(dtf.parseMillis(
-                                        "Jan 2, 85")),
-                                        "1985-01-02T00:00:00", "");
-        Test.ensureEqual(Calendar2.millisToIsoZuluString(dtf.parseMillis(
-                                        "Jan 22, 85")),
-                                        "1985-01-22T00:00:00", "");
-        Test.ensureEqual(Calendar2.millisToIsoZuluString(dtf.parseMillis(
-                                        "Jan 22, 1985")),
-                                        "1985-01-22T00:00:00", "");
-        dtf = DateTimeFormat.forPattern("d MMM yy").withZone(DateTimeZone.UTC);
-        Test.ensureEqual(Calendar2.millisToIsoZuluString(dtf.parseMillis(
-                                        "2 Jan 85")),
-                                        "1985-01-02T00:00:00", "");
-        Test.ensureEqual(Calendar2.millisToIsoZuluString(dtf.parseMillis(
-                                        "22 Jan 1985")),
-                                        "1985-01-22T00:00:00", "");
-        dtf = DateTimeFormat.forPattern("d-MMM-yy").withZone(DateTimeZone.UTC);
-        Test.ensureEqual(Calendar2.millisToIsoZuluString(dtf.parseMillis(
-                                        "2-JAN-85")),
-                                        "1985-01-02T00:00:00", "");
-        Test.ensureEqual(Calendar2.millisToIsoZuluString(dtf.parseMillis(
-                                        "02-JAN-1985")),
-                                        "1985-01-02T00:00:00", "");
-        dtf = DateTimeFormat.forPattern("EEE, dd MMM yyyy HH:mm:ss 'GMT'").withZone(DateTimeZone.UTC);
-        Test.ensureEqual(Calendar2.millisToIsoZuluString(dtf.parseMillis(
-                                        "WED, 02 JAN 1985 01:02:03 GMT")),
-                                        "1985-01-02T01:02:03", "");
-        dtf = DateTimeFormat.forPattern("EEE, dd MMM yyyy HH:mm:ss Z").withZone(DateTimeZone.UTC);
-        Test.ensureEqual(Calendar2.millisToIsoZuluString(dtf.parseMillis(
-                                        "WED, 02 JAN 1985 01:02:03 -0800")),
-                                        "1985-01-02T09:02:03", "");
-        Test.ensureEqual(Calendar2.millisToIsoZuluString(dtf.parseMillis(
-                                        "WED, 02 JAN 1985 01:02:03 -08:00")),
-                                        "1985-01-02T09:02:03", "");
+        //test that all of those formats work
+        testDateTimeFormatters("2002-027",       "yyyy-DDD",       "UTC",  "2002-01-27T00:00:00.000Z");
+        testDateTimeFormatters("19850102235959", "yyyyMMddHHmmss", "UTC",  "1985-01-02T23:59:59.000Z");
+        testDateTimeFormatters("198501022359",   "yyyyMMddHHmm",   "UTC",  "1985-01-02T23:59:00.000Z");
+        testDateTimeFormatters("1985010223",     "yyyyMMddHH",     "Zulu", "1985-01-02T23:00:00.000Z");
+        testDateTimeFormatters("19850102",       "yyyyMMdd",       null,   "1985-01-02T00:00:00.000Z");
+        testDateTimeFormatters("198501",         "yyyyMM",         "UTC",  "1985-01-01T00:00:00.000Z");
 
+//!!! 2017-03-20 with switch to java.time yy expands to 2085 instead of 1985
+/*
+        testDateTimeFormatters("1/2/85",       "M/d/yy",         "UTC", "2085-01-02T00:00:00.000Z");
+        testDateTimeFormatters("11/22/85",     "M/d/yy",         "UTC", "2085-11-22T00:00:00.000Z");
+        testDateTimeFormatters("1/2/1985",     "M/d/yy",         "UTC", "1985-01-02T00:00:00.000Z");
+        testDateTimeFormatters("11/22/1985",   "M/d/yy",         "UTC", "1985-11-22T00:00:00.000Z");
+        testDateTimeFormatters("Jan 2, 85"     "MMM d, yy",      "UTC", "2085-01-02T00:00:00.000Z");
+        testDateTimeFormatters("Jan 22, 85",   "MMM d, yy",      "UTC", "2085-01-22T00:00:00.000Z");
+        testDateTimeFormatters("Jan 22, 1985", "MMM d, yy",      "UTC", "1985-01-22T00:00:00.000Z");
+        testDateTimeFormatters("2 Jan 85",     "d MMM yy",       "UTC", "2085-01-02T00:00:00.000Z");
+        testDateTimeFormatters("22 Jan 1985",  "d MMM yy",       "UTC", "1985-01-22T00:00:00.000Z");
+        testDateTimeFormatters("2-JAN-85",     "d-MMM-yy",       "UTC", "2085-01-02T00:00:00.000Z");
+        testDateTimeFormatters("02-JAN-1985",  "d-MMM-yy",       "UTC", "1985-01-02T00:00:00.000Z");
+*/
+        testDateTimeFormatters("WED, 02 JAN 1985 01:02:03 GMT",   "EEE, dd MMM yyyy HH:mm:ss 'GMT'", "UTC", "1985-01-02T01:02:03.000Z");
+        testDateTimeFormatters("WED, 02 JAN 1985 01:02:03Z",      "EEE, dd MMM yyyy HH:mm:ssXXX",    "UTC", "1985-01-02T01:02:03.000Z");
+        testDateTimeFormatters("WED, 02 JAN 1985 01:02:03-08",    "EEE, dd MMM yyyy HH:mm:ssX",      "UTC", "1985-01-02T09:02:03.000Z");
+        testDateTimeFormatters("WED, 02 JAN 1985 01:02:03-0800",  "EEE, dd MMM yyyy HH:mm:ssXX",     "UTC", "1985-01-02T09:02:03.000Z");
+        testDateTimeFormatters("WED, 02 JAN 1985 01:02:03-08:00", "EEE, dd MMM yyyy HH:mm:ssXXX",    "UTC", "1985-01-02T09:02:03.000Z");
+        testDateTimeFormatters("WED, 02 JAN 1985 01:02:03 Z",     "EEE, dd MMM yyyy HH:mm:ss X",     "UTC", "1985-01-02T01:02:03.000Z");
+        testDateTimeFormatters("WED, 02 JAN 1985 01:02:03 -08",   "EEE, dd MMM yyyy HH:mm:ss X",     "UTC", "1985-01-02T09:02:03.000Z");
+        testDateTimeFormatters("WED, 02 JAN 1985 01:02:03 -0800", "EEE, dd MMM yyyy HH:mm:ss XX",    "UTC", "1985-01-02T09:02:03.000Z");
+        testDateTimeFormatters("WED, 02 JAN 1985 01:02:03 -08:00","EEE, dd MMM yyyy HH:mm:ss XXX",   "UTC", "1985-01-02T09:02:03.000Z");
 
-        Test.ensureTrue(Calendar2.probablyISODateTime("1234-01-01T00"), "");
-        Test.ensureTrue(Calendar2.probablyISODateTime("0000-0"), "");
-        Test.ensureTrue(Calendar2.probablyISODateTime("-9999-9"), "");
-
-        Test.ensureTrue(!Calendar2.probablyISODateTime("a1234-01-01T00"), "");
-        Test.ensureTrue(!Calendar2.probablyISODateTime("1234=01-01T00"), "");
-        Test.ensureTrue(!Calendar2.probablyISODateTime("1234e2"), "");
-        Test.ensureTrue(!Calendar2.probablyISODateTime("123-01-01T00"), "");
-        Test.ensureTrue(!Calendar2.probablyISODateTime("12a4-01-01T00"), "");
-        Test.ensureTrue(!Calendar2.probablyISODateTime("+1234-01-01T00"), "");
-        Test.ensureTrue(!Calendar2.probablyISODateTime("1234-"), "");
 
         //factorToGetSeconds
         Test.ensureEqual(Calendar2.factorToGetSeconds("ms"), 0.001, "a");
@@ -2815,9 +4211,9 @@ public class TestUtil {
         Test.ensureEqual(Calendar2.nowStringToEpochSeconds("now+0"), nextEpochSecond(), "");
         Test.ensureEqual(Calendar2.nowStringToEpochSeconds("now+35"), nextEpochSecond()+35, "");
         Test.ensureEqual(Calendar2.nowStringToEpochSeconds("now 36"), nextEpochSecond()+36, "");
-        Test.ensureEqual(Calendar2.nowStringToEpochSeconds("now-0milli"), nextEpochSecond(), "");
-        Test.ensureEqual(Calendar2.nowStringToEpochSeconds("now+0milli"), nextEpochSecond(), "");
-        Test.ensureEqual(Calendar2.nowStringToEpochSeconds("now-2milli"), nextEpochSecond()-0.002, "");
+        Test.ensureEqual(Calendar2.nowStringToEpochSeconds("now-0ms"), nextEpochSecond(), "");
+        Test.ensureEqual(Calendar2.nowStringToEpochSeconds("now+0millis"), nextEpochSecond(), "");
+        Test.ensureEqual(Calendar2.nowStringToEpochSeconds("now-2millis"), nextEpochSecond()-0.002, "");
         Test.ensureEqual(Calendar2.nowStringToEpochSeconds("now+2millis"), nextEpochSecond()+0.002, "");
         Test.ensureEqual(Calendar2.nowStringToEpochSeconds("now+2millisecond"), nextEpochSecond()+0.002, "");
         Test.ensureEqual(Calendar2.nowStringToEpochSeconds("now-2milliseconds"), nextEpochSecond()-0.002, "");
@@ -2836,12 +4232,13 @@ public class TestUtil {
         //Test.ensureEqual(Calendar2.nowStringToEpochSeconds("now-2years"), nextEpochSecond()-1, "");
         
         String willFail[] = {
-            "no", "now-", "now+", "now ", "nowa", "now2", "now 2d", 
+            "no", "now-", "now+", "now ", "nowa", "now2",  
             "now-2.3", "now-2.3seconds", "now-2secondsa"};
         for (int i = 0; i < willFail.length; i++) {
             try {
                 d = Calendar2.nowStringToEpochSeconds(willFail[i]);
-                throw new RuntimeException(willFail[i] + " should have failed.");
+                throw new RuntimeException(willFail[i] + " should have failed i=" + 
+                    i + "=" + willFail[i]);
             } catch (Exception e) {
                 String es = MustBe.throwableToString(e);
 expected = 
@@ -2849,7 +4246,8 @@ expected =
 "Timestamp constraints with \"now\" must be in the form " +
 "\"now[+|-positiveInteger[millis|seconds|minutes|hours|days|months|years]]\" (or singular units).\n" +
 " at "; 
-                Test.ensureEqual(es.substring(0, expected.length()), expected, 
+                Test.ensureEqual(es.substring(0, Math.min(es.length(), expected.length())),
+                    expected, 
                     "willFail=\"" + willFail[i] + "\" other failure: " + es);
             }
         }
@@ -2861,25 +4259,27 @@ expected =
         Test.ensureEqual(Calendar2.parseMinMaxString("max(z)+35", 100, true), 100+35, "");
         Test.ensureEqual(Calendar2.parseMinMaxString("min(z)-3.5", 100, true), 100-3.5, "");
         Test.ensureEqual(Calendar2.parseMinMaxString("min(z) 36", 100, true), 100+36, "");
-        Test.ensureEqual(Calendar2.parseMinMaxString("max(z)-0milli", 100, true), 100, "");
-        Test.ensureEqual(Calendar2.parseMinMaxString("min(z)+0milli", 100, true), 100, "");
-        Test.ensureEqual(Calendar2.parseMinMaxString("max(z)-2milli", 100, true), 100-0.002, "");
+        Test.ensureEqual(Calendar2.parseMinMaxString("max(z)-0ms", 100, true), 100, "");
+        Test.ensureEqual(Calendar2.parseMinMaxString("min(z)+0ms", 100, true), 100, "");
+        Test.ensureEqual(Calendar2.parseMinMaxString("max(z)-2ms", 100, true), 100-0.002, "");
         Test.ensureEqual(Calendar2.parseMinMaxString("min(z)+2millis", 100, true), 100+0.002, "");
         Test.ensureEqual(Calendar2.parseMinMaxString("max(z)+2millisecond", 100, true), 100+0.002, "");
         Test.ensureEqual(Calendar2.parseMinMaxString("min(z)-2milliseconds", 100, true), 100-0.002, "");
-        Test.ensureEqual(Calendar2.parseMinMaxString("max(z)+second", 100, true), 100+1, "");
+        Test.ensureEqual(Calendar2.parseMinMaxString("max(z)+s", 100, true), 100+1, "");
         Test.ensureEqual(Calendar2.parseMinMaxString("min(z)-2second", 100, true), 100-2, "");
         Test.ensureEqual(Calendar2.parseMinMaxString("max(z) 34seconds", 100, true), 100+34, "");
-        Test.ensureEqual(Calendar2.parseMinMaxString("min(z)-2minute", 100, true), 100-120, "");
+        Test.ensureEqual(Calendar2.parseMinMaxString("min(z)-2min", 100, true), 100-120, "");
         Test.ensureEqual(Calendar2.parseMinMaxString("max(z)+3minutes", 100, true), 100+180, "");
         Test.ensureEqual(Calendar2.parseMinMaxString("min(z)-2hour", 100, true), 100-7200, "");
         Test.ensureEqual(Calendar2.parseMinMaxString("max(z)+3hours", 100, true), 100+10800, "");
         Test.ensureEqual(Calendar2.parseMinMaxString("min(z)+day", 100, true), 100+86400, "");
         Test.ensureEqual(Calendar2.parseMinMaxString("max(z)-3days", 100, true), 100-259200, "");
-        //Test.ensureEqual(Calendar2.parseMinMaxString("min(z)-3month", 100, true), 100-, "");
-        //Test.ensureEqual(Calendar2.parseMinMaxString("max(z)+4months", 100, true), 100-1, "");
-        //Test.ensureEqual(Calendar2.parseMinMaxString("min(z)-2year", 100, true), 100-1, "");
-        //Test.ensureEqual(Calendar2.parseMinMaxString("max(z)-2years", 100, true), 100-1, "");
+        Test.ensureEqual(Calendar2.parseMinMaxString("min(z)-3week", 100, true), 100-1814400.0, "");
+        Test.ensureEqual(Calendar2.parseMinMaxString("max(z)+4weeks", 100, true), 100+2419200, "");
+        Test.ensureEqual(Calendar2.parseMinMaxString("min(z)-3month", 0, true), -7948800.0, "");
+        Test.ensureEqual(Calendar2.parseMinMaxString("max(z)+4months", 0, true), 1.0368E7, "");
+        Test.ensureEqual(Calendar2.parseMinMaxString("min(z)-2year", 0, true), -6.31584E7, "");
+        Test.ensureEqual(Calendar2.parseMinMaxString("max(z)-2years", 0, true), -6.31584E7, "");
 
         
         try {
@@ -2893,7 +4293,7 @@ expected =
         }
 
         willFail = new String[]{
-            "min(z", "max(z", "min(z)-", "max(z)+", "min(z) ", "max(z)a", "min(z)2", "max(z) 2d", 
+            "min(z", "max(z", "min(z)-", "max(z)+", "min(z) ", "max(z)a", "min(z)2", "max(z) 2q", 
             "min(z)-2.3seconds", "min(z)-2secondsa"};
         for (int i = 0; i < willFail.length; i++) {
             try {
@@ -2920,6 +4320,7 @@ expected =
         Test.ensureEqual(Calendar2.parseMinMaxString("min(z)-3.5", 100, false), 100-3.5, "");
         Test.ensureEqual(Calendar2.parseMinMaxString("min(z) 36", 100, false), 100+36, "");
         
+        String2.log("\nExpected errors:");
         try {
             d = Calendar2.parseMinMaxString("min", 100, false);
             throw new RuntimeException("should have failed.");
@@ -2949,7 +4350,31 @@ expected =
                     "willFail=\"" + willFail[i] + "\" other failure: " + es);
             }
         }
+        String2.log("> End of expected errors");
 
+        //parseNumberTimeUnits(String ntu) {
+        Test.ensureEqual(Calendar2.parseNumberTimeUnits("1.4e5sec"), new double[]{1.4e5, 1}, "");
+        Test.ensureEqual(Calendar2.parseNumberTimeUnits("2min"),     new double[]{2, 60},    "");
+        Test.ensureEqual(Calendar2.parseNumberTimeUnits("hours"),    new double[]{1, 3600},  "");
+        Test.ensureEqual(Calendar2.parseNumberTimeUnits("2.3e3"),    new double[]{2.3e3, 1}, "");
+
+        String2.log("\nExpected errors:");
+        willFail = new String[]{
+            null, "", "  ,  ", "1e500", "2monw", "zztop"};
+        for (int i = 0; i < willFail.length; i++) {
+            try {
+                double dar[] = Calendar2.parseNumberTimeUnits(willFail[i]);
+                throw new RuntimeException(willFail[i] + " should have failed.");
+            } catch (Exception e) {
+                String es = MustBe.throwableToString(e);
+                if (es.indexOf("ERROR in parseNumberTimeUnits: ") < 0 &&
+                    es.indexOf("ERROR in Calendar2.factorToGetSeconds: ") < 0) {
+                    String2.log("Unexpected error for " + willFail[i] + ": ");
+                    throw e;
+                }
+            }
+        }
+        String2.log("> End of expected errors");
 
         //getMonthName3
         Test.ensureEqual(Calendar2.getMonthName3(1), "Jan", "a");
@@ -3001,8 +4426,8 @@ expected =
         } catch (Exception e) {
         }
 
-        //newGCalendar, parse/format ISODate, YYYYDDD, IsoDateHM, CompactDateTime 
-        String2.log("test parse/format USDate, ISODate, YYYYDDD, IsoDateHM, CompactDateTime");
+        //newGCalendar, parse/format ISODate, yyyyDDD, IsoDateHM, CompactDateTime 
+        String2.log("test parse/format USDate, ISODate, yyyyDDD, IsoDateHM, CompactDateTime");
         s = "2004-03-02T14:35:08"; //'T'
         GregorianCalendar localGC = Calendar2.newGCalendarLocal();
         GregorianCalendar zuluGC  = Calendar2.newGCalendarZulu();
@@ -3022,53 +4447,53 @@ expected =
             "1969-12-31T23:00:00", "");
 
         //2012-05-22 new harder tests of modified Calendar2 methods
-        Test.ensureEqual(Calendar2.formatAsISODateTimeT3(Calendar2.parseISODateTimeZulu(
-            "1970-1-2Q3:4:5.678")),       "1970-01-02T03:04:05.678", "");
-        Test.ensureEqual(Calendar2.formatAsISODateTimeT3(Calendar2.parseISODateTimeZulu(
-            "1970-1-2!3:4:5.67")),        "1970-01-02T03:04:05.670", "");
-        Test.ensureEqual(Calendar2.formatAsISODateTimeT3(Calendar2.parseISODateTimeZulu(
-            "1970-1-2 3:4:5.6")),         "1970-01-02T03:04:05.600", "");
+        Test.ensureEqual(Calendar2.formatAsISODateTimeT3Z(Calendar2.parseISODateTimeZulu(
+            "1970-1-2Q3:4:5.678")),       "1970-01-02T03:04:05.678Z", "");
+        Test.ensureEqual(Calendar2.formatAsISODateTimeT3Z(Calendar2.parseISODateTimeZulu(
+            "1970-1-2!3:4:5.67")),        "1970-01-02T03:04:05.670Z", "");
+        Test.ensureEqual(Calendar2.formatAsISODateTimeT3Z(Calendar2.parseISODateTimeZulu(
+            "1970-1-2 3:4:5.6")),         "1970-01-02T03:04:05.600Z", "");
         //tests of timeZone offset...
-        Test.ensureEqual(Calendar2.formatAsISODateTimeT3(Calendar2.parseISODateTimeZulu(
-            "1970-1-2 3:4:5.678 1")),     "1970-01-02T02:04:05.678", "");
-        Test.ensureEqual(Calendar2.formatAsISODateTimeT3(Calendar2.parseISODateTimeZulu(
-            "1970-1-2 3:4:5.678+1")),     "1970-01-02T02:04:05.678", "");
-        Test.ensureEqual(Calendar2.formatAsISODateTimeT3(Calendar2.parseISODateTimeZulu(
-            "1970-1-2 3:4:5.678-1")),     "1970-01-02T04:04:05.678", "");
-        Test.ensureEqual(Calendar2.formatAsISODateTimeT3(Calendar2.parseISODateTimeZulu(
-            "1970-1-2 3:4:5.678 1:12")), "1970-01-02T01:52:05.678", "");
-        Test.ensureEqual(Calendar2.formatAsISODateTimeT3(Calendar2.parseISODateTimeZulu(
-            "1970-1-2 3:4:5.678+1:12")), "1970-01-02T01:52:05.678", "");
-        Test.ensureEqual(Calendar2.formatAsISODateTimeT3(Calendar2.parseISODateTimeZulu(
-            "1970-1-2 3:4:5.678-1:12")), "1970-01-02T04:16:05.678", "");
+        Test.ensureEqual(Calendar2.formatAsISODateTimeT3Z(Calendar2.parseISODateTimeZulu(
+            "1970-1-2 3:4:5.678 1")),     "1970-01-02T02:04:05.678Z", "");
+        Test.ensureEqual(Calendar2.formatAsISODateTimeT3Z(Calendar2.parseISODateTimeZulu(
+            "1970-1-2 3:4:5.678+1")),     "1970-01-02T02:04:05.678Z", "");
+        Test.ensureEqual(Calendar2.formatAsISODateTimeT3Z(Calendar2.parseISODateTimeZulu(
+            "1970-1-2 3:4:5.678-1")),     "1970-01-02T04:04:05.678Z", "");
+        Test.ensureEqual(Calendar2.formatAsISODateTimeT3Z(Calendar2.parseISODateTimeZulu(
+            "1970-1-2 3:4:5.678 1:12")), "1970-01-02T01:52:05.678Z", "");
+        Test.ensureEqual(Calendar2.formatAsISODateTimeT3Z(Calendar2.parseISODateTimeZulu(
+            "1970-1-2 3:4:5.678+1:12")), "1970-01-02T01:52:05.678Z", "");
+        Test.ensureEqual(Calendar2.formatAsISODateTimeT3Z(Calendar2.parseISODateTimeZulu(
+            "1970-1-2 3:4:5.678-1:12")), "1970-01-02T04:16:05.678Z", "");
         //jump to timezone
-        Test.ensureEqual(Calendar2.formatAsISODateTimeT3(Calendar2.parseISODateTimeZulu(
-            "1970-1-2 3:4:5 1:00")),     "1970-01-02T02:04:05.000", "");
-        Test.ensureEqual(Calendar2.formatAsISODateTimeT3(Calendar2.parseISODateTimeZulu(
-            "1970-1-2 3:4 1:00")),       "1970-01-02T02:04:00.000", "");
-        Test.ensureEqual(Calendar2.formatAsISODateTimeT3(Calendar2.parseISODateTimeZulu(
-            "1970-1-2 3 1:00")),         "1970-01-02T02:00:00.000", "");
+        Test.ensureEqual(Calendar2.formatAsISODateTimeT3Z(Calendar2.parseISODateTimeZulu(
+            "1970-1-2 3:4:5 1:00")),     "1970-01-02T02:04:05.000Z", "");
+        Test.ensureEqual(Calendar2.formatAsISODateTimeT3Z(Calendar2.parseISODateTimeZulu(
+            "1970-1-2 3:4 1:00")),       "1970-01-02T02:04:00.000Z", "");
+        Test.ensureEqual(Calendar2.formatAsISODateTimeT3Z(Calendar2.parseISODateTimeZulu(
+            "1970-1-2 3 1:00")),         "1970-01-02T02:00:00.000Z", "");
         //just (part of) date
-        Test.ensureEqual(Calendar2.formatAsISODateTimeT3(Calendar2.parseISODateTimeZulu(
-            "1971-2-3")),                "1971-02-03T00:00:00.000", "");
-        Test.ensureEqual(Calendar2.formatAsISODateTimeT3(Calendar2.parseISODateTimeZulu(
-            "1971-2")),                  "1971-02-01T00:00:00.000", "");
-        Test.ensureEqual(Calendar2.formatAsISODateTimeT3(Calendar2.parseISODateTimeZulu(
-            "1971")),                    "1971-01-01T00:00:00.000", "");
+        Test.ensureEqual(Calendar2.formatAsISODateTimeT3Z(Calendar2.parseISODateTimeZulu(
+            "1971-2-3")),                "1971-02-03T00:00:00.000Z", "");
+        Test.ensureEqual(Calendar2.formatAsISODateTimeT3Z(Calendar2.parseISODateTimeZulu(
+            "1971-2")),                  "1971-02-01T00:00:00.000Z", "");
+        Test.ensureEqual(Calendar2.formatAsISODateTimeT3Z(Calendar2.parseISODateTimeZulu(
+            "1971")),                    "1971-01-01T00:00:00.000Z", "");
 
         gc = Calendar2.parseISODateTimeZulu("2011-12-31T23:59:59.997Z");
         Test.ensureEqual(gc.getTimeInMillis(), 1.325376E12, "");
-        Test.ensureEqual(Calendar2.formatAsISODateTimeT3(gc), "2011-12-31T23:59:59.997", "");
+        Test.ensureEqual(Calendar2.formatAsISODateTimeT3Z(gc), "2011-12-31T23:59:59.997Z", "");
 
         //2012-12-26 support comma in SS,SSS
-        Test.ensureEqual(Calendar2.formatAsISODateTimeT3(Calendar2.parseISODateTimeZulu(
-            "1970-1-2 3:4:5,6")),    "1970-01-02T03:04:05.600", "");
+        Test.ensureEqual(Calendar2.formatAsISODateTimeT3Z(Calendar2.parseISODateTimeZulu(
+            "1970-1-2 3:4:5,6")),    "1970-01-02T03:04:05.600Z", "");
 
         //support any T character  and Z or z
-        Test.ensureEqual(Calendar2.formatAsISODateTimeT(Calendar2.parseISODateTimeZulu(
-            "1970-1-2t3:4:5z")),      "1970-01-02T03:04:05", "");
-        Test.ensureEqual(Calendar2.formatAsISODateTimeT(Calendar2.parseISODateTimeZulu(
-            "1970-01-02a03:04:05z")), "1970-01-02T03:04:05", "");
+        Test.ensureEqual(Calendar2.formatAsISODateTimeTZ(Calendar2.parseISODateTimeZulu(
+            "1970-1-2t3:4:5z")),      "1970-01-02T03:04:05Z", "");
+        Test.ensureEqual(Calendar2.formatAsISODateTimeTZ(Calendar2.parseISODateTimeZulu(
+            "1970-01-02a03:04:05z")), "1970-01-02T03:04:05Z", "");
         
         try {
             Calendar2.formatAsISODateTimeT(null); 
@@ -3445,10 +4870,11 @@ expected =
         } catch (Exception e) {
         }
         String2.log("getCurrentISODateTimeString = " + Calendar2.formatAsISODateTimeT(Calendar2.newGCalendarLocal()));
-        String2.log("    *** Check that HOUR accounts for daylight savings!\n");
+        String2.log("    *** Check that HOUR accounts for daylight saving time!\n");
         String2.log("current UTC time = " + Calendar2.formatAsISODateTimeT(Calendar2.newGCalendarZulu()));
         String2.log("    *** Check that HOUR is local+7 in summer (DST), local+8 in winter (in California).");
         String2.log("    See current UTC time at http://www.xav.com/time.cgi");
+        String2.pressEnterToContinue();
 
         //easy: test that 1970-01-01 is 0
         long mpd = Calendar2.MILLIS_PER_DAY;
@@ -3479,20 +4905,20 @@ expected =
         Test.ensureEqual(Calendar2.newGCalendarZulu(   0, 1, 1).getTimeInMillis(), m0001 + -366*mpd, "v0");
         Test.ensureEqual(Calendar2.newGCalendarZulu(  -1, 1, 1).getTimeInMillis(), m0001 + (-365-366)*mpd, "v-1");
 
-        Test.ensureEqual(Calendar2.isoZuluStringToMillis("2005-08-31T16:01:02"), 1125504062000L, "w1");
+        Test.ensureEqual(Calendar2.isoStringToMillis("2005-08-31T16:01:02"), 1125504062000L, "w1");
         try {
-            Calendar2.isoZuluStringToMillis(null);
+            Calendar2.isoStringToMillis(null);
             String2.log("Shouldn't get here.59"); Math2.sleep(60000);
         } catch (Exception e) {
         }
         try {
-            Calendar2.isoZuluStringToMillis("");
+            Calendar2.isoStringToMillis("");
             String2.log("Shouldn't get here.60"); Math2.sleep(60000);
         } catch (Exception e) {
         }
-        Test.ensureEqual(Calendar2.millisToIsoZuluString(1125504062000L), "2005-08-31T16:01:02", "w2");
+        Test.ensureEqual(Calendar2.millisToIsoStringTZ(1125504062000L), "2005-08-31T16:01:02Z", "w2");
         try {
-            Calendar2.millisToIsoZuluString(Long.MAX_VALUE);
+            Calendar2.millisToIsoStringTZ(Long.MAX_VALUE);
             String2.log("Shouldn't get here.61"); Math2.sleep(60000);
         } catch (Exception e) {
         }
@@ -3512,18 +4938,13 @@ expected =
             String2.log("Shouldn't get here.63"); Math2.sleep(60000);
         } catch (Exception e) {
         }
-        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT(1125504062.0), "2005-08-31T16:01:02", "x2");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(1125504062.0), "2005-08-31T16:01:02Z", "x2");
         try {
-            Calendar2.epochSecondsToIsoStringT(Double.NaN);
+            Calendar2.epochSecondsToIsoStringTZ(Double.NaN);
             String2.log("Shouldn't get here.64"); Math2.sleep(60000);
         } catch (Exception e) {
         }
-        Test.ensureEqual(Calendar2.epochSecondsToIsoStringSpace(1125504062.0), "2005-08-31 16:01:02", "x3");
-        try {
-            Calendar2.epochSecondsToIsoStringSpace(Double.NaN);
-            String2.log("Shouldn't get here.65"); Math2.sleep(60000);
-        } catch (Exception e) {
-        }
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(1125504062.0), "2005-08-31T16:01:02Z", "x3");
         
         //epoch hours
         Test.ensureEqual(Calendar2.isoStringToEpochHours("2005-08-31T16:01:02"),  312640, "xa1");
@@ -3541,13 +4962,6 @@ expected =
         try {
             Calendar2.isoStringToEpochHours(null);
             String2.log("Shouldn't get here.67"); Math2.sleep(60000);
-        } catch (Exception e) {
-        }
-
-        Test.ensureEqual(Calendar2.epochHoursToIsoString(312640), "2005-08-31T16:00:00", "x2");
-        try {
-            Calendar2.epochHoursToIsoString(Integer.MAX_VALUE);
-            String2.log("Shouldn't get here.68"); Math2.sleep(60000);
         } catch (Exception e) {
         }
 
@@ -3587,86 +5001,121 @@ expected =
         double[] da = Calendar2.getTimeBaseAndFactor("seconds since 1970-01-01");
         Test.ensureEqual(da[0], 0, "");
         Test.ensureEqual(da[1], 1, "");
-        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 12)), "1970-01-01T00:00:12", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 12)), "1970-01-01T00:00:12Z", "");
         Test.ensureEqual(Calendar2.epochSecondsToUnitsSince(da[0], da[1], da[0] + 12), 12, "");
+
         da = Calendar2.getTimeBaseAndFactor("minutes since 1970-01-02");
         Test.ensureEqual(da[0], 86400, "");
         Test.ensureEqual(da[1], 60, "");
-        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 12)), "1970-01-02T00:12:00", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 12)), "1970-01-02T00:12:00Z", "");
         Test.ensureEqual(Calendar2.epochSecondsToUnitsSince(da[0], da[1], da[0] + 12*60), 12, "");
+
         da = Calendar2.getTimeBaseAndFactor("hours since 1970-01-03Z");
         Test.ensureEqual(da[0], 2 * 86400, "");
         Test.ensureEqual(da[1], 3600, "");
-        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 12)), "1970-01-03T12:00:00", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 12)), "1970-01-03T12:00:00Z", "");
         Test.ensureEqual(Calendar2.epochSecondsToUnitsSince(da[0], da[1], da[0] + 12*3600), 12, "");
+
         da = Calendar2.getTimeBaseAndFactor("days since 1970-01-04");
         Test.ensureEqual(da[0], 3 * 86400, "");
         Test.ensureEqual(da[1], 86400, "");
-        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 12)), "1970-01-16T00:00:00", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 12)), "1970-01-16T00:00:00Z", "");
         Test.ensureEqual(Calendar2.epochSecondsToUnitsSince(da[0], da[1], da[0] + 12*86400), 12, "");
+
         da = Calendar2.getTimeBaseAndFactor("months since 1975-06-01");
         Test.ensureEqual(da[0], 1.708128E8, "");
         Test.ensureEqual(da[1], 30*86400, "");
-        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 12)), "1976-06-01T00:00:00", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 12)), "1976-06-01T00:00:00Z", "");
         Test.ensureEqual(Calendar2.epochSecondsToUnitsSince(da[0], da[1], Calendar2.isoStringToEpochSeconds("1976-06-01")), 12, "");
+
         da = Calendar2.getTimeBaseAndFactor("years since 1975-06-01");
         Test.ensureEqual(da[0], 1.708128E8, "");
         Test.ensureEqual(da[1], 360*86400, "");
-        Test.ensureEqual(Calendar2.epochSecondsToIsoStringT(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 12)), "1987-06-01T00:00:00", "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 12)), "1987-06-01T00:00:00Z", "");
         Test.ensureEqual(Calendar2.epochSecondsToUnitsSince(da[0], da[1], Calendar2.isoStringToEpochSeconds("1987-06-01")), 12, "");
 
+        da = Calendar2.getTimeBaseAndFactor("days since 1-1-1");  //test really forgiving
+        Test.ensureEqual(da[0], -6.21357696E10, "");
+        Test.ensureEqual(da[1], 86400, "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 2)), "0001-01-03T00:00:00Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToUnitsSince(da[0], da[1], Calendar2.isoStringToEpochSeconds("0001-01-03")), 2, "");
+
+        da = Calendar2.getTimeBaseAndFactor(" julian days  since  July 1, 2000  ");  //test odd units and not iso-like base dateTime, spaces before and after
+        Test.ensureEqual(da[0], 9.624096E8, "");
+        Test.ensureEqual(da[1], 86400, "");
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 2)), "2000-07-03T00:00:00Z", "");
+        Test.ensureEqual(Calendar2.epochSecondsToUnitsSince(da[0], da[1], Calendar2.isoStringToEpochSeconds("2000-07-03")), 2, "");
+
+        //SeaDataNet, astronomical year, Chronological Julian Date 
+        da = Calendar2.getTimeBaseAndFactor("days since -4712-01-01"); //-4713 BC is astronomicalYear=-4712 
+        Test.ensureEqual(da[0], -2.108668032E11, "");
+        Test.ensureEqual(da[1], 86400, "");
+        //http://www.julian-date.com/  
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(
+            Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 2457711.5)), //Chronological JD (CJD) starts at midnight
+            "2016-11-18T12:00:00Z", "");
+        //https://www.hermetic.ch/cal_stud/jdn.htm section 5 says
+        // A chronological Julian day number is a count of nychthemerons, assumed
+        // to begin at midnight GMT, from the nychthemeron which began at 
+        //  midnight GMT on -4712-01-01 JC.
+        //  Chronological Julian day number 2,452,952 is the period from
+        //  midnight GMT on 2003-11-08 CE (Common Era) to the next midnight GMT.
+        Test.ensureEqual(Calendar2.epochSecondsToIsoStringTZ(
+            Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 2452952)), //Chronological JD (CJD) starts at midnight
+            "2003-11-08T00:00:00Z", "");
+
         da = Calendar2.getTimeBaseAndFactor("years since 0001-01-01"); //some datasets use this!
-        s = "1985-01-01T00:00:00";
+        s = "1985-01-01T00:00:00Z";
         d = Calendar2.isoStringToEpochSeconds(s);
         double us = Calendar2.epochSecondsToUnitsSince(da[0], da[1], d);
         String2.log(s + " = " + us + " years since 0001-01-01  base=" + da[0] + " factor=" + da[1]);
         Test.ensureEqual(us, 1984, "");
         Test.ensureEqual(
-            Calendar2.epochSecondsToIsoStringT(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], us)),
+            Calendar2.epochSecondsToIsoStringTZ(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], us)),
             s, "");
 
         da = Calendar2.getTimeBaseAndFactor("years since 0000-01-01"); //some datasets use this!
-        s = "1985-01-01T00:00:00";
+        s = "1985-01-01T00:00:00Z";
         d = Calendar2.isoStringToEpochSeconds(s);
         us = Calendar2.epochSecondsToUnitsSince(da[0], da[1], d);
         String2.log(s + " = " + us + " years since 0000-01-01  base=" + da[0] + " factor=" + da[1]);
         Test.ensureEqual(us, 1985, "");
         Test.ensureEqual(
-            Calendar2.epochSecondsToIsoStringT(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], us)),
+            Calendar2.epochSecondsToIsoStringTZ(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], us)),
             s, "");
 
 
         //test fractional years since   e.g., 15.5 "years since 1970-01-01"
         da = Calendar2.getTimeBaseAndFactor("years since 1970-01-01"); 
         Test.ensureEqual(
-            Calendar2.epochSecondsToIsoStringT(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 15.25)),
-            "1985-04-01T00:00:00", "");
+            Calendar2.epochSecondsToIsoStringTZ(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 15.25)),
+            "1985-04-01T00:00:00Z", "");
         Test.ensureEqual(
-            Calendar2.epochSecondsToIsoStringT(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], -15.25)),
-            "1954-10-01T00:00:00", "");
+            Calendar2.epochSecondsToIsoStringTZ(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], -15.25)),
+            "1954-10-01T00:00:00Z", "");
 
 
         //test fractional months since   e.g., 2.5 "months since 1970-01-01"
         //I chose to make it consistent (as if 30 days/month) regardless of days in that particular month
         da = Calendar2.getTimeBaseAndFactor("months since 1970-01-01"); 
         Test.ensureEqual(
-            Calendar2.epochSecondsToIsoStringT(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 0.25)),
-            "1970-01-09T00:00:00", "");
+            Calendar2.epochSecondsToIsoStringTZ(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 0.25)),
+            "1970-01-09T00:00:00Z", "");
         Test.ensureEqual(
-            Calendar2.epochSecondsToIsoStringT(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 1.25)),
-            "1970-02-09T00:00:00", "");
+            Calendar2.epochSecondsToIsoStringTZ(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 1.25)),
+            "1970-02-09T00:00:00Z", "");
         Test.ensureEqual(
-            Calendar2.epochSecondsToIsoStringT(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 2.25)),
-            "1970-03-09T00:00:00", "");
+            Calendar2.epochSecondsToIsoStringTZ(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], 2.25)),
+            "1970-03-09T00:00:00Z", "");
         Test.ensureEqual(
-            Calendar2.epochSecondsToIsoStringT(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], -0.25)),
-            "1969-12-24T00:00:00", "");
+            Calendar2.epochSecondsToIsoStringTZ(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], -0.25)),
+            "1969-12-24T00:00:00Z", "");
         Test.ensureEqual(
-            Calendar2.epochSecondsToIsoStringT(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], -1.25)),
-            "1969-11-24T00:00:00", "");
+            Calendar2.epochSecondsToIsoStringTZ(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], -1.25)),
+            "1969-11-24T00:00:00Z", "");
         Test.ensureEqual(
-            Calendar2.epochSecondsToIsoStringT(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], -2.25)),
-            "1969-10-24T00:00:00", "");
+            Calendar2.epochSecondsToIsoStringTZ(Calendar2.unitsSinceToEpochSeconds(da[0], da[1], -2.25)),
+            "1969-10-24T00:00:00Z", "");
 
 
 
@@ -3710,6 +5159,8 @@ expected =
         Test.ensureEqual(Calendar2.formatAsISODateTimeSpace(Calendar2.isoDateTimeAdd("2001-02-03", -2, Calendar2.YEAR)),  "1999-02-03 00:00:00", "");
         Test.ensureEqual(Calendar2.formatAsISODateTimeSpace(Calendar2.isoDateTimeAdd("0001-02-03", -1, Calendar2.YEAR)),  "0000-02-03 00:00:00", "");
         Test.ensureEqual(Calendar2.formatAsISODateTimeSpace(Calendar2.isoDateTimeAdd("0001-02-03", -2, Calendar2.YEAR)),  "-0001-02-03 00:00:00", "");
+        Test.ensureEqual(Calendar2.formatAsISODateTimeSpace(Calendar2.isoDateTimeAdd("0000-02-03", -1, Calendar2.YEAR)),  "-0001-02-03 00:00:00", "");
+        Test.ensureEqual(Calendar2.formatAsISODateTimeSpace(Calendar2.isoDateTimeAdd("0000-02-03", -2, Calendar2.YEAR)),  "-0002-02-03 00:00:00", "");
         Test.ensureEqual(Calendar2.formatAsISODateTimeSpace(Calendar2.isoDateTimeAdd("-0001-02-03", 1, Calendar2.YEAR)),  "0000-02-03 00:00:00", "");
         Test.ensureEqual(Calendar2.formatAsISODateTimeSpace(Calendar2.isoDateTimeAdd("-0001-02-03", 2, Calendar2.YEAR)),  "0001-02-03 00:00:00", "");
         Test.ensureEqual(Calendar2.formatAsISODateTimeSpace(Calendar2.isoDateTimeAdd("-0001-02-03", -3, Calendar2.MONTH)),  "-0002-11-03 00:00:00", "");
@@ -3898,7 +5349,8 @@ expected =
         Test.ensureEqual(Calendar2.elapsedTimeString(-3*Calendar2.MILLIS_PER_DAY - 4005), "-3 days 0h 0m 4s", ""); //was "-3 days 00:00:04.005", "");
         Test.ensureEqual(Calendar2.elapsedTimeString(-1*Calendar2.MILLIS_PER_DAY), "-1 day", "");
         Test.ensureEqual(Calendar2.elapsedTimeString(-2*Calendar2.MILLIS_PER_DAY), "-2 days", "");
-        Test.ensureEqual(Calendar2.elapsedTimeString(-Long.MAX_VALUE), "infinity", "");
+        Test.ensureEqual(Calendar2.elapsedTimeString(Long.MIN_VALUE), "infinity", "");
+        Test.ensureEqual(Calendar2.elapsedTimeString(Long.MAX_VALUE-1), "infinity", "");
         Test.ensureEqual(Calendar2.elapsedTimeString(-Double.NaN), "infinity", "");
 
         //clearSmallerFields
@@ -3935,6 +5387,9 @@ expected =
         gc = Calendar2.parseISODateTimeZulu("-0000-08-31T16:01:02");
         Calendar2.clearSmallerFields(gc, Calendar2.MINUTE);
         Test.ensureEqual(Calendar2.formatAsISODateTimeT(gc), "0000-08-31T16:01:00", "");
+        gc = Calendar2.parseISODateTimeZulu("-0001-08-31T16:01:02");
+        Calendar2.clearSmallerFields(gc, Calendar2.MINUTE);
+        Test.ensureEqual(Calendar2.formatAsISODateTimeT(gc), "-0001-08-31T16:01:00", "");
         try {
             Calendar2.clearSmallerFields(gc, Calendar2.AM_PM);    
             String2.log("Shouldn't get here.79"); Math2.sleep(60000);
@@ -4032,7 +5487,7 @@ expected =
      * Test the methods in MustBe.
      */
     public static void testMustBe() {
-        String2.log("*********************************************************** testMustBe");
+        String2.log("\n*** TestUtil.testMustBe");
 
         //getStackTrace
         String2.log("test getStackTrace");
@@ -4055,7 +5510,7 @@ expected =
      * Test the methods in ResourceBundle2.
      */
     public static void testResourceBundle2() {
-        String2.log("*********************************************************** testResourceBundle2");
+        String2.log("\n*** TestUtil.testResourceBundle2");
 
         ResourceBundle2 rb2 = new ResourceBundle2("com.cohort.util.TestResourceBundle2");
         Test.ensureEqual(rb2.getBoolean("boolean", false), true,  "boolean");
@@ -4093,8 +5548,17 @@ expected =
      * Test the methods in File2.
      */
     public static void testFile2() throws Exception {
-        String2.log("*********************************************************** testFile2");
+        String2.log("\n*** TestUtil.testFile2");
       
+
+        Test.ensureEqual(File2.getExtension("a/b.c"), ".c", "");
+        Test.ensureEqual(File2.getExtension("a.z/b"), "",   "");
+        Test.ensureEqual(File2.getExtension("a/b.c/"),"",   "");
+
+        Test.ensureEqual(File2.removeExtension("a/b.c"), "a/b",    "");
+        Test.ensureEqual(File2.removeExtension("a.z/b"), "a.z/b",  "");
+        Test.ensureEqual(File2.removeExtension("a/b.c/"),"a/b.c/", "");
+
 
         //The following tests must all be done and must be done in this sequence.
         //make a temp file to work with  
@@ -4192,20 +5656,42 @@ expected =
         Test.ensureEqual(File2.delete(utilDir + "temp.txt"), true, "d");
         Test.ensureEqual(File2.delete(utilDir + "temp3.txt"), true, "e");
 
-        //test int deleteIfOld(String dir, long time) {
-        String2.log("no test for deleteIfOld"); //hard to test without setting up a test directory
- 
         //test getSystemTempDirectory
         //this only works on Bob's computer
         String2.log("File2.getSystemTempDirectory()=" + File2.getSystemTempDirectory());
-        String s = File2.getSystemTempDirectory();
-        if (!s.equals("C:/Users/Bob.Simons/AppData/Local/Temp/") &&
-            !s.equals("C:/Users/Robert/AppData/Local/Temp/")) {
+        String tempDir = File2.getSystemTempDirectory();
+        if (!tempDir.equals("C:/Users/Bob.Simons/AppData/Local/Temp/") &&
+            !tempDir.equals("C:/Users/Robert/AppData/Local/Temp/")) {
             String2.log(
-                "getSystemTempDirectory        =" + s);
+                "getSystemTempDirectory        =" + tempDir);
                 //+ "\n" + String2.Press_CtrlC_or_Enter); 
             Math2.gc(5000); //pause in test to display info
         }
+
+
+        //test int deleteIfOld(String dir, long time) {
+        //make dir in tempDir
+        String tTempDir = File2.addSlash(tempDir) + "comCohortUtilTest/";
+        File2.makeDirectory(tTempDir); //throws Exception
+        //make a file
+        String2.writeToFile(tTempDir + "test1.txt", "test1.txt");
+        Math2.sleep(100);
+        long midTime = System.currentTimeMillis();
+        Math2.sleep(100);
+        //make a file
+        String2.writeToFile(tTempDir + "test2.txt", "test2.txt");
+        Math2.sleep(100);
+        //delete based on midTime
+        Test.ensureEqual(File2.deleteIfOld(tTempDir, midTime, true, true), 1, 
+            "Unexpected nFiles remaining after initial File2.deleteIfOld(" + tTempDir + ")");
+        //delete based on currentTime
+        Test.ensureEqual(File2.deleteIfOld(tTempDir, System.currentTimeMillis(), true, true), 0, 
+            "Unexpected nFiles remaining after initial File2.deleteIfOld(" + tTempDir + ")");
+
+        //delete tTempDir
+        Test.ensureTrue(File2.simpleDelete(tTempDir), "");
+
+        //ensurePrintable
         Test.ensurePrintable("test123\n\t ~¡ÿ", "ensurePrintable");
         try {
             Test.ensurePrintable("test123\n\t ~¡ÿ’", "ensurePrintable");
@@ -4254,7 +5740,48 @@ expected =
         Test.ensureEqual(File2.getProtocolDomain("/a"),           "", ""); 
         Test.ensureEqual(File2.getProtocolDomain("/"),            "", ""); 
 
-    }
+        //test File2.getFileInputStream(
+        String utff = String2.unitTestDataDir + "compressed/AUTF8File";
+        String sd   = String2.unitTestDataDir + "compressed/subdir";
+        String sar[];
+        String shouldBe = "This is a UTF-8 file with special characters like [255], [8364], [968], [8644], and [24179][25104]![10]\n[end]";
+
+        sar = String2.readFromFile(utff + ".txt", String2.UTF_8, 1);
+        String2.log("?" + String2.annotatedString(sar[1]) + "?");
+        Test.ensureEqual(sar[0], "", "error msg:" + sar[0]);
+        Test.ensureEqual(String2.annotatedString(sar[1]), shouldBe, "sar[1]=" + sar[1]);
+
+        sar = String2.readFromFile(utff + ".txt.bz2", String2.UTF_8, 1);
+        Test.ensureEqual(sar[0], "", "error msg:" + sar[0]);
+        Test.ensureEqual(String2.annotatedString(sar[1]), shouldBe, "sar[1]=" + sar[1]);
+
+        sar = String2.readFromFile(utff + ".txt.gz", String2.UTF_8, 1);
+        Test.ensureEqual(sar[0], "", "error msg:" + sar[0]);
+        Test.ensureEqual(String2.annotatedString(sar[1]), shouldBe, "sar[1]=" + sar[1]);
+
+        //more complicated. not supported.
+        //sar = String2.readFromFile(sd + ".7z", String2.UTF_8, 1);
+        //Test.ensureEqual(sar[0], "", "error msg:" + sar[0]);
+        //Test.ensureEqual(String2.annotatedString(sar[1]), shouldBe, "sar[1]=" + sar[1]);
+
+        sar = String2.readFromFile(sd + ".tar.gz", String2.UTF_8, 1);
+        Test.ensureEqual(sar[0], "", "error msg:" + sar[0]);
+        Test.ensureEqual(String2.annotatedString(sar[1]), shouldBe, "sar[1]=" + sar[1]);
+
+        sar = String2.readFromFile(sd + ".tgz", String2.UTF_8, 1);
+        Test.ensureEqual(sar[0], "", "error msg:" + sar[0]);
+        Test.ensureEqual(String2.annotatedString(sar[1]), shouldBe, "sar[1]=" + sar[1]);
+
+        sar = String2.readFromFile(sd + ".zip", String2.UTF_8, 1);
+        Test.ensureEqual(sar[0], "", "error msg:" + sar[0]);
+        Test.ensureEqual(String2.annotatedString(sar[1]), shouldBe, "sar[1]=" + sar[1]);
+
+        //sar = String2.readFromFile(sd + ".zztop", String2.UTF_8, 1); //good: java's msg displays the file name
+        //Test.ensureEqual(sar[0], "", "error msg:" + sar[0]);
+        //Test.ensureEqual(String2.annotatedString(sar[1]), shouldBe, "sar[1]=" + sar[1]);
+
+        //test of .Z is EDDGridFromMergeIR.testMergeIR() which accesses .Z files
+}
 
     /**
      * Test storing longs in double.  What range is completely accurate?
@@ -4292,8 +5819,8 @@ expected =
     }
 
     private static int byteIndexOf(String s, String find) throws Exception {
-        byte findB[] = String2.getUTF8Bytes(find);
-        byte sB[] = String2.getUTF8Bytes(s);
+        byte findB[] = String2.stringToUtf8Bytes(find);
+        byte sB[] = String2.stringToUtf8Bytes(s);
         int jump[] = String2.makeJumpTable(findB);
         return String2.indexOf(sB, findB, jump);
     }
@@ -4307,7 +5834,7 @@ expected =
 
         //test makeJumpTable
         String s, find = "nine";  //has duplicate char; should catch the 2nd one
-        byte findBytes[] = String2.getUTF8Bytes(find);
+        byte findBytes[] = String2.stringToUtf8Bytes(find);
         int jump[] = String2.makeJumpTable(findBytes);
         for (int i = 0; i < 256; i++) {
             if      (i == 'n') Test.ensureEqual(jump[i], 1, "");
@@ -4344,7 +5871,7 @@ expected =
 
         //speed test
         find = "9charniño"; //search has utf8-able char
-        findBytes = String2.getUTF8Bytes(find);
+        findBytes = String2.stringToUtf8Bytes(find);
         s = "<att>The TAO/TRITON array consists of approximately 70 moorings in the \n" +
 "Tropical Pacific Ocean, telemetering oceanographic and \n" +
 "meteorological data to shore in real-time via the Argos satellite \n" +
@@ -4359,7 +5886,7 @@ expected =
         s = s.toLowerCase();
         while (s.length() < 10000) s += s;
         s += find;
-        byte sBytes[] = String2.getUTF8Bytes(s);
+        byte sBytes[] = String2.stringToUtf8Bytes(s);
         jump = String2.makeJumpTable(findBytes);
         Test.ensureEqual(s.indexOf(find), s.length()-9, "");
         Test.ensureEqual(String2.indexOf(sBytes, findBytes, jump), 
@@ -4371,14 +5898,14 @@ expected =
         for (int i = 0; i < reps; i++)
             result1 += s.indexOf(find);
         String2.log("String.indexOf reps=" + reps + 
-            " time=" + (System.currentTimeMillis() - time) + "  (~115ms on Java 1.7M4700)");
+            " time=" + (System.currentTimeMillis() - time) + "ms  (~115ms on Java 1.7M4700)");
 
         time = System.currentTimeMillis();
         int result2 = 0;
         for (int i = 0; i < reps; i++)
             result2 += String2.indexOf(sBytes, findBytes, jump);
         String2.log("String2 byteIndexOf reps=" + reps + 
-            " time=" + (System.currentTimeMillis() - time) + "  (~470ms on Java 1.7M4700)");
+            " time=" + (System.currentTimeMillis() - time) + "ms  (~470ms on Java 1.7M4700)");
         //so if 1000 datasets (or 500 and 2word search), time~=9ms 
         //and I think most dataset searchStrings are shorter
     }
@@ -4403,19 +5930,19 @@ expected =
             Math2.gcAndWait(); Math2.gcAndWait();  //aggressive   //in a test
             String2.log("String memoryUse/item=" + 
                 ((Math2.getMemoryInUse() - memoryInUse) / (n + 0.0)) +   //68.1 bytes
-                " time=" + time); // ~562  (after first time)
+                " time=" + time + "ms"); // ~562  (after first time)
 
             //test utf8s
             memoryInUse = Math2.getMemoryInUse();
             time = System.currentTimeMillis();
             byte ba[][] = new byte[n][];
             for (int i = 0; i < n; i++)
-                ba[i] = String2.getUTF8Bytes("testABCD" + i);  //usually 14 characters +4length +4pointer
+                ba[i] = String2.stringToUtf8Bytes("testABCD" + i);  //usually 14 characters +4length +4pointer
             time = System.currentTimeMillis() - time;
             Math2.gcAndWait(); Math2.gcAndWait();  //aggressive   //in a test
             String2.log("utf8 memoryUse/item=" + 
                 ((Math2.getMemoryInUse() - memoryInUse) / (n + 0.0)) + //36.0 bytes; why so many?
-                " time=" + time); // ~1094
+                " time=" + time + "ms"); // ~1094
 
             //test double
             memoryInUse = Math2.getMemoryInUse();
@@ -4427,13 +5954,13 @@ expected =
             Math2.gcAndWait(); Math2.gcAndWait();  //aggressive   //in a test
             String2.log("double memoryUse/item=" + 
                 ((Math2.getMemoryInUse() - memoryInUse) / (n + 0.0)) + //8 bytes
-                " time=" + time); // ~6
+                " time=" + time + "ms"); // ~6
         
         }
 
         //conclusion: memory savings 50%, but takes 2X longer
 
-        //public static String utf8ToString(byte[] bar) {
+        //public static String utf8BytesToString(byte[] bar) {
     }
 
 
@@ -4493,7 +6020,7 @@ expected =
                 long memoryInUse = Math2.getMemoryInUse();
                 int shouldBe = outer == 0? 320 : 185;
                 String2.log("canonicalSize=" + String2.canonicalSize() + 
-                    " time=" + time + " (should be Java 1.8=~" + shouldBe + 
+                    " time=" + time + "ms (should be Java 1.8=~" + shouldBe + 
                     "ms [1st pass is slower]) " + 
                     Math2.memoryString());
                 Test.ensureTrue(time < shouldBe * 2, "Unexpected time");
@@ -4555,17 +6082,19 @@ expected =
     /** Test the speed of writing to hard drive. Does it block? No */
     public static void testFileWriteSpeed() throws Exception {
         String fileName = "c:/temp/TestUtilTestFileSpeed.txt";  
-        Writer writer = new BufferedWriter(new FileWriter(fileName)); //387
-        //Writer writer = new FileWriter(fileName); //~490 ms
-        long time = System.currentTimeMillis();
-        for (int i = 0; i < 1000000; i++) {
-            writer.write("This is a test of a pretty long string that changes on each line " + i);
-            writer.write("\r\n");
-            //writer.flush();  //if flush, ~2853ms
+        Writer writer = new BufferedWriter(new FileWriter(fileName)); //387  ~490 ms if not buffered
+        try {
+            long time = System.currentTimeMillis();
+            for (int i = 0; i < 1000000; i++) {
+                writer.write("This is a test of a pretty long string that changes on each line " + i);
+                writer.write("\r\n");
+                //writer.flush();  //if flush, ~2853ms
+            }
+            String2.log("TestUtil.testFileWriteSpeed write 1000000 lines. time=" + 
+                (System.currentTimeMillis() - time) + "ms (expected=387ms which is really fast)");
+        } finally {
+            writer.close();
         }
-        String2.log("TestUtil.testFileWriteSpeed write 1000000 lines. time=" + 
-            (System.currentTimeMillis() - time) + " (expected=387ms which is really fast)");
-        writer.close();
     }
 
     /** Test the speed of writing to hard drive. Does it block? */
@@ -4578,7 +6107,7 @@ expected =
         long time = System.currentTimeMillis();
         String2.writeToFile(fileName, s);
         String2.log("TestUtil.testWriteToFile write 1000000 lines. time=" + 
-            (System.currentTimeMillis() - time) + " (expected=3406ms which is really fast)");
+            (System.currentTimeMillis() - time) + "ms (expected=3406ms which is really fast)");
     }
 
 
@@ -4590,7 +6119,7 @@ expected =
         if (s[0].length() > 0)
             String2.log(s[0]);
         String2.log("TestUtil.testReadFromFile nChar=" + s[1].length() + " time=" + 
-            (System.currentTimeMillis() - time) + " (expected=5109ms which is really fast)");    
+            (System.currentTimeMillis() - time) + "ms (expected=5109ms which is really fast)");    
     }
 
 
@@ -4603,7 +6132,7 @@ expected =
         long time = System.currentTimeMillis();
         String2.log("time=" + time);
         //storeLongsInDoubles(); //one time
-        /* */
+/* for releases, this line should have open/close comment */
         testTest();
         testMath2();
         testString2();

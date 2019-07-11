@@ -57,12 +57,12 @@ import dods.util.*;
  * The servlet should be started in the servlet engine with the following
  * initParameters set:
  * <p/>
- * <b>For the old jswdk servlet engine:</b>
+ * <strong>For the old jswdk servlet engine:</strong>
  * <pre>
  * dts.code=dods.servers.test.dts
  * dts.initparams=iniFilePath=/usr/dods/dts,iniFileName=dts.ini
  * </pre>
- * <b>For the tomcat servlet engine:</b>
+ * <strong>For the tomcat servlet engine:</strong>
  * <pre>
  *    &lt;servlet&gt;
  *        &lt;servlet-name&gt;
@@ -188,7 +188,7 @@ public abstract class DODSServlet extends HttpServlet {
 
         try {
             BufferedOutputStream eOut = new BufferedOutputStream(response.getOutputStream());
-            response.setHeader("Content-Description", "dods_error");
+            response.setHeader("Content-Description", "dods-error");
 
             // This should probably be set to "plain" but this works, the
             // C++ slients don't barf as they would if I sent "plain" AND
@@ -223,7 +223,7 @@ public abstract class DODSServlet extends HttpServlet {
         try {
             BufferedOutputStream eOut = new BufferedOutputStream(response.getOutputStream());
 
-            response.setHeader("Content-Description", "dods_error");
+            response.setHeader("Content-Description", "dods-error");
 
             // This should probably be set to "plain" but this works, the
             // C++ slients don't barf as they would if I sent "plain" AND
@@ -254,7 +254,7 @@ public abstract class DODSServlet extends HttpServlet {
         try {
             DataOutputStream dos = new DataOutputStream(response.getOutputStream());
 
-            response.setHeader("Content-Description", "dods_error");
+            response.setHeader("Content-Description", "dods-error");
 
             // This should probably be set to "plain" but this works, the
             // C++ slients don't barf as they would if I sent "plain" AND
@@ -358,7 +358,7 @@ public abstract class DODSServlet extends HttpServlet {
 
         response.setContentType("text/plain");
         response.setHeader("XDODS-Server", getServerVersion());
-        response.setHeader("Content-Description", "dods_error");
+        response.setHeader("Content-Description", "dods-error");
         // Commented because of a bug in the DODS C++ stuff...
         //response.setHeader("Content-Encoding", "none");
 
@@ -476,7 +476,7 @@ public abstract class DODSServlet extends HttpServlet {
 
         response.setContentType("text/plain");
         response.setHeader("XDODS-Server", getServerVersion());
-        response.setHeader("Content-Description", "dods_das");
+        response.setHeader("Content-Description", "dods-das");
         // Commented because of a bug in the DODS C++ stuff...
         //response.setHeader("Content-Encoding", "plain");
 
@@ -528,7 +528,7 @@ public abstract class DODSServlet extends HttpServlet {
 
         response.setContentType("text/plain");
         response.setHeader("XDODS-Server", getServerVersion());
-        response.setHeader("Content-Description", "dods_dds");
+        response.setHeader("Content-Description", "dods-dds");
         // Commented because of a bug in the DODS C++ stuff...
         //response.setHeader("Content-Encoding", "plain");
 
@@ -604,7 +604,7 @@ public abstract class DODSServlet extends HttpServlet {
 
         response.setContentType("application/octet-stream");
         response.setHeader("XDODS-Server", getServerVersion());
-        response.setHeader("Content-Description", "dods_data");
+        response.setHeader("Content-Description", "dods-data");
 
         ServletOutputStream sOut = response.getOutputStream();
         OutputStream bOut;
@@ -694,7 +694,7 @@ public abstract class DODSServlet extends HttpServlet {
 
         response.setHeader("XDODS-Server", getServerVersion());
         response.setContentType("text/html");
-        response.setHeader("Content-Description", "dods_directory");
+        response.setHeader("Content-Description", "dods-directory");
 
         try {
             dodsDIR di = new dodsDIR();
@@ -735,7 +735,7 @@ public abstract class DODSServlet extends HttpServlet {
 
         response.setContentType("text/plain");
         response.setHeader("XDODS-Server", getServerVersion());
-        response.setHeader("Content-Description", "dods_version");
+        response.setHeader("Content-Description", "dods-version");
         // Commented because of a bug in the DODS C++ stuff...
         //response.setHeader("Content-Encoding", "plain");
 
@@ -773,7 +773,7 @@ public abstract class DODSServlet extends HttpServlet {
 
         response.setContentType("text/html");
         response.setHeader("XDODS-Server", getServerVersion());
-        response.setHeader("Content-Description", "dods_help");
+        response.setHeader("Content-Description", "dods-help");
         // Commented because of a bug in the DODS C++ stuff...
         //response.setHeader("Content-Encoding", "plain");
 
@@ -854,7 +854,7 @@ public abstract class DODSServlet extends HttpServlet {
 
         response.setHeader("XDODS-Server", getServerVersion());
         response.setContentType("text/plain");
-        response.setHeader("Content-Description", "dods_ascii");
+        response.setHeader("Content-Description", "dods-ascii");
 
         try {
             dodsASCII di = new dodsASCII();
@@ -894,7 +894,7 @@ public abstract class DODSServlet extends HttpServlet {
 
         response.setHeader("XDODS-Server", getServerVersion());
         response.setContentType("text/html");
-        response.setHeader("Content-Description", "dods_description");
+        response.setHeader("Content-Description", "dods-description");
 
         GuardedDataset ds = null;
         try {
@@ -943,7 +943,7 @@ public abstract class DODSServlet extends HttpServlet {
 
         response.setHeader("XDODS-Server", getServerVersion());
         response.setContentType("text/html");
-        response.setHeader("Content-Description", "dods_form");
+        response.setHeader("Content-Description", "dods-form");
 
         GuardedDataset ds = null;
         try {
@@ -988,7 +988,7 @@ public abstract class DODSServlet extends HttpServlet {
 
         response.setHeader("XDODS-Server", getServerVersion());
         response.setContentType("text/xml");
-        response.setHeader("Content-Description", "dods_catalog");
+        response.setHeader("Content-Description", "dods-catalog");
 
         PrintWriter pw = new PrintWriter(response.getOutputStream());
         printCatalog(pw);
@@ -1026,7 +1026,7 @@ public abstract class DODSServlet extends HttpServlet {
 
         response.setHeader("XDODS-Server", getServerVersion());
         response.setContentType("text/html");
-        response.setHeader("Content-Description", "dods_status");
+        response.setHeader("Content-Description", "dods-status");
 
         PrintWriter pw = new PrintWriter(response.getOutputStream());
         pw.println("<title>Server Status</title>");
@@ -1218,7 +1218,7 @@ public abstract class DODSServlet extends HttpServlet {
      * @return A string containing the prepared constraint expression. If there
      *         is a problem with the constraint expression a <code>null</code> is returned.
      * @see ReqState
-     * @deprecated This function has been encompassed by the ReqState object
+     * @Deprecated This function has been encompassed by the ReqState object
      *             internals and is no longer needed here.
      */
     private String prepCE(String ce) {
@@ -1288,7 +1288,7 @@ public abstract class DODSServlet extends HttpServlet {
      * @return True is the client accpets a compressed return document.
      *         False otherwise.
      * @see ReqState
-     * @deprecated This method has been encapsulated in the ReqState object and
+     * @Deprecated This method has been encapsulated in the ReqState object and
      *             is no longer needed here.
      */
 
@@ -1315,13 +1315,13 @@ public abstract class DODSServlet extends HttpServlet {
      * Processes an incoming <code>HttpServletRequest</code> and from it sets the
      * cached values for:
      * <ul>
-     * <li> <b>dataSet</b> The data set name.(Accessible using
+     * <li> <strong>dataSet</strong> The data set name.(Accessible using
      * <code> setDataSet() </code>
      * and <code>getDataSet()</code>)</li>
-     * <li> <b>CE</b> The constraint expression.(Accessible using
+     * <li> <strong>CE</strong> The constraint expression.(Accessible using
      * <code> setCE() </code>
      * and <code>getCE()</code>)</li>
-     * <li> <b>requestSuffix</b> The request suffix, used by DODS to indicate
+     * <li> <strong>requestSuffix</strong> The request suffix, used by DODS to indicate
      * the type of response desired by the client.
      * (Accessible using
      * <code> setRequestSuffix() </code>
@@ -1332,7 +1332,7 @@ public abstract class DODSServlet extends HttpServlet {
      *                in question.
      * @return True if the URL wasn't junk, false otherwise.
      * @see ReqState
-     * @deprecated This method has been moved to the ReqState object and
+     * @Deprecated This method has been moved to the ReqState object and
      *             is no longer needed here.
      */
 
@@ -1383,9 +1383,9 @@ public abstract class DODSServlet extends HttpServlet {
      * If the standard behaviour of the servlet (extracting the DODS URL
      * information from the client request, or loading the .ini file) then
      * you should overload <code>processDodsURL</code> and <code>loadIniFile()
-     * </code>. <b> We don't recommend overloading <code>doGet()</code> beacuse
+     * </code>. <strong> We don't recommend overloading <code>doGet()</code> beacuse
      * the logic contained there may change in our core and cause your server
-     * to behave unpredictably when future releases are installed.</b>
+     * to behave unpredictably when future releases are installed.</strong>
      *
      * @param request  The client's <code> HttpServletRequest</code> request
      *                 object.
@@ -1528,16 +1528,16 @@ public abstract class DODSServlet extends HttpServlet {
         pw.println("test dataset) you would appand `.das' to the URL:");
         pw.println("http://dods.gso.uri.edu/cgi-bin/nph-nc/data/fnoc1.nc.das.");
 
-        pw.println("<p><b>Note</b>: Many DODS clients supply these extensions for you so you don't");
+        pw.println("<p><strong>Note</strong>: Many DODS clients supply these extensions for you so you don't");
         pw.println("need to append them (for example when using interfaces supplied by us or");
         pw.println("software re-linked with a DODS client-library). Generally, you only need to");
         pw.println("add these if you are typing a URL directly into a WWW browser.");
-        pw.println("<p><b>Note</b>: If you would like version information for this server but");
+        pw.println("<p><strong>Note</strong>: If you would like version information for this server but");
         pw.println("don't know a specific data file or data set name, use `/version' for the");
         pw.println("filename. For example: http://dods.gso.uri.edu/cgi-bin/nph-nc/version will");
         pw.println("return the version number for the netCDF server used in the first example. ");
 
-        pw.println("<p><b>Suggestion</b>: If you're typing this URL into a WWW browser and");
+        pw.println("<p><strong>Suggestion</strong>: If you're typing this URL into a WWW browser and");
         pw.println("would like information about the dataset, use the `.info' extension.");
 
         pw.println("<p>If you'd like to see a data values, use the `.html' extension and submit a");

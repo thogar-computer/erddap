@@ -12,13 +12,13 @@ import gov.noaa.pfel.erddap.util.EDStatic;
 
 
 /**
- * TableWriterDistinct provides a way to gather all rows,
+ * TableWriterOrderBy provides a way to gather all rows,
  * sort them, then write to some other TableWriter.
  * This functions like SQL's ORDER BY.
  *
  * <p>This sort is stable: equal elements will not be reordered as a result of the sort.
  *
- * <p>This doesn't do anything to missing values and doesn't asssume they are
+ * <p>This doesn't do anything to missing values and doesn't assume they are
  * stored as NaN or fake missing values.
  *
  * <p>Unlike TableWriterAllWithMetadata, this doesn't keep track of min,max for actual_range
@@ -56,6 +56,10 @@ public class TableWriterOrderBy extends TableWriterAll {
         orderBy = String2.split(tOrderByCsv, ',');
         if (orderBy.length == 0)
             throw new SimpleException(err);
+        for (int i = 0; i < orderBy.length; i++)
+            if (orderBy[i].indexOf('/') >= 0)
+                throw new SimpleException(EDStatic.queryError + 
+                    "'orderBy' doesn't support '/' (" + orderBy[i] + ").");
     }
 
 
@@ -81,6 +85,11 @@ public class TableWriterOrderBy extends TableWriterAll {
      * If caller has the entire table, use this instead of repeated writeSome() + finish().
      * This overwrites the superclass method.
      *
+     * @param tCumulativeTable with destinationValues.
+     *   The table should have missing values stored as destinationMissingValues
+     *   or destinationFillValues.
+     *   This implementation converts them to NaNs for processing, 
+     *   then back to destinationMV and FV when finished.
      * @throws Throwable if trouble (e.g., MustBe.THERE_IS_NO_DATA if there is no data)
      */
     public void writeAllAndFinish(Table tCumulativeTable) throws Throwable {
@@ -106,7 +115,8 @@ public class TableWriterOrderBy extends TableWriterAll {
                 throw new SimpleException(EDStatic.queryError +
                     "'orderBy' column=" + orderBy[ob] + " isn't in the results table.");
         }
-        table.sort(keys, ascending);
+
+        table.sort(keys, ascending);  
     }
 
 

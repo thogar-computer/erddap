@@ -32,18 +32,13 @@ import java.util.Hashtable;
 import java.util.Vector;
 
 /**
- * Get netcdf-X.X.XX.jar from 
- * http://www.unidata.ucar.edu/software/thredds/current/netcdf-java/index.html
+ * Get netcdfAll-......jar from ftp://ftp.unidata.ucar.edu/pub
  * and copy it to <context>/WEB-INF/lib renamed as netcdf-latest.jar.
- * Get slf4j-jdk14.jar from 
- * ftp://ftp.unidata.ucar.edu/pub/netcdf-java/slf4j-jdk14.jar
- * and copy it to <context>/WEB-INF/lib.
- * 2013-02-21 new netcdfAll uses Java logging, not slf4j.
- * Put both of these .jar files in the classpath for the compiler and for Java.
+ * Put it in the classpath for the compiler and for Java.
  */
 import ucar.nc2.*;
 import ucar.nc2.dataset.NetcdfDataset;
-import ucar.nc2.dods.*;
+//import ucar.nc2.dods.*;
 import ucar.nc2.util.*;
 import ucar.ma2.*;
 
@@ -85,7 +80,7 @@ public class GridDataSetOpendap extends GridDataSet {
      * @param internalName  TMOk490
      * @param gridName e.g., Ok490;  may be null or "" to use the first one in the datasource
      * @param title   the title for the dataset (may be null or "" to use the title in the datasource metadata)
-     * @param baseUrl e.g., http://oceanwatch.pfeg.noaa.gov:8081/thredds/dodsC/satellite/QS/ux10/
+     * @param baseUrl e.g., https://oceanwatch.pfeg.noaa.gov:8081/thredds/dodsC/satellite/QS/ux10/
      *   The dividing line between baseUrl and timePeriodUrls is up to you.
      *   The time periodUrls are added to baseUrl to make the individual dataset urls.
      * @param timePeriodUrls e.g., 1day, 5day
@@ -779,7 +774,7 @@ String2.log("trying dataSetUrl=" + dataSetUrl);
      */
     public static void testGetTimeSeries() throws Exception {
         String2.log("\n*** start TestBrowsers.testGetTimeSeries");
-        String url = "http://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/GA/ssta/"; //oceanwatch
+        String url = "https://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/GA/ssta/"; //oceanwatch
 
         DataHelper.verbose = true;
         GridDataSetOpendap.verbose = true;
@@ -949,7 +944,7 @@ String2.log("trying dataSetUrl=" + dataSetUrl);
             //*********************************************************************
             internalName = "OQSux10";
             sixName = internalName.substring(1);
-            String url = "http://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/QS/ux10/"; //oceanwatch
+            String url = "https://oceanwatch.pfeg.noaa.gov/thredds/dodsC/satellite/QS/ux10/"; //oceanwatch
             gridDataSet = new GridDataSetOpendap(
                 internalName, "QSux10", null, url, 
                 new String[]{"1day", "3day", "4day", "8day", "14day", "mday"}, 
@@ -972,12 +967,12 @@ String2.log("trying dataSetUrl=" + dataSetUrl);
             Test.ensureEqual(grid.globalAttributes().get("summary"),                    new StringArray(new String[]{"Remote Sensing Inc. distributes science quality wind velocity data from the SeaWinds instrument onboard NASA's QuikSCAT satellite.  SeaWinds is a microwave scatterometer designed to measure surface winds over the global ocean.  Wind velocity fields are provided in zonal, meridional, and modulus sets. The reference height for all wind velocities is 10 meters."}), "summary");  
             Test.ensureEqual(grid.globalAttributes().get("keywords"),                   new StringArray(new String[]{"EARTH SCIENCE > Oceans > Ocean Winds > Surface Winds"}), "keywords");
             //!!!! thredds id differs from opendap at first letter
-            Test.ensureEqual(grid.globalAttributes().get("id"),                         new StringArray(new String[]{"TQSux10S1day_20060610_x-135_X-105_y22_Y50"}), "id");
+            Test.ensureEqual(grid.globalAttributes().get("id"),                         new StringArray(new String[]{"TQSux10S1day"}), "id");
             Test.ensureEqual(grid.globalAttributes().get("naming_authority"),           new StringArray(new String[]{"gov.noaa.pfeg.coastwatch"}), "naming_authority");
             Test.ensureEqual(grid.globalAttributes().get("keywords_vocabulary"),        new StringArray(new String[]{"GCMD Science Keywords"}), "keywords_vocabulary");
             Test.ensureEqual(grid.globalAttributes().get("cdm_data_type"),              new StringArray(new String[]{"Grid"}), "cdm_data_typ");
             Test.ensureTrue(grid.globalAttributes().getString("history").startsWith("Remote Sensing Systems, Inc."), "history=" + grid.globalAttributes().getString("history"));
-            Test.ensureEqual(grid.globalAttributes().get("date_created"),               new StringArray(new String[]{Calendar2.formatAsISODate(Calendar2.newGCalendarZulu()) + "Z"}), "date_created");
+            Test.ensureEqual(grid.globalAttributes().get("date_created"),               new StringArray(new String[]{Calendar2.formatAsISODate(Calendar2.newGCalendarZulu())}), "date_created");
             Test.ensureEqual(grid.globalAttributes().get("creator_name"),               new StringArray(new String[]{"NOAA CoastWatch, West Coast Node"}), "creator_name");
             Test.ensureEqual(grid.globalAttributes().get("creator_url"),                new StringArray(new String[]{"http://coastwatch.pfel.noaa.gov"}), "creator_url");
             Test.ensureEqual(grid.globalAttributes().get("creator_email"),              new StringArray(new String[]{"dave.foley@noaa.gov"}), "creator_email");
@@ -996,11 +991,11 @@ String2.log("trying dataSetUrl=" + dataSetUrl);
             Test.ensureEqual(grid.globalAttributes().get("time_coverage_start"),        new StringArray(new String[]{"2006-06-10T00:00:00Z"}), "time_coverage_start");
             Test.ensureEqual(grid.globalAttributes().get("time_coverage_end"),          new StringArray(new String[]{"2006-06-11T00:00:00Z"}), "time_coverage_end");
             //Test.ensureEqual(grid.globalAttributes().get("time_coverage_resolution", new StringArray(new String[]{""}), "time_coverage_resolution");
-            Test.ensureEqual(grid.globalAttributes().get("standard_name_vocabulary"),   new StringArray(new String[]{"CF Standard Name Table v29"}), "standard_name_vocabulary");
+            Test.ensureEqual(grid.globalAttributes().get("standard_name_vocabulary"),   new StringArray(new String[]{"CF Standard Name Table v55"}), "standard_name_vocabulary");
             Test.ensureEqual(grid.globalAttributes().get("license"),                    new StringArray(new String[]{"The data may be used and redistributed for free but is not intended for legal use, since it may contain inaccuracies. Neither the data Contributor, CoastWatch, NOAA, nor the United States Government, nor any of their employees or contractors, makes any warranty, express or implied, including warranties of merchantability and fitness for a particular purpose, or assumes any legal liability for the accuracy, completeness, or usefulness, of this information."}), "license");
             Test.ensureEqual(grid.globalAttributes().get("contributor_name"),           new StringArray(new String[]{"Remote Sensing Systems, Inc."}), "contributor_name");
             Test.ensureEqual(grid.globalAttributes().get("contributor_role"),           new StringArray(new String[]{"Source of level 2 data."}), "contributor_role");
-            Test.ensureEqual(grid.globalAttributes().get("date_issued"),                new StringArray(new String[]{Calendar2.formatAsISODate(Calendar2.newGCalendarZulu())+"Z"}), "date_issued");
+            Test.ensureEqual(grid.globalAttributes().get("date_issued"),                new StringArray(new String[]{Calendar2.formatAsISODate(Calendar2.newGCalendarZulu())}), "date_issued");
             Test.ensureEqual(grid.globalAttributes().get("references"),                 new StringArray(new String[]{"RSS Inc. Winds: http://www.remss.com/ ."}), "references");
             Test.ensureEqual(grid.globalAttributes().get("source"),                     new StringArray(new String[]{"satellite observation: QuikSCAT, SeaWinds"}), "source");
             //Google Earth

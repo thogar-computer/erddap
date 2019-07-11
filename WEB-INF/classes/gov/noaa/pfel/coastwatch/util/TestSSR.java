@@ -56,17 +56,20 @@ public class TestSSR {
         */
 
         //percentDecode(String query) 
-        Test.ensureEqual(SSR.minimalPercentEncode("+ :q*~?=&%"), 
-            "%2B%20%3Aq*~%3F%3D%26%25", "");
-        Test.ensureEqual(SSR.percentEncode(       "+ :q*~?=&%"), 
-            "%2B+%3Aq*%7E%3F%3D%26%25", ""); //I don't like +    It encodes ~
+        String s = "~`!@#$%^&*()_-+=|\\{[}]:;\"'<,>.?/ a\nA°1"; //after A is degree #176/B0
+        Test.ensureEqual(SSR.percentEncode(s),                  //it is utf-8'd then % encoded
+            //note that I modified Java code so ' ' becomes %20, not +
+            "%7E%60%21%40%23%24%25%5E%26*%28%29_-%2B%3D%7C%5C%7B%5B%7D%5D%3A%3B%22%27%3C%2C%3E.%3F%2F%20a%0AA%C2%B01",
+            ""); //It encodes ~!*()' 
+        Test.ensureEqual(SSR.minimalPercentEncode(s),//                                        
+            "~%60!%40%23%24%25%5E%26*()_-%2B%3D%7C%5C%7B%5B%7D%5D%3A%3B%22'%3C%2C%3E.%3F%2F%20a%0AA%C2%B01", "");
         Test.ensureEqual(SSR.percentDecode("%2B%20%3Aq*~%3F%3D%26%25"), "+ :q*~?=&%", "");
 
-        String s = "AZaZ09 \t\r\n`";
+        s = "AZaZ09 \t\r\n`";
         Test.ensureEqual(SSR.minimalPercentEncode(s), 
             "AZaZ09%20%09%0D%0A%60", "");
         Test.ensureEqual(SSR.percentEncode(s), 
-            "AZaZ09+%09%0D%0A%60", ""); //I don't like +
+            "AZaZ09%20%09%0D%0A%60", ""); 
         Test.ensureEqual(SSR.percentDecode("AZaZ09%20%09%0D%0A%60"), s, "");
 
         s = "~!@#$%^&*()";
@@ -137,7 +140,7 @@ public class TestSSR {
             Test.ensureTrue(File2.isFile(tempGif), "dosShell b");
         } catch (Exception e) {
             Test.knownProblem(
-                "IMAGEMAGICK NOT SET UP ON BOB'S DELL M4700.",
+                "IMAGEMAGICK NOT SET UP ON BOB'S DELL M4700 or Lenovo.",
                 MustBe.throwableToString(e));
         }
         File2.delete(tempGif);
@@ -184,13 +187,13 @@ public class TestSSR {
         //unzip the zip file
         long time2 = System.currentTimeMillis();
         SSR.unzip(zipDir + zipName, zipDir, //note: extract to zipDir, since it doesn't include dir
-            false, 10); //false 'ignoreDirectoryInfo', but there is none
+            false, 10, null); //false 'ignoreDirectoryInfo', but there is none
         time2 = System.currentTimeMillis() - time2;
         //ensure results are as expected
         String[] results = String2.readFromFile(zipDir + fileName);
         Test.ensureEqual(results[0], "", "SSR.zip b");
         Test.ensureEqual(results[1], longText, "SSR.zip c");
-        String2.log("zip+unzip time=" + (time1 + time2) + "  (Java 1.7M4700 967ms, 1.6 4000-11000ms)");
+        String2.log("zip+unzip time=" + (time1 + time2) + "ms  (Java 1.7M4700 967ms, 1.6 4000-11000ms)");
         File2.delete(zipDir + zipName);
         File2.delete(zipDir + fileName);
 
@@ -207,14 +210,14 @@ public class TestSSR {
         //unzip the zip file
         time2 = System.currentTimeMillis();
         SSR.unzip(zipDir + zipName, classPath, //note: extract to classPath, since includes dir
-            false, 10); //false 'ignoreDirectoryInfo'
+            false, 10, null); //false 'ignoreDirectoryInfo'
         time2 = System.currentTimeMillis() - time2;
         //ensure results are as expected
         results = String2.readFromFile(zipDir + fileName);
         Test.ensureEqual(results[0], "", "SSR.zip b");
         Test.ensureEqual(results[1], longText, "SSR.zip c");  
         String2.log("zip+unzip (w directory info) time=" + (time1 + time2) + 
-            "  (Java 1.7M4700 937, 1.6 ~4000-11000ms)");
+            "ms  (Java 1.7M4700 937, 1.6 ~4000-11000ms)");
         File2.delete(zipDir + zipName);
         File2.delete(zipDir + fileName);
 
@@ -243,7 +246,7 @@ public class TestSSR {
             Test.ensureEqual(results[0], "", "SSR.gz b");
             Test.ensureEqual(results[1], longText, "SSR.z c");
             String2.log("gzip+ungzip time=" + (time1 + time2) + 
-                "  (Java 1.7M4700 780-880ms, 1.6 ~4000-11000ms)"); 
+                "ms  (Java 1.7M4700 780-880ms, 1.6 ~4000-11000ms)"); 
             File2.delete(gzipDir + gzipName);
             File2.delete(gzipDir + fileName);
         }
@@ -254,7 +257,7 @@ public class TestSSR {
         //future: test various compressed url's
         String2.log("test getURLResponse");
         try {
-            sar = SSR.getUrlResponse("http://www.pfeg.noaa.gov/"); //"http://www.cohort.com");
+            sar = SSR.getUrlResponseLines("https://www.pfeg.noaa.gov/"); //"http://www.cohort.com");
             Test.ensureEqual(
                 String2.lineContaining(sar, "Disclaimer and Privacy Policy") == -1, //"A free RPN scientific calculator applet") == -1,
                 false, "Response=" + String2.toNewlineString(sar));
@@ -266,10 +269,10 @@ public class TestSSR {
         //test non-existent file
         long rTime = System.currentTimeMillis();
         try {
-            sar = SSR.getUrlResponse("http://coastwatch.pfeg.noaa.gov/zzz.html");
+            sar = SSR.getUrlResponseLines("https://coastwatch.pfeg.noaa.gov/zzz.html");
             throw new Throwable("shouldn't get here.");
         } catch (Exception e) { //not throwable
-            String2.log("SSR.getUrlResponse for non existent url time=" + (System.currentTimeMillis() - rTime));
+            String2.log("SSR.getUrlResponse for non existent url time=" + (System.currentTimeMillis() - rTime) + "ms");
             //String2.pressEnterToContinue();
         } catch (Throwable t) {
             Test.error(t.toString()); //converts it to Exception and stops the testing
@@ -279,7 +282,7 @@ public class TestSSR {
         //but you can put as many params on one line as needed (from any screen)
         //and put edit=... to determine which screen gets returned
         try {
-            sar = SSR.getUrlResponse("http://coastwatch.pfeg.noaa.gov/coastwatch/CWBrowser.jsp?edit=Grid+Data");
+            sar = SSR.getUrlResponseLines("https://coastwatch.pfeg.noaa.gov/coastwatch/CWBrowser.jsp?edit=Grid+Data");
             String2.log("****beginResponse\n" + String2.toNewlineString(sar) + "\n****endResponse");
             Test.ensureNotEqual(String2.lineContaining(sar, "Download the grid data:"), -1, "e");
         } catch (Exception e) {
@@ -287,16 +290,16 @@ public class TestSSR {
                 "\nUnexpected error."); 
         }
 
-        //postHTMLForm     (always right after contact the web site above)
+        //postHTMLForm     (always right after contact the website above)
         //I NEVER GOT THIS WORKING. JUST USE 'GET' TESTS ABOVE
 //        String2.log("test postHTMLForm");
 
         //for apache commons version
-//        sar = SSR.postHTMLForm("http://coastwatch.pfeg.noaa.gov/cwexperimental/", "CWBrowser.jsp",
+//        sar = SSR.postHTMLForm("https://coastwatch.pfeg.noaa.gov/cwexperimental/", "CWBrowser.jsp",
 //            new String[]{"edit", "Bathymetry"});
 
         //for devx version
-        //sar = SSR.postHTMLForm("http://coastwatch.pfeg.noaa.gov/cwexperimental/CWBrowser.jsp",
+        //sar = SSR.postHTMLForm("https://coastwatch.pfeg.noaa.gov/cwexperimental/CWBrowser.jsp",
         //    new Object[]{"bathymetry", "false", "edit", "Bathymetry"});
 
         //for java almanac version
@@ -365,7 +368,7 @@ public class TestSSR {
         if (emailPort.length() == 0) emailPort = "587";
 
         emailUser = String2.getStringFromSystemIn( 
-            "gmail email user (e.g., erd.data)? ");
+            "gmail email user (e.g., erd.data@noaa.gov)? ");
         if (emailUser.length() == 0) emailUser = "erd.data@noaa.gov"; 
 
         emailPassword = String2.getPasswordFromSystemIn(
@@ -419,6 +422,34 @@ public class TestSSR {
         SSR.debugMode = false;
     }
 
+    /**
+     * Test posting info and getting response.
+     */
+    public static void testPostFormGetResponseString() throws Exception {
+        try {
+            String s = SSR.postFormGetResponseString(
+                "https://coastwatch.pfeg.noaa.gov/erddap/search/index.html?page=1&itemsPerPage=1000&searchFor=jplmursst41");
+            String2.log("\nSSR.testPostFormGetResponseString() result:\n" + s);
+            Test.ensureTrue(s.indexOf("Do a Full Text Search for Datasets:") >= 0, "");
+            Test.ensureTrue(s.indexOf("Multi-scale Ultra-high Resolution (MUR) SST Analysis fv04.1, Global") >= 0, "");
+            Test.ensureTrue(s.indexOf("ERDDAP, Version") >= 0, "");
+
+            //2018-10-24 I verified that 
+            //* This request appears as a POST (not GET) in tomcat's localhost_access_lot[date].txt
+            //* The parameters don't appear in that file (whereas they do for GET requests)
+            //* The parameters don't appear in ERDDAP log (whereas they do for GET requests),
+            //*    and it is labelled as a POST request.
+            s = SSR.postFormGetResponseString(
+                "http://localhost:8080/cwexperimental/search/index.html?page=1&itemsPerPage=1000&searchFor=jplmursst41");
+            String2.log("\nSSR.testPostFormGetResponseString() result:\n" + s);
+            Test.ensureTrue(s.indexOf("Do a Full Text Search for Datasets:") >= 0, "");
+            Test.ensureTrue(s.indexOf("Multi-scale Ultra-high Resolution (MUR) SST Analysis fv04.1, Global") >= 0, 
+                "This test requires MUR 4.1 in the local host ERDDAP.");
+            Test.ensureTrue(s.indexOf("ERDDAP, Version") >= 0, "");
+        } catch (Exception e) {
+            String2.pressEnterToContinue(MustBe.throwableToString(e)); 
+        }
+    }
 
     /**
      * Run all of the tests which are dependent on Unix.
@@ -436,7 +467,9 @@ public class TestSSR {
      */
     public static void main(String args[]) throws Throwable {
         SSR.verbose = true;
+/* for releases, this line should have open/close comment */
         runNonUnixTests();
+        testPostFormGetResponseString();
         
 //        runUnixTests();
     }

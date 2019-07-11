@@ -39,23 +39,19 @@ import java.util.regex.Pattern;
 
 
 /**
- * Get netcdf-X.X.XX.jar from 
- * http://www.unidata.ucar.edu/software/thredds/current/netcdf-java/index.html
+ * Get netcdfAll-......jar from ftp://ftp.unidata.ucar.edu/pub
  * and copy it to <context>/WEB-INF/lib renamed as netcdf-latest.jar.
- * Get slf4j-jdk14.jar from 
- * ftp://ftp.unidata.ucar.edu/pub/netcdf-java/slf4j-jdk14.jar
- * and copy it to <context>/WEB-INF/lib.
- * Put both of these .jar files in the classpath for the compiler and for Java.
+ * Put it in the classpath for the compiler and for Java.
  */
 import ucar.nc2.*;
 import ucar.nc2.dataset.NetcdfDataset;
-import ucar.nc2.dods.*;
+//import ucar.nc2.dods.*;
 import ucar.nc2.util.*;
 import ucar.ma2.*;
 
 /** 
  * This class represents gridded data aggregated from a collection of 
- * NetCDF .nc (http://www.unidata.ucar.edu/software/netcdf/),
+ * NetCDF .nc (https://www.unidata.ucar.edu/software/netcdf/),
  * GRIB .grb (https://en.wikipedia.org/wiki/GRIB),
  * (and related) data files.
  *
@@ -69,7 +65,7 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
     }
 
     /** 
-     * Subclasses override this: 
+     * Subclasses overwrite this: 
      * EDDGridFromNcFilesUnpacked applies scale_factor and add_offset and
      * converts times variables to epochSeconds at a low level (when it reads each file). 
      * Also the &lt;dataType&gt; is applied. */
@@ -93,7 +89,9 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
         String tFileDir, String tFileNameRegex, 
         boolean tRecursive, String tPathRegex, String tMetadataFrom,
         int tMatchAxisNDigits, boolean tFileTableInMemory,
-        boolean tAccessibleViaFiles) throws Throwable {
+        boolean tAccessibleViaFiles, int tnThreads, boolean tDimensionValuesInMemory, 
+        String tCacheFromUrl, int tCacheSizeGB, String tCachePartialPathRegex) 
+        throws Throwable {
 
         super(subclassname, tDatasetID, 
             tAccessibleTo, tGraphsAccessibleTo, tAccessibleViaWMS, 
@@ -105,16 +103,17 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
             tReloadEveryNMinutes, tUpdateEveryNMillis,
             tFileDir, tFileNameRegex, tRecursive, tPathRegex, tMetadataFrom,
             tMatchAxisNDigits, tFileTableInMemory,
-            tAccessibleViaFiles);
+            tAccessibleViaFiles, 
+            tnThreads, tDimensionValuesInMemory,
+            tCacheFromUrl, tCacheSizeGB, tCachePartialPathRegex);
     }
 
     /**
      * This gets sourceGlobalAttributes and sourceDataAttributes from the specified 
      * source file.
      *
-     * @param fileDir
-     * @param fileName
-     * @param sourceAxisNames If special axis0, this list will be the instances list[1 ... n-1].
+     * @param tFullName the name of the decompressed data file
+     * @param sourceAxisNames If there is a special axis0, this list will be the instances list[1 ... n-1].
      * @param sourceDataNames the names of the desired source data columns.
      * @param sourceDataTypes the data types of the desired source columns 
      *    (e.g., "String" or "float") 
@@ -124,15 +123,15 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
      * @throws Throwable if trouble (e.g., invalid file, or a sourceAxisName or sourceDataName not found).
      *   If there is trouble, this doesn't call addBadFile or requestReloadASAP().
      */
-    public void lowGetSourceMetadata(String fileDir, String fileName, 
+    public void lowGetSourceMetadata(String tFullName, 
         StringArray sourceAxisNames,
         StringArray sourceDataNames, String sourceDataTypes[],
         Attributes sourceGlobalAttributes, 
         Attributes sourceAxisAttributes[],
         Attributes sourceDataAttributes[]) throws Throwable {
 
-        NetcdfFile ncFile = NcHelper.openFile(fileDir + fileName); //may throw exception
         String getWhat = "globalAttributes";
+        NetcdfFile ncFile = NcHelper.openFile(tFullName); //may throw exception
         try {
             NcHelper.getGlobalAttributes(ncFile, sourceGlobalAttributes);
 
@@ -148,8 +147,10 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
                     NcHelper.getVariableAttributes(var, tAtts);
 
                     //unpack?
-                    if (unpack()) 
-                        NcHelper.unpackAttributes(var, tAtts); //do first
+                    if (unpack()) {
+                        tAtts.unpackVariableAttributes(var.getFullName(), NcHelper.getElementClass(var.getDataType())); 
+                        //shouldn't be any mv or fv
+                    }
                 }
             }
 
@@ -164,7 +165,7 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
 
                     //unpack?
                     if (unpack()) 
-                        NcHelper.unpackAttributes(var, tAtts); //do first
+                        tAtts.unpackVariableAttributes(var.getFullName(), NcHelper.getElementClass(var.getDataType()));
                 }
             }
 
@@ -179,7 +180,7 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
             }
             throw new RuntimeException("Error in " + subClassName() + ".getSourceMetadata" +
                 "\nwhile getting " + getWhat + 
-                "\nfrom " + fileDir + fileName + 
+                "\nfrom " + tFullName + 
                 "\nCause: " + MustBe.throwableToShortString(t),
                 t);
         }
@@ -189,21 +190,20 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
     /**
      * This gets source axis values from one file.
      *
-     * @param fileDir
-     * @param fileName
+     * @param tFullName
      * @param sourceAxisNames the names of the desired source axis variables.
-     *    If special axis0, this will not include axis0's name.
+     *    If there is a special axis0, this will not include axis0's name.
      * @return a PrimitiveArray[] with the results (with the requested sourceDataTypes).
      *   It needn't set sourceGlobalAttributes or sourceDataAttributes
      *   (but see getSourceMetadata).
      * @throws Throwable if trouble (e.g., invalid file).
      *   If there is trouble, this doesn't call addBadFile or requestReloadASAP().
      */
-    public PrimitiveArray[] lowGetSourceAxisValues(String fileDir, String fileName, 
+    public PrimitiveArray[] lowGetSourceAxisValues(String tFullName, 
         StringArray sourceAxisNames) throws Throwable {
 
-        NetcdfFile ncFile = NcHelper.openFile(fileDir + fileName); //may throw exception
         String getWhat = "?";
+        NetcdfFile ncFile = NcHelper.openFile(tFullName); //may throw exception
         try {
             PrimitiveArray[] avPa = new PrimitiveArray[sourceAxisNames.size()];
 
@@ -238,7 +238,7 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
             }
             throw new RuntimeException("Error in " + subClassName() + ".getSourceAxisValues" +
                 "\nwhile getting " + getWhat + 
-                "\nfrom " + fileDir + fileName + 
+                "\nfrom " + tFullName + 
                 "\nCause: " + MustBe.throwableToShortString(t),
                 t);
         }
@@ -249,12 +249,11 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
     /**
      * This gets source data from one file.
      *
-     * @param fileDir
-     * @param fileName
+     * @param tFullName
      * @param tDataVariables the desired data variables
-     * @param tConstraints  where the first axis variable's constraints
-     *   have been customized for this file.
-     *   !!! If special axis0, then will not include constraints for axis0.
+     * @param tConstraints 
+     *   For each axis variable, there will be 3 numbers (startIndex, stride, stopIndex).
+     *   !!! If there is a special axis0, this will not include constraints for axis0.
      * @return a PrimitiveArray[] with an element for each tDataVariable with the dataValues.
      *   <br>The dataValues are straight from the source, not modified.
      *   <br>The primitiveArray dataTypes are usually the sourceDataTypeClass,
@@ -263,7 +262,7 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
      * @throws Throwable if trouble (notably, WaitThenTryAgainException).
      *   If there is trouble, this doesn't call addBadFile or requestReloadASAP().
      */
-    public PrimitiveArray[] lowGetSourceDataFromFile(String fileDir, String fileName, 
+    public PrimitiveArray[] lowGetSourceDataFromFile(String tFullName, 
         EDV tDataVariables[], IntArray tConstraints) throws Throwable {
 
         //make the selection spec  and get the axis values
@@ -278,13 +277,14 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
                 tConstraints.get(avi*3+1)); //start:STOP:stride !
         }
         String selection = selectionSB.toString();
-
-        NetcdfFile ncFile = NcHelper.openFile(fileDir + fileName); //may throw exception
         int nValues = -1; //not yet calculated
+        EDV edv = null;
+
+        NetcdfFile ncFile = NcHelper.openFile(tFullName); //may throw exception
         try {
 
             for (int dvi = 0; dvi < ndv; dvi++) {
-                EDV edv = tDataVariables[dvi];
+                edv = tDataVariables[dvi];
                 Variable var = ncFile.findVariable(edv.sourceName());  
                 if (var == null) {
                     //this var isn't in this file: return array of missing_values
@@ -299,7 +299,7 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
                     }
                     Class tClass = edv.sourceDataTypeClass(); //appropriate even if unpacked
                     if (tClass == null) {
-                        String2.log("source file=" + fileDir + fileName);
+                        String2.log("source file=" + tFullName);
                         throw new RuntimeException("ERROR: The destinationName=" + 
                             edv.destinationName() + " variable isn't in one of the source files and " +
                             " the variable's sourceDataType wasn't specified.");
@@ -334,10 +334,13 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
             try {   
                 ncFile.close();    
             } catch (Throwable t2) {
-                String2.log("Error while trying to close " + fileDir + fileName +
+                String2.log("Error while trying to close " + tFullName +
                     "\n" + MustBe.throwableToShortString(t2));
             }  
 
+            String2.log("ERROR: while reading sourceName=" +
+                (edv == null? "null" : edv.sourceName()) + 
+                "[" + selection + "] (start:STOP:stride).");                
             throw t;
         }
     }
@@ -373,10 +376,14 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
      */
     public static String generateDatasetsXml(String subclassname,
         String tFileDir, String tFileNameRegex, String sampleFileName, 
-        int tReloadEveryNMinutes, Attributes externalAddGlobalAttributes) throws Throwable {
+        int tReloadEveryNMinutes, String tCacheFromUrl,
+        Attributes externalAddGlobalAttributes) throws Throwable {
 
-        String2.log(subclassname + ".generateDatasetsXml" +
-            "\n  sampleFileName=" + sampleFileName);
+        String2.log("\n*** " + subclassname + ".generateDatasetsXml" +
+            "\nfileDir=" + tFileDir + " fileNameRegex=" + tFileNameRegex +
+            " sampleFileName=" + sampleFileName + 
+            "\nreloadEveryNMinutes=" + tReloadEveryNMinutes + 
+            "\nexternalAddGlobalAttributes=" + externalAddGlobalAttributes);
         boolean tUnpack = "EDDGridFromNcFilesUnpacked".equals(subclassname);
         if (!String2.isSomething(tFileDir))
             throw new IllegalArgumentException("fileDir wasn't specified.");
@@ -387,32 +394,38 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
         else if (tFileDir.endsWith("/contents.html")) //hyrax catalog
             tFileDir = tFileDir.substring(0, tFileDir.length() - 13);
         else tFileDir = File2.addSlash(tFileDir); //otherwise, assume tFileDir is missing final slash
-
-        if (tReloadEveryNMinutes <= 0 || tReloadEveryNMinutes == Integer.MAX_VALUE)
-            tReloadEveryNMinutes = 1440; //1440 works well with suggestedUpdateEveryNMillis
+        tFileNameRegex = String2.isSomething(tFileNameRegex)? 
+            tFileNameRegex.trim() : ".*";
+        if (String2.isRemote(tCacheFromUrl)) 
+            FileVisitorDNLS.sync(tCacheFromUrl, tFileDir, tFileNameRegex,
+                true, ".*", false); //not fullSync, so just get 1
 
         if (!String2.isSomething(sampleFileName)) 
             String2.log("Found/using sampleFileName=" +
                 (sampleFileName = FileVisitorDNLS.getSampleFileName(
                     tFileDir, tFileNameRegex, true, ".*"))); //recursive, pathRegex
 
+        String decomSampleFileName = FileVisitorDNLS.decompressIfNeeded(sampleFileName, 
+            tFileDir, EDStatic.fullDecompressedGenerateDatasetsXmlDirectory, 
+            EDStatic.decompressedCacheMaxGB, false); //reuseExisting
         String2.log("Let's see if netcdf-java can tell us the structure of the sample file:");
-        String2.log(NcHelper.dumpString(sampleFileName, false));
+        String2.log(NcHelper.ncdump(decomSampleFileName, "-h"));
 
-        NetcdfFile ncFile = NcHelper.openFile(sampleFileName);
-
-        //make table to hold info
-        Table axisSourceTable = new Table();  
-        Table dataSourceTable = new Table();  
-        Table axisAddTable = new Table();
-        Table dataAddTable = new Table();
         StringBuilder sb = new StringBuilder();
-
-        //get source global Attributes
-        Attributes globalSourceAtts = axisSourceTable.globalAttributes();
-        NcHelper.getGlobalAttributes(ncFile, globalSourceAtts);
-
+        NetcdfFile ncFile = NcHelper.openFile(decomSampleFileName);
         try {
+
+            //make table to hold info
+            Table axisSourceTable = new Table();  
+            Table dataSourceTable = new Table();  
+            Table axisAddTable = new Table();
+            Table dataAddTable = new Table();
+            double maxTimeES = Double.NaN; //epoch seconds
+
+            //get source global Attributes
+            Attributes globalSourceAtts = axisSourceTable.globalAttributes();
+            NcHelper.getGlobalAttributes(ncFile, globalSourceAtts);
+
             //look at all variables with dimensions, find ones which share same max nDim
             List allVariables = ncFile.getVariables(); 
             int maxDim = 0;
@@ -420,14 +433,16 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
             for (int v = 0; v < allVariables.size(); v++) {
                 Variable var = (Variable)allVariables.get(v);
                 String varName = var.getFullName();
+                int slashPo = varName.lastIndexOf('/');
+                String groupName = slashPo < 0? "" : varName.substring(0, slashPo + 1);
                 List dimensions = var.getDimensions();
-                if (dimensions == null || dimensions.size() <= 1) 
+                if (dimensions == null || dimensions.size() < 1) 
                     continue;
                 nGridsAtSource++;
                 Class tClass = NcHelper.getElementClass(var.getDataType());
                 if      (tClass == char.class)    tClass = String.class;
                 else if (tClass == boolean.class) tClass = byte.class; 
-                PrimitiveArray pa = PrimitiveArray.factory(tClass, 1, false);
+                PrimitiveArray sourcePA = PrimitiveArray.factory(tClass, 1, false);
                 int nDim = dimensions.size() - (tClass == String.class? 1 : 0);
                 if (nDim < maxDim) {
                     continue;
@@ -438,6 +453,7 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
                     axisAddTable.removeAllColumns();
                     dataAddTable.removeAllColumns();
                     maxDim = nDim;
+                    maxTimeES = Double.NaN;
 
                     //store the axis vars
                     for (int avi = 0; avi < maxDim; avi++) {
@@ -455,17 +471,31 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
                             if (axisVar != null) {//it will be null for dimension without same-named coordinate axis variable
                                 NcHelper.getVariableAttributes(axisVar, sourceAtts);
                                 if (tUnpack)  
-                                    NcHelper.unpackAttributes(axisVar, sourceAtts);
+                                    sourceAtts.unpackVariableAttributes(axisVar.getFullName(), NcHelper.getElementClass(axisVar.getDataType()));
+
+                                //if time, try to get maxTimeES
+                                String tUnits = sourceAtts.getString("units");
+                                if (Calendar2.isNumericTimeUnits(tUnits)) {
+                                    try {
+                                        double tbf[] = Calendar2.getTimeBaseAndFactor(tUnits); //throws exception
+                                        PrimitiveArray tpa = NcHelper.getPrimitiveArray(axisVar);
+                                        maxTimeES = Calendar2.unitsSinceToEpochSeconds(
+                                            tbf[0], tbf[1], tpa.getDouble(tpa.size() - 1));
+                                    } catch (Throwable t) {
+                                        String2.log("caught while trying to get maxTimeES: " + 
+                                            MustBe.throwableToString(t));
+                                    }
+                                }
                             }
                         }
                         axisSourceTable.addColumn(avi, axisName, new DoubleArray(), //type doesn't matter
                             sourceAtts); 
-                        String destName = String2.modifyToBeVariableNameSafe(axisName);
-                        axisAddTable.addColumn(   avi, destName, new DoubleArray(), //type doesn't matter
+                        axisAddTable.addColumn(   avi, axisName, new DoubleArray(), //type doesn't matter
                             makeReadyToUseAddVariableAttributesForDatasetsXml(
                                 globalSourceAtts,
-                                sourceAtts, destName, false, true)); //addColorBarMinMax, tryToFindLLAT
-
+                                sourceAtts, null, axisName, 
+                                true, //tryToAddStandardName
+                                false, true)); //addColorBarMinMax, tryToFindLLAT
                     }
 
                 } else { 
@@ -475,13 +505,13 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
                     for (int avi = 0; avi < maxDim; avi++) {
                         String axisName = ((Dimension)dimensions.get(avi)).getFullName();
                         String expectedName = axisSourceTable.getColumnName(avi);
-                        if (!axisName.equals(expectedName)) {
+                        if (axisName == null || !axisName.equals(expectedName)) {
                             if (verbose) String2.log("variable=" + varName + 
                                 " has the right nDimensions=" + nDim + 
                                 ", but axis#=" + avi + "=" + axisName + 
                                 " != " + expectedName);
                             ok = false;
-                            continue;
+                            break;
                         }
                     }
                 }
@@ -490,17 +520,24 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
                 Attributes sourceAtts = new Attributes();
                 NcHelper.getVariableAttributes(var, sourceAtts);
                 if (tUnpack) {
-                    NcHelper.unpackAttributes(var, sourceAtts);
-                    pa = NcHelper.unpackPA(var, pa, 
+                    sourcePA = sourceAtts.unpackPA(var.getFullName(), sourcePA, 
                         true, true); //lookForStringTime, lookForUnsigned
+                    sourceAtts.unpackVariableAttributes(  //after unpackPA
+                        var.getFullName(), NcHelper.getElementClass(var.getDataType()));
                 }
-                dataSourceTable.addColumn(dataSourceTable.nColumns(), varName, pa, 
+                dataSourceTable.addColumn(dataSourceTable.nColumns(), varName, sourcePA, 
                     sourceAtts);
-                String destName = String2.modifyToBeVariableNameSafe(varName);
-                dataAddTable.addColumn(   dataAddTable.nColumns(),   destName, pa, 
-                    makeReadyToUseAddVariableAttributesForDatasetsXml(
-                        globalSourceAtts,
-                        sourceAtts, destName, true, false)); //addColorBarMinMax, tryToFindLLAT
+                PrimitiveArray destPA = makeDestPAForGDX(sourcePA, sourceAtts);
+                Attributes destAtts = makeReadyToUseAddVariableAttributesForDatasetsXml(
+                    globalSourceAtts, sourceAtts, null, varName, 
+                    destPA.elementClass() != String.class, //tryToAddStandardName
+                    destPA.elementClass() != String.class, //addColorBarMinMax
+                    false); //tryToFindLLAT
+                dataAddTable.addColumn(   dataAddTable.nColumns(),    varName, destPA, destAtts);
+
+                //add missing_value and/or _FillValue if needed
+                addMvFvAttsIfNeeded(varName, sourcePA, sourceAtts, destAtts); //sourcePA since strongly typed
+
             }
 
             if (dataAddTable.nColumns() == 0)
@@ -552,14 +589,14 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
                 if (!"MH1".equals(m1)) {
                     globalAddAtts.set("creator_name", "NOAA NMFS SWFSC ERD");
                     globalAddAtts.set("creator_email", "erd.data@noaa.gov");
-                    globalAddAtts.set("creator_url", "http://www.pfeg.noaa.gov");
+                    globalAddAtts.set("creator_url", "https://www.pfeg.noaa.gov");
                     globalAddAtts.set("institution", "NOAA NMFS SWFSC ERD");
                 }
                 globalAddAtts.set("publisher_name", "NOAA NMFS SWFSC ERD");
                 globalAddAtts.set("publisher_email", "erd.data@noaa.gov");
-                globalAddAtts.set("publisher_url", "http://www.pfeg.noaa.gov");
-                globalAddAtts.set("id", "null");
-                globalAddAtts.set("infoUrl", "http://coastwatch.pfeg.noaa.gov/infog/" +
+                globalAddAtts.set("publisher_url", "https://www.pfeg.noaa.gov");
+                globalAddAtts.set("id", tDatasetID); //2019-05-07 was "null");
+                globalAddAtts.set("infoUrl", "https://coastwatch.pfeg.noaa.gov/infog/" +
                     m1_2 + "_las.html");
                 globalAddAtts.set("license", "[standard]");
                 globalAddAtts.remove("summary");
@@ -576,23 +613,38 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
                            dataAddTable.columnAttributes(dv).set("actual_range", "null");
                 }
 
-            } else {
-                sb.append(directionsForGenerateDatasetsXml());
             }
 
             if (nGridsAtSource > dataAddTable.nColumns())
                 sb.append(generateDatasetsXmlCoastwatchErdMode? "":
-                    "!!! The source for " + tDatasetID + " has nGridVariables=" + nGridsAtSource + ",\n" +
-                    "but this dataset will only serve " + dataAddTable.nColumns() + 
-                    " because the others use different dimensions.\n");
+                    "<!-- NOTE! The source for " + tDatasetID + " has nGridVariables=" + nGridsAtSource + ",\n" +
+                    "  but this dataset will only serve " + dataAddTable.nColumns() + 
+                    " because the others use different dimensions. -->\n");
+
+            //tryToFindLLAT 
+            tryToFindLLAT(   axisSourceTable, axisAddTable); //just axisTables
+            ensureValidNames(dataSourceTable, dataAddTable);
+
+            //use maxTimeES
+            if (tReloadEveryNMinutes <= 0 || tReloadEveryNMinutes == Integer.MAX_VALUE)
+                tReloadEveryNMinutes = 1440; //1440 works well with suggestedUpdateEveryNMillis
+
+            String tTestOutOfDate = EDD.getAddOrSourceAtt(
+                globalAddAtts, globalSourceAtts, "testOutOfDate", null);
+            if (Double.isFinite(maxTimeES) && !String2.isSomething(tTestOutOfDate)) {
+                tTestOutOfDate = suggestTestOutOfDate(maxTimeES);
+                if (String2.isSomething(tTestOutOfDate))
+                    globalAddAtts.set("testOutOfDate", tTestOutOfDate);
+            }
+
+            //write results
             sb.append(
-                (generateDatasetsXmlCoastwatchErdMode? "": "-->\n") +
-                "\n" +
                 "<dataset type=\"" + subclassname + "\" datasetID=\"" + tDatasetID +                      
                     "\" active=\"true\">\n" +
                 "    <reloadEveryNMinutes>" + tReloadEveryNMinutes + "</reloadEveryNMinutes>\n" +  
-                "    <updateEveryNMillis>" + suggestUpdateEveryNMillis(tFileDir) + 
-                   "</updateEveryNMillis>\n" +  
+                (String2.isUrl(tCacheFromUrl)? 
+                  "    <cacheFromUrl>" + XML.encodeAsXML(tCacheFromUrl) + "</cacheFromUrl>\n" :
+                  "    <updateEveryNMillis>" + suggestUpdateEveryNMillis(tFileDir) + "</updateEveryNMillis>\n") +  
                 "    <fileDir>" + XML.encodeAsXML(tFileDir) + "</fileDir>\n" +
                 "    <fileNameRegex>" + XML.encodeAsXML(tFileNameRegex) + "</fileNameRegex>\n" +
                 "    <recursive>true</recursive>\n" +
@@ -605,9 +657,9 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
             sb.append(writeAttsForDatasetsXml(false, globalSourceAtts, "    "));
             sb.append(writeAttsForDatasetsXml(true,  globalAddAtts,    "    "));
             
-            //last 3 params: includeDataType, tryToFindLLAT, questionDestinationName
-            sb.append(writeVariablesForDatasetsXml(axisSourceTable, axisAddTable, "axisVariable", false, true,  false));
-            sb.append(writeVariablesForDatasetsXml(dataSourceTable, dataAddTable, "dataVariable", true,  false, false));
+            //last 2 params: includeDataType, questionDestinationName
+            sb.append(writeVariablesForDatasetsXml(axisSourceTable, axisAddTable, "axisVariable", false, false));
+            sb.append(writeVariablesForDatasetsXml(dataSourceTable, dataAddTable, "dataVariable", true,  false));
             sb.append(
                 "</dataset>\n" +
                 "\n");
@@ -615,7 +667,7 @@ public abstract class EDDGridFromNcLow extends EDDGridFromFiles {
             //I care about this exception
             ncFile.close();
 
-        String2.log("\n\n*** generateDatasetsXml finished successfully.\n\n");
+            String2.log("\n\n*** generateDatasetsXml finished successfully.\n\n");
 
         } catch (Throwable t) {
             try {

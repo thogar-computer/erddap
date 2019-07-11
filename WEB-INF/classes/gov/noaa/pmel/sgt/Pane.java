@@ -76,16 +76,16 @@ import java.beans.PropertyChangeListener;
  * <p>
  * Member functions, in package <code>gov.noaa.pmel.sgt</code>,
  * follow the following naming convention.  Member functions that
- * have a <B>P</B>, <B>U</B>, or <I>nothing</I> at the end of the
- * function name are of type double in <B>P</B>hysical
- * units, type double in <B>U</B>ser units, and type int in Device
+ * have a <strong>P</strong>, <strong>U</strong>, or <I>nothing</I> at the end of the
+ * function name are of type double in <strong>P</strong>hysical
+ * units, type double in <strong>U</strong>ser units, and type int in Device
  * units, respectively.
  * Variables that start with p, u, t, or d are coordinates of type physical,
  * user, time, or device, respectively.
  * <p>
  * All graphics are rendered when the <code>draw()</code> method is invoked.
  * <p>
- * <B>Mouse Events</B>
+ * <strong>Mouse Events</strong>
  * <p>
  * Mouse events are processed by the <code>JPane</code> object to support
  * object selection and zooming. Object selection is accomplished by
@@ -117,7 +117,7 @@ import java.beans.PropertyChangeListener;
  * @author Donald Denbo
  * @version $Revision: 1.23 $, $Date: 2003/09/19 23:14:24 $
  * @since 1.0
- * @deprecated As of sgt 3.0, use {@link gov.noaa.pmel.sgt.JPane JPane}.
+ * @Deprecated As of sgt 3.0, use {@link gov.noaa.pmel.sgt.JPane JPane}.
  * @see Layer
  * @see Graph
  * @see java.awt.Graphics
@@ -504,5 +504,10 @@ public class Pane extends Container implements AbstractPane {
   }
   public void removePropertyChangeListener(PropertyChangeListener l) {
     proxy_.removePropertyChangeListener(l);
+  }
+
+  public void releaseResources() throws Exception { //Kyle and Bob added
+    proxy_ = null;
+    bounds = null;
   }
 }

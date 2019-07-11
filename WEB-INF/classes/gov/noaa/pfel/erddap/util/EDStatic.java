@@ -4,8 +4,9 @@
  */
 package gov.noaa.pfel.erddap.util;
 
-import com.cohort.array.PrimitiveArray;
 import com.cohort.array.Attributes;
+import com.cohort.array.LongArray;
+import com.cohort.array.PrimitiveArray;
 import com.cohort.array.StringArray;
 import com.cohort.util.Calendar2;
 import com.cohort.util.File2;
@@ -29,6 +30,8 @@ import gov.noaa.pfel.coastwatch.sgt.PathCartesianRenderer;
 import gov.noaa.pfel.coastwatch.sgt.SgtGraph;
 import gov.noaa.pfel.coastwatch.sgt.SgtMap;
 import gov.noaa.pfel.coastwatch.sgt.SgtUtil;
+import gov.noaa.pfel.coastwatch.util.FileVisitorDNLS;
+import gov.noaa.pfel.coastwatch.util.HtmlWidgets;
 import gov.noaa.pfel.coastwatch.util.RegexFilenameFilter;
 import gov.noaa.pfel.coastwatch.util.SSR;
 import gov.noaa.pfel.coastwatch.util.Tally;
@@ -38,25 +41,31 @@ import gov.noaa.pfel.erddap.dataset.*;
 import gov.noaa.pfel.erddap.variable.*;
 
 import java.awt.Color;
+import java.io.BufferedOutputStream;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.io.PrintStream;
 import java.io.Writer;
 import java.security.Principal;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collections;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
+
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
-
-//import org.apache.commons.codec.digest.DigestUtils;  //in netcdf-all.jar
+import javax.servlet.ServletException;
 
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
@@ -76,8 +85,14 @@ import org.apache.lucene.util.Version;
 //import org.apache.lucene.search.TopDocs;
 //import org.apache.lucene.store.SimpleFSDirectory;
 
-
 //import org.verisign.joid.consumer.OpenIdFilter;
+
+import ucar.ma2.Array;
+import ucar.ma2.DataType;
+import ucar.nc2.Dimension;
+import ucar.nc2.Group;
+import ucar.nc2.NetcdfFileWriter;
+import ucar.nc2.Variable;
 
 /** 
  * This class holds a lot of static information set from the setup.xml and messages.xml
@@ -90,6 +105,9 @@ public class EDStatic {
 
     /** The uppercase name for the program that appears on web pages. */
     public final static String ProgramName = "ERDDAP";
+
+    public final static String REQUESTED_RANGE_NOT_SATISFIABLE = 
+                              "REQUESTED_RANGE_NOT_SATISFIABLE: ";
 
     /** This changes with each release. 
      * <br>See Changes information in /downloads/setup.html .
@@ -141,8 +159,27 @@ public class EDStatic {
      * <br>1.68 released on 2016-02-08
      * <br>1.70 released on 2016-04-15
      * <br>1.72 released on 2016-05-12
+     * <br>1.74 released on 2016-10-07
+     * <br>1.76 released on 2017-05-12
+     * <br>1.78 released on 2017-05-27
+     * <br>1.80 released on 2017-08-04
+     * <br>1.82 released on 2018-01-26
+     * <br>2.00 released on 2019-06-26
+     * <br>2.01 released on 2019-07-02
+     *
+     * For master branch releases, this will be a floating point
+     * number with 2 decimal digits, with no additional text. 
+     * !!! People other than the main ERDDAP developer (Bob) 
+     * should not change the *number* below.
+     * If you need to identify a fork of ERDDAP, please append "_" + other 
+     * ASCII text (no spaces or control characters) to the number below,
+     * e.g., "1.82_MyFork".
+     * In a few places in ERDDAP, this string is parsed as a number. 
+     * The parser now disregards "_" and anything following it.
+     * A request to http.../erddap/version will return just the number (as text).
+     * A request to http.../erddap/version_string will return the full string.
      */   
-    public static String erddapVersion = "1.72";  
+    public static String erddapVersion = "2.01"; //see comment above
 
     /** 
      * This is almost always false.  
@@ -152,9 +189,9 @@ public class EDStatic {
 public static boolean developmentMode = false;
 
     /** This identifies the dods server/version that this mimics. */
-    public static String dapVersion = "DAP/2.0";   //???
+    public static String dapVersion = "DAP/2.0";   
     public static String serverVersion = "dods/3.7"; //this is what thredds replies
-      //drds at http://oceanwatch.pfeg.noaa.gov/opendap/GLOBEC/GLOBEC_bottle.ver replies "DODS/3.2"
+      //drds at https://oceanwatch.pfeg.noaa.gov/opendap/GLOBEC/GLOBEC_bottle.ver replies "DODS/3.2"
       //both reply with server version, neither replies with coreVersion
       //spec says #.#.#, but Gallagher says #.# is fine.
 
@@ -165,6 +202,7 @@ public static boolean developmentMode = false;
     public static String contentDirectory;
 
     public final static String INSTITUTION = "institution";
+    public final static int TITLE_DOT_LENGTH = 95; //max nChar before using " ... "
 
     /* contextDirectory is the local directory on this computer, e.g., [tomcat]/webapps/erddap/ */
     public static String contextDirectory = SSR.getContextDirectory(); //with / separator and / at the end
@@ -196,19 +234,97 @@ public static boolean developmentMode = false;
     public static int taskThreadSucceededDistributionTotal[] = new int[String2.DistributionSize];
 
     public static String datasetsThatFailedToLoad = "";
-    public static String duplicateDatasetIDsMsg = "";
-    public static StringBuffer memoryUseLoadDatasetsSB     = new StringBuffer(""); //thread-safe (1 thread writes but others may read)
-    public static StringBuffer failureTimesLoadDatasetsSB  = new StringBuffer(""); //thread-safe (1 thread writes but others may read)
-    public static StringBuffer responseTimesLoadDatasetsSB = new StringBuffer(""); //thread-safe (1 thread writes but others may read)
+    public static String errorsDuringMajorReload = "";
+    public static StringBuffer majorLoadDatasetsTimeSeriesSB = new StringBuffer(""); //thread-safe (1 thread writes but others may read)
     public static HashSet requestBlacklist = null;
-    public static volatile int slowDownTroubleMillis = 1000;
     public static long startupMillis = System.currentTimeMillis();
-    public static String startupLocalDateTime = Calendar2.getCurrentISODateTimeStringLocal();
+    public static String startupLocalDateTime = Calendar2.getCurrentISODateTimeStringLocalTZ();
     public static int nGridDatasets = 0;  
     public static int nTableDatasets = 0;
     public static long lastMajorLoadDatasetsStartTimeMillis = System.currentTimeMillis();
     public static long lastMajorLoadDatasetsStopTimeMillis = System.currentTimeMillis() - 1;
-    private static ConcurrentHashMap<String,String> sessionNonce = new ConcurrentHashMap(16, 0.75f, 4); //for a session: loggedInAs -> nonce
+    private static ConcurrentHashMap<String,String> sessionNonce = 
+        new ConcurrentHashMap(16, 0.75f, 4); //for a session: loggedInAs -> nonce
+
+    //things that can be specified in datasets.xml (often added in ERDDAP v2.00)
+    public final static String DEFAULT_ANGULAR_DEGREE_UNITS = "angular_degree,angular_degrees,arcdeg,arcdegs,degree," +
+        "degreeE,degree_E,degree_east,degreeN,degree_N,degree_north,degrees," +
+        "degreesE,degrees_E,degrees_east,degreesN,degrees_N,degrees_north," +
+        "degreesW,degrees_W,degrees_west,degreeW,degree_W,degree_west";
+    public final static String DEFAULT_ANGULAR_DEGREE_TRUE_UNITS = "degreesT,degrees_T,degrees_Tangular_degree,degrees_true," +
+        "degreeT,degree_T,degree_true";
+    public static Set<String> angularDegreeUnitsSet =
+        new HashSet<String>(String2.toArrayList(StringArray.fromCSV(DEFAULT_ANGULAR_DEGREE_UNITS).toArray())); //so canonical
+    public static Set<String> angularDegreeTrueUnitsSet = 
+        new HashSet<String>(String2.toArrayList(StringArray.fromCSV(DEFAULT_ANGULAR_DEGREE_TRUE_UNITS).toArray())); //so canonical
+
+    public final static int DEFAULT_decompressedCacheMaxGB = 10; //for now, 1 value applies to each dataset's decompressed dir
+    public final static int DEFAULT_decompressedCacheMaxMinutesOld = 15;
+    public final static int DEFAULT_nGridThreads = 1;
+    public final static int DEFAULT_nTableThreads = 1;
+    public static int decompressedCacheMaxGB         = DEFAULT_decompressedCacheMaxGB; 
+    public static int decompressedCacheMaxMinutesOld = DEFAULT_decompressedCacheMaxMinutesOld; 
+    public static int nGridThreads                   = DEFAULT_nGridThreads;   //will be a valid number 1+
+    public static int nTableThreads                  = DEFAULT_nTableThreads; //will be a valid number 1+
+
+    //things that were in setup.xml (discouraged) and are now in datasets.xml (v2.00+)
+    public final static int    DEFAULT_cacheMinutes            = 60;
+    public final static String DEFAULT_drawLandMask            = "under";  //or "over"
+    public final static int    DEFAULT_graphBackgroundColorInt = 0xffccccff; 
+    public final static int    DEFAULT_loadDatasetsMinMinutes  = 15;
+    public final static int    DEFAULT_loadDatasetsMaxMinutes  = 60;
+    public final static String DEFAULT_logLevel                = "info"; //warning|info|all
+    public final static int    DEFAULT_partialRequestMaxBytes  = 490000000; //this is just below tds default <opendap><binLimit> of 500MB
+    public final static int    DEFAULT_partialRequestMaxCells  = 10000000;
+    public final static int    DEFAULT_slowDownTroubleMillis   = 1000;
+    public final static int    DEFAULT_unusualActivity         = 10000;
+    public static long   cacheMillis            = DEFAULT_cacheMinutes           * Calendar2.MILLIS_PER_MINUTE;
+    public static String drawLandMask           = DEFAULT_drawLandMask;    
+    public static Color  graphBackgroundColor   = new Color(DEFAULT_graphBackgroundColorInt, true); //hasAlpha
+    public static long   loadDatasetsMinMillis  = DEFAULT_loadDatasetsMinMinutes * Calendar2.MILLIS_PER_MINUTE;
+    public static long   loadDatasetsMaxMillis  = DEFAULT_loadDatasetsMaxMinutes * Calendar2.MILLIS_PER_MINUTE;
+    //logLevel handled specially by setLogLevel
+    public static int    partialRequestMaxBytes = DEFAULT_partialRequestMaxBytes;
+    public static int    partialRequestMaxCells = DEFAULT_partialRequestMaxCells;
+    public static int    slowDownTroubleMillis  = DEFAULT_slowDownTroubleMillis;
+    public static int    unusualActivity        = DEFAULT_unusualActivity;
+
+    public static String  //these are set by setup.xml (deprecated) and/or datasets.xml (v2.00+)
+        standardShortDescriptionHtml, 
+        DEFAULT_standardLicense,
+        DEFAULT_standardContact,
+        DEFAULT_standardDataLicenses,
+        DEFAULT_standardDisclaimerOfEndorsement,
+        DEFAULT_standardDisclaimerOfExternalLinks,
+        DEFAULT_standardGeneralDisclaimer,
+        DEFAULT_standardPrivacyPolicy,
+        DEFAULT_startHeadHtml, //see xxx() methods
+        DEFAULT_startBodyHtml, 
+        DEFAULT_theShortDescriptionHtml,
+        DEFAULT_endBodyHtml, 
+ 
+        standardLicense, 
+        standardContact,
+        standardDataLicenses,
+        standardDisclaimerOfEndorsement,
+        standardDisclaimerOfExternalLinks,
+        standardGeneralDisclaimer,
+        standardPrivacyPolicy,
+        startHeadHtml, //see xxx() methods
+        startBodyHtml, 
+        theShortDescriptionHtml, 
+        endBodyHtml;
+    public static String //in messages.xml and perhaps in datasets.xml (v2.00+)
+        commonStandardNames[],
+        DEFAULT_commonStandardNames[];
+
+
+    //Default max of 25 copy tasks at a time, so different datasets have a chance.
+    //Otherwise, some datasets could take months to do all the tasks.
+    //And some file downloads are very slow (10 minutes).
+    //Remember: last task is to reload the dataset, so that will get the next 25 tasks.
+    public static int DefaultMaxMakeCopyFileTasks = 25; 
+
 
     /** userHashMap. 
      * key=username (if email address, they are lowercased) 
@@ -237,7 +353,7 @@ public static boolean developmentMode = false;
     public static ArrayList taskList = new ArrayList(); //keep here in case TaskThread needs to be restarted
     private static TaskThread taskThread;
     /** lastAssignedTask is used by EDDxxxCopy instances to keep track of 
-     * the number of the last task assigned to taskThread.
+     * the number of the last task assigned to taskThread for a given datasetID.
      * key=datasetID value=Integer(task#)
      */
     public static ConcurrentHashMap lastAssignedTask = new ConcurrentHashMap(16, 0.75f, 4); 
@@ -280,14 +396,14 @@ public static boolean developmentMode = false;
     //  (e.g., Directory type, Version) any time
     //  (no worries about compatibility with existing index).
     //useful documentatino 
-    //  http://lucene.apache.org/java/3_5_0/queryparsersyntax.html
-    //  http://wiki.apache.org/lucene-java/LuceneFAQ
-    //  http://wiki.apache.org/lucene-java/BasicsOfPerformance
+    //  https://lucene.apache.org/java/3_5_0/queryparsersyntax.html
+    //  https://wiki.apache.org/lucene-java/LuceneFAQ
+    //  https://wiki.apache.org/lucene-java/BasicsOfPerformance
     //  http://affy.blogspot.com/2003/04/codebit-examples-for-all-of-lucenes.html
     public  static Version       luceneVersion = Version.LUCENE_35;
     public  final static String  luceneDefaultField = "text";
     //special characters to be escaped
-    //see bottom of http://lucene.apache.org/java/3_5_0/queryparsersyntax.html
+    //see bottom of https://lucene.apache.org/java/3_5_0/queryparsersyntax.html
     public  static String        luceneSpecialCharacters = "+-&|!(){}[]^\"~*?:\\";
 
     //made below if useLuceneSearchEngine
@@ -325,28 +441,10 @@ public static boolean developmentMode = false;
         baseHttpsUrl, //won't be null, may be "(not specified)"
         bigParentDirectory,
         unitTestDataDir,
-
-        EDDGridIdExample,
-        EDDGridDimensionExample,
-        EDDGridNoHyperExample,
-        EDDGridDimNamesExample,
-        EDDGridDataIndexExample,
-        EDDGridDataValueExample,
-        EDDGridDataTimeExample,
-        EDDGridGraphExample,
-        EDDGridMapExample,
-        EDDGridMatlabPlotExample,
-
-        EDDTableIdExample,
-        EDDTableVariablesExample,
-        EDDTableConstraintsExample,
-        EDDTableDataValueExample,
-        EDDTableDataTimeExample,
-        EDDTableGraphExample,
-        EDDTableMapExample,
-        EDDTableMatlabPlotExample,
-
+        unitTestBigDataDir,
+         
         adminInstitution,
+        adminInstitutionUrl,
         adminIndividualName,
         adminPosition,
         adminPhone, 
@@ -359,28 +457,104 @@ public static boolean developmentMode = false;
 
         accessConstraints,
         accessRequiresAuthorization,
+
         fees,
         keywords,
         units_standard,
-   
+
+        //the unencoded EDDGrid...Example attributes
+        EDDGridErddapUrlExample,
+        EDDGridIdExample,
+        EDDGridDimensionExample,
+        EDDGridNoHyperExample,
+        EDDGridDimNamesExample,
+        EDDGridDataTimeExample,
+        EDDGridDataValueExample,
+        EDDGridDataIndexExample,
+        EDDGridGraphExample,
+        EDDGridMapExample,
+        EDDGridMatlabPlotExample,
+
+        //variants encoded to be Html Examples
+        EDDGridDimensionExampleHE,
+        EDDGridDataIndexExampleHE,
+        EDDGridDataValueExampleHE,
+        EDDGridDataTimeExampleHE,
+        EDDGridGraphExampleHE,
+        EDDGridMapExampleHE,
+
+        //variants encoded to be Html Attributes
+        EDDGridDimensionExampleHA,
+        EDDGridDataIndexExampleHA,
+        EDDGridDataValueExampleHA,
+        EDDGridDataTimeExampleHA,
+        EDDGridGraphExampleHA,
+        EDDGridMapExampleHA,
+
+        //the unencoded EDDTable...Example attributes
+        EDDTableErddapUrlExample,
+        EDDTableIdExample,
+        EDDTableVariablesExample,
+        EDDTableConstraintsExample,
+        EDDTableDataTimeExample,
+        EDDTableDataValueExample,
+        EDDTableGraphExample,
+        EDDTableMapExample,
+        EDDTableMatlabPlotExample,
+
+        //variants encoded to be Html Examples
+        EDDTableConstraintsExampleHE,
+        EDDTableDataTimeExampleHE,
+        EDDTableDataValueExampleHE,
+        EDDTableGraphExampleHE,
+        EDDTableMapExampleHE,
+
+        //variants encoded to be Html Attributes
+        EDDTableConstraintsExampleHA,
+        EDDTableDataTimeExampleHA,
+        EDDTableDataValueExampleHA,
+        EDDTableGraphExampleHA,
+        EDDTableMapExampleHA,
+
+        /* For the wcs examples, pick one of your grid datasets that has longitude and latitude axes.
+        The sample variable must be a variable in the sample grid dataset.
+        The bounding box values are minx,miny,maxx,maxy.
+        */
+        wcsSampleDatasetID = "jplMURSST41",
+        wcsSampleVariable = "analysed_sst",
+        wcsSampleBBox = "-179.98,-89.98,179.98,89.98",
+        wcsSampleAltitude = "0",
+        wcsSampleTime = "2002-06-01T09:00:00Z",
+
+        /* For the wms examples, pick one of your grid datasets that has longitude
+        and latitude axes.
+        The sample variable must be a variable in the sample grid dataset.
+        The bounding box values are minx,miny,maxx,maxy.
+        The default for wmsActive is "true".
+        */
+        wmsSampleDatasetID = "jplMURSST41",
+        wmsSampleVariable = "analysed_sst",
+        /* The bounding box values are minLongitude,minLatitude,maxLongitude,maxLatitude.
+           Longitude values within -180 to 180, or 0 to 360, are now okay. */
+        wmsSampleBBox110 = "-179.99,-89.99,180.0,89.99",
+        wmsSampleBBox130 = "-89.99,-179.99,89.99,180.0",
+        wmsSampleTime = "2002-06-01T09:00:00Z",
+
         sosFeatureOfInterest,
         sosUrnBase,
         sosBaseGmlName,
         sosStandardNamePrefix,
 
-        wmsSampleDatasetID,
-        wmsSampleVariable,
-        wmsSampleBBox,
-    
-        authentication,  //will be one of "", "custom" ["openid"]. If baseHttpsUrl doesn't start with https:, this will be "".
+        authentication,  //will be one of "", "custom", "email", "google", "orcid", "oauth2". If baseHttpsUrl doesn't start with https:, this will be "".
         datasetsRegex,
-        drawLandMask,
         emailEverythingToCsv, 
         emailDailyReportToCsv,
         emailSubscriptionsFrom,
         flagKeyKey,
         fontFamily,
-        googleClientID, //if authentication=google, this will be something
+        googleClientID,    //if authentication=google or oauth2, this will be something
+        orcidClientID,     //if authentication=orcid  or oauth2, this will be something
+        orcidClientSecret, //if authentication=orcid  or oauth2, this will be something
         googleEarthLogoFile,
         highResLogoImageFile,
         legendTitle1, 
@@ -391,30 +565,35 @@ public static boolean developmentMode = false;
         searchEngine,
         warName;
     public static String ampLoginInfo = "&loginInfo;";
+    public static String accessibleViaNC4; //"" if accessible, else message why not
     public static int 
         lowResLogoImageFileWidth,  lowResLogoImageFileHeight,
         highResLogoImageFileWidth, highResLogoImageFileHeight,
         googleEarthLogoFileWidth,  googleEarthLogoFileHeight;
-    public static Color graphBackgroundColor;
-    private static String legal;
-    private static int   ampLoginInfoPo = -1;
+    public static volatile int ampLoginInfoPo = -1;
     /** These are special because other loggedInAs must be String2.justPrintable
         loggedInAsHttps is for using https without being logged in, 
           but &amp;loginInfo; indicates user isn't logged in.
           It is a reserved username -- LoadDatasets prohibits defining a user with that name.
         Tab is useful here: LoadDatasets prohibits it as valid userName, 
           but it won't cause big trouble when printed in tally info.
+        anyoneLoggedIn is a role given to everyone who is logged in e.g., via a specific Google email address.
+          It is a reserved username -- LoadDatasets prohibits defining a user with that name.
      */
-    public final static String loggedInAsHttps     = "[https]";     //final so not changeable
-    public final static String loggedInAsSuperuser = "\tsuperuser"; //final so not changeable
+    public final static String loggedInAsHttps       = "[https]";          //final so not changeable
+    public final static String loggedInAsSuperuser   = "\tsuperuser";      //final so not changeable
+    public final static String anyoneLoggedIn        = "[anyoneLoggedIn]"; //final so not changeable
+    public final static String anyoneLoggedInRoles[] = new String[]{anyoneLoggedIn};
     public final static int minimumPasswordLength = 8;
-    private static String startBodyHtml,  endBodyHtml, startHeadHtml; //see xxx() methods
 
     public static boolean listPrivateDatasets, 
         reallyVerbose,
         subscriptionSystemActive,  convertersActive, slideSorterActive,
-        fgdcActive, iso19115Active, geoServicesRestActive, 
-        filesActive, dataProviderFormActive, sosActive, wcsActive, wmsActive,
+        fgdcActive, iso19115Active, jsonldActive, geoServicesRestActive, 
+        filesActive, dataProviderFormActive, 
+        outOfDateDatasetsActive, politicalBoundariesActive, 
+        wmsClientActive, 
+        sosActive, wcsActive, wmsActive,
         quickRestart, subscribeToRemoteErddapDataset,
         useOriginalSearchEngine, useLuceneSearchEngine,  //exactly one will be true
         variablesMustHaveIoosCategory,
@@ -423,30 +602,29 @@ public static boolean developmentMode = false;
     public static String  categoryAttributesInURLs[]; //fileNameSafe (as used in URLs)
     public static boolean categoryIsGlobal[];
     public static int variableNameCategoryAttributeIndex = -1;
-    public static int 
-        logMaxSizeMB,
-        unusualActivity = 10000,
-        partialRequestMaxBytes = 490000000, //this is just below tds default <opendap><binLimit> of 500MB
-        partialRequestMaxCells = 100000;
-    public static long cacheMillis, loadDatasetsMinMillis, loadDatasetsMaxMillis;
+    public static int logMaxSizeMB;
+    
     private static String
         emailSmtpHost, emailUserName, emailFromAddress, emailPassword, emailProperties; 
     private static int emailSmtpPort;
     private static String emailLogDate = "";
     private static BufferedWriter emailLogFile;
 
-
     //these are set as a consequence of setup.xml info
     public static SgtGraph sgtGraph;
     public static String 
         erddapUrl,  //without slash at end
         erddapHttpsUrl,  //without slash at end   (may be useless, but won't be null)
+        preferredErddapUrl,  //without slash at end   (https if avail, else http)
         fullDatasetDirectory,  //all the Directory's have slash at end
         fullCacheDirectory,
+        fullDecompressedDirectory,
+        fullDecompressedGenerateDatasetsXmlDirectory,
         fullLogsDirectory,
         fullCopyDirectory,
         fullLuceneDirectory,
         fullResetFlagDirectory,
+        fullHardFlagDirectory,
         fullCptCacheDirectory,         
         fullPlainFileNcCacheDirectory,         
         fullSgtMapTopographyCacheDirectory,
@@ -462,7 +640,11 @@ public static boolean developmentMode = false;
 
     /** These values are loaded from the [contentDirectory]messages.xml file (if present)
         or .../classes/gov/noaapfel/erddap/util/messages.xml. */
+    private static String
+        acceptEncodingHtml,
+        filesDocumentation;
     public static String 
+        addConstraints,
         admKeywords,
         admSubsetVariables,
         admSummary,
@@ -515,11 +697,16 @@ public static boolean developmentMode = false;
         advc_email,
         advl_email,
         advl_summary,
+        advc_testOutOfDate,
+        advl_testOutOfDate,
+        advc_outOfDate,
+        advl_outOfDate,
+        advn_outOfDate,
 
         advancedSearch,
         advancedSearchResults,
         advancedSearchDirections,
-        advancedSearchHtml,
+        advancedSearchTooltip,
         advancedSearchBounds,
         advancedSearchMinLat,
         advancedSearchMaxLat,
@@ -538,6 +725,7 @@ public static boolean developmentMode = false;
         advancedSearchWithCriteria,
         advancedSearchFewerCriteria,
         advancedSearchNoCriteria,
+        autoRefresh,
         blacklistMsg,
         categoryTitleHtml,
         category1Html,
@@ -548,7 +736,7 @@ public static boolean developmentMode = false;
         categorySearchDifferentHtml,
         categoryClickHtml,
         categoryNotAnOption,
-        clickAccessHtml,
+        caughtInterrupted,
         clickAccess,
         clickBackgroundInfo,
         clickERDDAP,
@@ -573,29 +761,45 @@ public static boolean developmentMode = false;
         convertKeywordsIntro,
         convertKeywordsNotes,
         convertKeywordsService,
-        convertTime,           
+        convertTime,         
+        convertTimeBypass,
         convertTimeReference,
         convertTimeIntro,
         convertTimeNotes,
         convertTimeService,
+        convertTimeNumberTooltip,
+        convertTimeStringTimeTooltip,
+        convertTimeUnitsTooltip,
         convertTimeUnitsHelp,
+        convertTimeIsoFormatError,
+        convertTimeNoSinceError,
+        convertTimeNumberError,
+        convertTimeNumericTimeError,
+        convertTimeParametersError,
+        convertTimeStringFormatError,
+        convertTimeTwoTimeError,
+        convertTimeUnitsError,
         convertUnits,             
         convertUnitsComparison,   
         convertUnitsFilter,
         convertUnitsIntro,
         convertUnitsNotes,
         convertUnitsService,
+        convertURLs,             
+        convertURLsIntro,
+        convertURLsNotes,
+        convertURLsService,
         cookiesHelp,
         daf,
-        dafGridBypass,
-        dafGridHtml,
-        dafTableBypass,
-        dafTableHtml,
+        dafGridBypassTooltip,
+        dafGridTooltip,
+        dafTableBypassTooltip,
+        dafTableTooltip,
         dasTitle,
         dataAccessNotAllowed,
         databaseUnableToConnect,
         disabled,
-        distinctValuesHtml,
+        distinctValuesTooltip,
         doWithGraphs,
 
         dtAccessible,
@@ -652,14 +856,14 @@ public static boolean developmentMode = false;
 
         EDDGridDapDescription,
         EDDGridDapLongDescription,
-        EDDGridDownloadDataHtml,
+        EDDGridDownloadDataTooltip,
         EDDGridDimension,
         EDDGridDimensionRanges,
         EDDGridFirst,
         EDDGridLast,
         EDDGridStart,
         EDDGridStop,
-        EDDGridStartStopHelp,
+        EDDGridStartStopTooltip,
         EDDGridStride,
         EDDGridNValues,
         EDDGridNValuesHtml,
@@ -667,20 +871,20 @@ public static boolean developmentMode = false;
         EDDGridJustOneValue,
         EDDGridEven,
         EDDGridUneven,
-        EDDGridDimensionHtml,
-        EDDGridDimensionFirstHtml,
-        EDDGridDimensionLastHtml,
-        EDDGridVarHasDimHtml,
-        EDDGridSSSHtml,
-        EDDGridStartHtml,
-        EDDGridStopHtml,
-        EDDGridStrideHtml,
-        EDDGridSpacingHtml,
-        EDDGridDownloadTooltipHtml,
+        EDDGridDimensionTooltip,
+        EDDGridDimensionFirstTooltip,
+        EDDGridDimensionLastTooltip,
+        EDDGridVarHasDimTooltip,
+        EDDGridSSSTooltip,
+        EDDGridStartTooltip,
+        EDDGridStopTooltip,
+        EDDGridStrideTooltip,
+        EDDGridSpacingTooltip,
+        EDDGridDownloadTooltip,
         EDDGridGridVariableHtml,
 
         EDDTableConstraints,
-        EDDTableTabularDatasetHtml,
+        EDDTableTabularDatasetTooltip,
         EDDTableVariable,
         EDDTableCheckAll,
         EDDTableCheckAllTooltip,
@@ -690,17 +894,19 @@ public static boolean developmentMode = false;
         EDDTableMaximumTooltip,
         EDDTableCheckTheVariables,
         EDDTableSelectAnOperator,
+        EDDTableFromEDDGridSummary,
         EDDTableOptConstraint1Html,
         EDDTableOptConstraint2Html,
         EDDTableOptConstraintVar,
-        EDDTableNumericConstraintHtml,
-        EDDTableStringConstraintHtml,
-        EDDTableTimeConstraintHtml,
-        EDDTableConstraintHtml,
-        EDDTableSelectConstraint,
+        EDDTableNumericConstraintTooltip,
+        EDDTableStringConstraintTooltip,
+        EDDTableTimeConstraintTooltip,
+        EDDTableConstraintTooltip,
+        EDDTableSelectConstraintTooltip,
         EDDTableDapDescription,
         EDDTableDapLongDescription,
-        EDDTableDownloadDataHtml,
+        EDDTableDownloadDataTooltip,
+
         errorTitle,
         errorRequestUrl,
         errorRequestQuery,
@@ -710,6 +916,7 @@ public static boolean developmentMode = false;
         errorFileNotFoundImage,
         errorInternal,
         errorJsonpFunctionName,
+        errorJsonpNotAllowed,
         errorMoreThan2GB,
         errorNotFound,
         errorNotFoundIn,
@@ -718,17 +925,19 @@ public static boolean developmentMode = false;
         errorOnWebPage,
         errorXWasntSpecified,
         errorXWasTooLong,
+        extensionsNoRangeRequests[],
         externalLink,
         externalWebSite,
         fileHelp_asc,
         fileHelp_csv,
         fileHelp_csvp,
         fileHelp_csv0,
+        fileHelp_dataTable,
         fileHelp_das,
         fileHelp_dds,
         fileHelp_dods,
         fileHelpGrid_esriAscii,
-        fileHelpTable_esriAscii,
+        fileHelpTable_esriCsv,
         fileHelp_fgdc,
         fileHelp_geoJson,
         fileHelp_graph,
@@ -737,22 +946,35 @@ public static boolean developmentMode = false;
         fileHelp_html,
         fileHelp_htmlTable,
         fileHelp_iso19115,
+        fileHelp_itxGrid,
+        fileHelp_itxTable,
         fileHelp_json,
+        fileHelp_jsonlCSV1,
+        fileHelp_jsonlCSV,
+        fileHelp_jsonlKVP,
         fileHelp_mat,
-        fileHelpGrid_nc,
-        fileHelpTable_nc,
-        fileHelp_ncHeader,
+        fileHelpGrid_nc3,
+        fileHelpGrid_nc4,
+        fileHelpTable_nc3,
+        fileHelpTable_nc4,
+        fileHelp_nc3Header,
+        fileHelp_nc4Header,
+        fileHelp_nccsv,
+        fileHelp_nccsvMetadata,
         fileHelp_ncCF,
         fileHelp_ncCFHeader,
         fileHelp_ncCFMA,
         fileHelp_ncCFMAHeader,
         fileHelp_ncml,
+        fileHelp_ncoJson,
         fileHelpGrid_odvTxt,
         fileHelpTable_odvTxt,
         fileHelp_subset,
+        fileHelp_timeGaps,
         fileHelp_tsv,
         fileHelp_tsvp,
         fileHelp_tsv0,
+        fileHelp_wav,
         fileHelp_xhtml,
         fileHelp_geotif,  //graphical
         fileHelpGrid_kml,
@@ -765,14 +987,14 @@ public static boolean developmentMode = false;
         fileHelp_largePng,
         fileHelp_transparentPng,
         filesDescription,
-        filesDocumentation,
         filesSort,
         filesWarning,
         functions,
-        functionHtml,
+        functionTooltip,
         functionDistinctCheck,
-        functionDistinctHtml,
-        functionOrderByHtml,
+        functionDistinctTooltip,
+        functionOrderByExtra,
+        functionOrderByTooltip,
         functionOrderBySort,
         functionOrderBySort1,
         functionOrderBySort2,
@@ -780,6 +1002,7 @@ public static boolean developmentMode = false;
         functionOrderBySort4,
         functionOrderBySortLeast,
         functionOrderBySortRowMax,
+        generatedAt,
         geoServicesDescription,
         getStartedHtml,
         htmlTableMaxMessage,
@@ -806,9 +1029,10 @@ public static boolean developmentMode = false;
         infoRequestForm,
         inotifyFix,
         justGenerateAndView,
-        justGenerateAndViewHtml,
+        justGenerateAndViewTooltip,
         justGenerateAndViewUrl,
-        justGenerateAndViewGraphUrlHtml,
+        justGenerateAndViewGraphUrlTooltip,
+        legal,
         license,
         listAll,
         listOfDatasets,
@@ -818,7 +1042,9 @@ public static boolean developmentMode = false;
         loginDescribeCustom,
         loginDescribeEmail,
         loginDescribeGoogle,
-        loginDescribeOpenID,
+        loginDescribeOrcid,
+        loginDescribeOauth2,
+        loginErddap,
         loginCanNot,
         loginAreNot,
         loginToLogIn,
@@ -828,13 +1054,15 @@ public static boolean developmentMode = false;
         loginPassword,
         loginUserNameAndPassword,
         loginGoogleSignIn,
-        loginGoogleErddap,
+        loginGoogleSignIn2,
+        loginOrcidSignIn,
         loginOpenID,
         loginOpenIDOr,
         loginOpenIDCreate,
         loginOpenIDFree,
         loginOpenIDSame,
         loginAs,
+        loginPartwayAs,
         loginFailed,
         loginSucceeded,
         loginInvalid,
@@ -843,6 +1071,8 @@ public static boolean developmentMode = false;
         loginProblemExact,
         loginProblemExpire,
         loginProblemGoogleAgain,
+        loginProblemOrcidAgain,
+        loginProblemOauth2Again,
         loginProblemSameBrowser,
         loginProblem3Times,
         loginProblems,
@@ -907,6 +1137,7 @@ public static boolean developmentMode = false;
         magGSYRangeMinTooltip,
         magGSYRangeMaxTooltip,
         magGSYRangeTooltip,
+        magGSYScaleTooltip,
         magItemFirst,
         magItemPrevious,
         magItemNext,
@@ -935,11 +1166,12 @@ public static boolean developmentMode = false;
         magZoomALittle,
         magZoomData,
         magZoomOutData,
-        magGridHtml,
-        magTableHtml,        
+        magGridTooltip,
+        magTableTooltip,        
         metadataDownload,
         moreInformation,
         nMatching1,
+        nMatching,
         nMatchingAlphabetical,
         nMatchingMostRelevant,
         nMatchingPage,
@@ -975,9 +1207,11 @@ public static boolean developmentMode = false;
         noXxxItsGridded,
         noXxxItsTabular,
         optional,
+        options,
         orRefineSearchWith,
         orSearchWith,
         orComma,
+        outOfDateHtml,
         palettes[],
         palettes0[],
         paletteSections[] = {
@@ -987,6 +1221,7 @@ public static boolean developmentMode = false;
             "30","31","32","33","34","35","36","37","38","39", "40"},
         patientData,
         patientYourGraph,
+        percentEncode,
         pickADataset,
         protocolSearchHtml,
         protocolSearch2Html,
@@ -1014,7 +1249,6 @@ public static boolean developmentMode = false;
         queryErrorNotExpectedAt,
         queryErrorNotFoundAfter,
         queryErrorOccursTwice,
-        queryErrorOneOrderBy,
         queryErrorOrderByVariable,
         queryErrorUnknownVariable,
 
@@ -1044,12 +1278,13 @@ public static boolean developmentMode = false;
         restfulInformationFormats,
         restfulViaService,
         rows,
+        rssNo,
         searchTitle,
         searchDoFullTextHtml,
         searchFullTextHtml,
-        searchHintsHtml, 
-        searchHintsLuceneHtml, 
-        searchHintsOriginalHtml, 
+        searchHintsLuceneTooltip, 
+        searchHintsOriginalTooltip, 
+        searchHintsTooltip, 
         searchButton,
         searchClickTip,
         searchNotAvailable,
@@ -1060,23 +1295,22 @@ public static boolean developmentMode = false;
         seeProtocolDocumentation,
         selectNext,
         selectPrevious,
+        shiftXAllTheWayLeft,
+        shiftXLeft,
+        shiftXRight,
+        shiftXAllTheWayRight,
         sosDescriptionHtml,
         sosLongDescriptionHtml,
+        sparqlP01toP02pre,
+        sparqlP01toP02post,
         ssUse,
+        ssUsePlain,
         ssBePatient, 
         ssInstructionsHtml,
-        standardShortDescriptionHtml,
-        standardLicense,
-        standardContact,
-        standardDataLicenses,
-        standardDisclaimerOfEndorsement,
-        standardDisclaimerOfExternalLinks,
-        standardGeneralDisclaimer,
-        standardPrivacyPolicy,
+        statusHtml,
         submit,
         submitTooltip, 
         subscriptionsTitle,
-        subscriptionOptions,
         subscriptionAdd,
         subscriptionAddHtml,
         subscriptionValidate,
@@ -1093,7 +1327,8 @@ public static boolean developmentMode = false;
         subscriptionEmailInvalid,
         subscriptionEmailTooLong,
         subscriptionEmailUnspecified,
-        subscriptionHtml, 
+        subscription0Html, 
+        subscription1Html, 
         subscription2Html, 
         subscriptionIDInvalid,
         subscriptionIDTooLong,
@@ -1160,24 +1395,35 @@ public static boolean developmentMode = false;
         subsetNotSetUp,
         subsetLongNotShown,
 
+        tabledapVideoIntro,
         Then,
         unknownDatasetID,
         unknownProtocol,
         unsupportedFileType,
+        updateUrlsFrom[],
+        updateUrlsTo[],
+        updateUrlsSkipAttributes[],
         viewAllDatasetsHtml,
         waitThenTryAgain,
         warning,
 
         wcsDescriptionHtml,
         wcsLongDescriptionHtml,
+
         wmsDescriptionHtml,
         wmsInstructions,
         wmsLongDescriptionHtml,
-        wmsManyDatasets;
+        wmsManyDatasets,
+            
+        zoomIn,
+        zoomOut;
+
+    public static HashMap<String,String> standardizeUdunitsHM = new HashMap();
+    public static HashMap<String,String> ucumToUdunitsHM = new HashMap();
+    public static HashMap<String,String> udunitsToUcumHM = new HashMap();
 
     public static int[] imageWidths, imageHeights, pdfWidths, pdfHeights;
-    private static String        
-        theShortDescriptionHtml, theLongDescriptionHtml; //see the xxx() methods
+    private static String theLongDescriptionHtml; //see the xxx() methods
     public static String errorFromDataSource = String2.ERROR + " from data source: ";
     
     /** These are only created/used by GenerateDatasetsXml threads. 
@@ -1203,20 +1449,22 @@ public static boolean developmentMode = false;
 
         //route calls to a logger to com.cohort.util.String2Log
         String2.setupCommonsLogging(-1);
+        SSR.erddapVersion = erddapVersion;
 
         String eol = String2.lineSeparator;
         String2.log(eol + "////**** " + erdStartup + eol +
-            "localTime=" + Calendar2.getCurrentISODateTimeStringLocal() + eol +
+            "localTime=" + Calendar2.getCurrentISODateTimeStringLocalTZ() + eol +
+            "erddapVersion=" + erddapVersion + eol + 
             String2.standardHelpAboutMessage());
 
         //**** find contentDirectory
         String ecd = "erddapContentDirectory"; //the name of the environment variable
         errorInMethod = 
-            "Couldn't find 'content' directory (<tomcat>/content/erddap/ ?) " +
+            "Couldn't find 'content' directory ([tomcat]/content/erddap/ ?) " +
             "because '" + ecd + "' environment variable not found " +
             "and couldn't find '/webapps/' in classPath=" + 
             String2.getClassPath() + //with / separator and / at the end
-            " (and 'content/erddap' should be a sibling of <tomcat>/webapps).";
+            " (and 'content/erddap' should be a sibling of <tomcat>/webapps): ";
         contentDirectory = System.getProperty(ecd);        
         if (contentDirectory == null) {
             //Or, it must be sibling of webapps
@@ -1234,68 +1482,27 @@ public static boolean developmentMode = false;
             "contentDirectory (" + contentDirectory + ") doesn't exist.");
 
 
-        //**** setup.xml *************************************************************
+        //**** setup.xml  *************************************************************
+        //This is read BEFORE messages.xml. If that is a problem for something,
+        //  defer reading it in setup and add it to the messages section.
         //read static Strings from setup.xml 
         String setupFileName = contentDirectory + 
             "setup" + (developmentMode? "2" : "") + ".xml";
-        errorInMethod = "ERROR while reading " + setupFileName;
+        errorInMethod = "ERROR while reading " + setupFileName + ": ";
         ResourceBundle2 setup = ResourceBundle2.fromXml(XML.parseXml(setupFileName, false));
 
         //logLevel may be: warning, info(default), all
-        String logLevel = setup.getString("logLevel", "info").toLowerCase();  
-        verbose = !logLevel.equals("warning");
-        AxisDataAccessor.verbose = verbose;
-        Boundaries.verbose = verbose;
-        Calendar2.verbose = verbose;
-        EDD.verbose = verbose;
-        EDV.verbose = verbose;      
-        Erddap.verbose = verbose;
-        FilledMarkerRenderer.verbose = verbose;
-        GridDataAccessor.verbose = verbose;
-        GSHHS.verbose = verbose;
-        LoadDatasets.verbose = verbose;
-        NcHelper.verbose = verbose;
-        OutputStreamFromHttpResponse.verbose = verbose;
-        PathCartesianRenderer.verbose = verbose;
-        Projects.verbose = verbose;
-        //ResourceBundle2.verbose = verbose;
-        RunLoadDatasets.verbose = verbose;
-        SgtGraph.verbose = verbose;
-        SgtMap.verbose = verbose;
-        SgtUtil.verbose = verbose;
-        SSR.verbose = verbose;
-        Subscriptions.verbose = verbose;
-        Table.verbose = verbose;
-        TaskThread.verbose = verbose;
-
-        reallyVerbose = logLevel.equals("all");
-        AxisDataAccessor.reallyVerbose = reallyVerbose;
-        Boundaries.reallyVerbose = reallyVerbose;
-        Calendar2.reallyVerbose = reallyVerbose;
-        EDD.reallyVerbose = reallyVerbose;
-        EDV.reallyVerbose = reallyVerbose;
-        FilledMarkerRenderer.reallyVerbose = reallyVerbose;
-        GridDataAccessor.reallyVerbose = reallyVerbose;
-        GSHHS.reallyVerbose = reallyVerbose;
-        LoadDatasets.reallyVerbose = reallyVerbose;
-        NcHelper.reallyVerbose = reallyVerbose;
-        PathCartesianRenderer.reallyVerbose = reallyVerbose;
-        SgtGraph.reallyVerbose = reallyVerbose;
-        SgtMap.reallyVerbose = reallyVerbose;
-        SgtUtil.reallyVerbose = reallyVerbose;
-        SSR.reallyVerbose = reallyVerbose;
-        Subscriptions.reallyVerbose = reallyVerbose;
-        Table.reallyVerbose = reallyVerbose;
-        //Table.debug = reallyVerbose; //for debugging
-        TaskThread.reallyVerbose = reallyVerbose;
-
+        setLogLevel(setup.getString("logLevel", DEFAULT_logLevel));
         bigParentDirectory = setup.getNotNothingString("bigParentDirectory", ""); 
         bigParentDirectory = File2.addSlash(bigParentDirectory);
         Test.ensureTrue(File2.isDirectory(bigParentDirectory),  
             "bigParentDirectory (" + bigParentDirectory + ") doesn't exist.");
-        unitTestDataDir = setup.getString("unitTestDataDir", "[specify <unitTestDataDir> in setup.xml]"); 
-        unitTestDataDir = File2.addSlash(unitTestDataDir);
-        String2.unitTestDataDir = unitTestDataDir;
+        unitTestDataDir    = setup.getString("unitTestDataDir",    "[specify <unitTestDataDir> in setup.xml]"); 
+        unitTestBigDataDir = setup.getString("unitTestBigDataDir", "[specify <unitTestBigDataDir> in setup.xml]"); 
+        unitTestDataDir    = File2.addSlash(unitTestDataDir);
+        unitTestBigDataDir = File2.addSlash(unitTestBigDataDir);
+        String2.unitTestDataDir    = unitTestDataDir;
+        String2.unitTestBigDataDir = unitTestBigDataDir;
 
         //email  (do early on so email can be sent if trouble later in this method)
         emailSmtpHost          = setup.getString("emailSmtpHost",  null);
@@ -1329,26 +1536,32 @@ public static boolean developmentMode = false;
 
         //*** set up directories  //all with slashes at end
         //before 2011-12-30, was fullDatasetInfoDirectory datasetInfo/; see conversion below
-        fullDatasetDirectory     = bigParentDirectory + "dataset/";  
-        fullCacheDirectory       = bigParentDirectory + "cache/";
-        fullResetFlagDirectory   = bigParentDirectory + "flag/";
-        fullLogsDirectory        = bigParentDirectory + "logs/";
-        fullCopyDirectory        = bigParentDirectory + "copy/";
-        fullLuceneDirectory      = bigParentDirectory + "lucene/";
+        fullDatasetDirectory      = bigParentDirectory + "dataset/";  
+        fullCacheDirectory        = bigParentDirectory + "cache/";
+        fullDecompressedDirectory = bigParentDirectory + "decompressed/";
+        fullDecompressedGenerateDatasetsXmlDirectory
+                                  = bigParentDirectory + "decompressed/GenerateDatasetsXml/";
+        fullResetFlagDirectory    = bigParentDirectory + "flag/";
+        fullHardFlagDirectory     = bigParentDirectory + "hardFlag/";
+        fullLogsDirectory         = bigParentDirectory + "logs/";
+        fullCopyDirectory         = bigParentDirectory + "copy/";
+        fullLuceneDirectory       = bigParentDirectory + "lucene/";
 
         Test.ensureTrue(File2.isDirectory(fullPaletteDirectory),  
             "fullPaletteDirectory (" + fullPaletteDirectory + ") doesn't exist.");
-        errorInMethod = "ERROR while creating directories."; //File2.makeDir throws exception if failure
+        errorInMethod = "ERROR while creating directories: "; //File2.makeDir throws exception if failure
         File2.makeDirectory(fullPublicDirectory);  //make it, because Git doesn't track empty dirs
         File2.makeDirectory(fullDatasetDirectory); 
         File2.makeDirectory(fullCacheDirectory);
+        File2.makeDirectory(fullDecompressedDirectory);
+        File2.makeDirectory(fullDecompressedGenerateDatasetsXmlDirectory);
         File2.makeDirectory(fullResetFlagDirectory);
+        File2.makeDirectory(fullHardFlagDirectory);
         File2.makeDirectory(fullLogsDirectory);
         File2.makeDirectory(fullCopyDirectory);
         File2.makeDirectory(fullLuceneDirectory);
 
         String2.log(
-            "logLevel=" + logLevel + ": verbose=" + verbose + " reallyVerbose=" + reallyVerbose + eol +
             "bigParentDirectory=" + bigParentDirectory + eol +
             "contextDirectory=" + contextDirectory);
 
@@ -1360,7 +1573,7 @@ public static boolean developmentMode = false;
         //to prepare for huge number of datasets
         String oldBaseDir = bigParentDirectory + "datasetInfo/";   //the old name
         if (File2.isDirectory(oldBaseDir)) {
-            errorInMethod = "ERROR while converting from oldBaseDir=" + oldBaseDir;
+            errorInMethod = "ERROR while converting from oldBaseDir=" + oldBaseDir + ": ";
             try { 
                 String2.log("[[converting datasetInfo/ to dataset/");
                 String oldBaseDirList[] = (new File(oldBaseDir)).list();
@@ -1383,7 +1596,7 @@ public static boolean developmentMode = false;
                     for (int of = 0; of < oldFileListSize; of++) {
                         String ofName = oldFileList[of];
                         String fullOfName = oldBaseDir + odName + "/" + ofName;
-                        if (!ofName.matches(".*[0-9]{7}")) //skip temp files
+                        if (!ofName.matches(".*[0-9]{7}"))  //skip temp files
                             File2.copy(fullOfName, fullNdName + ofName); //dir will be created
                         File2.delete(fullOfName);
                     }
@@ -1398,13 +1611,9 @@ public static boolean developmentMode = false;
             }
         }
 
-        //deal with cache
-        //how many millis should files be left in the cache (if untouched)?
-        cacheMillis = setup.getInt("cacheMinutes", 60) * 60000L; // millis/min
-
         //make some subdirectories of fullCacheDirectory
         //'_' distinguishes from dataset cache dirs
-        errorInMethod = "ERROR while creating directories.";
+        errorInMethod = "ERROR while creating directories: ";
         fullCptCacheDirectory              = fullCacheDirectory + "_cpt/";   
         fullPlainFileNcCacheDirectory      = fullCacheDirectory + "_plainFileNc/";   
         fullSgtMapTopographyCacheDirectory = fullCacheDirectory + "_SgtMapTopography/";
@@ -1423,8 +1632,8 @@ public static boolean developmentMode = false;
        
 
         //get other info from setup.xml
-        errorInMethod = "ERROR while reading " + setupFileName;
-        baseUrl                    = setup.getNotNothingString("baseUrl",                    "");
+        errorInMethod = "ERROR while reading " + setupFileName + ": ";
+        baseUrl                    = setup.getNotNothingString("baseUrl",                    errorInMethod);
         baseHttpsUrl               = setup.getString(          "baseHttpsUrl",               "(not specified)"); //not "" (to avoid relative urls)
         categoryAttributes         = String2.split(setup.getNotNothingString("categoryAttributes", ""), ',');
         int nCat = categoryAttributes.length;
@@ -1444,79 +1653,77 @@ public static boolean developmentMode = false;
         variableNameCategoryAttributeIndex =
             String2.indexOf(categoryAttributes, "variableName");
 
-        EDDGridIdExample           = setup.getNotNothingString("EDDGridIdExample",           "");
-        EDDGridDimensionExample    = setup.getNotNothingString("EDDGridDimensionExample",    "");
-        EDDGridNoHyperExample      = setup.getNotNothingString("EDDGridNoHyperExample",      "");
-        EDDGridDimNamesExample     = setup.getNotNothingString("EDDGridDimNamesExample",     "");
-        EDDGridDataIndexExample    = setup.getNotNothingString("EDDGridDataIndexExample",    "");
-        EDDGridDataValueExample    = setup.getNotNothingString("EDDGridDataValueExample",    "");
-        EDDGridDataTimeExample     = setup.getNotNothingString("EDDGridDataTimeExample",     "");
-        EDDGridGraphExample        = setup.getNotNothingString("EDDGridGraphExample",        "");
-        EDDGridMapExample          = setup.getNotNothingString("EDDGridMapExample",          "");
-        EDDGridMatlabPlotExample   = setup.getNotNothingString("EDDGridMatlabPlotExample",   "");
+        String wmsActiveString     = setup.getString("wmsActive",                  ""); 
+        wmsActive                  = String2.isSomething(wmsActiveString)? String2.parseBoolean(wmsActiveString) : true;
+        wmsSampleDatasetID         = setup.getString("wmsSampleDatasetID",         wmsSampleDatasetID);
+        wmsSampleVariable          = setup.getString("wmsSampleVariable",          wmsSampleVariable);
+        wmsSampleBBox110           = setup.getString("wmsSampleBBox110",           wmsSampleBBox110);
+        wmsSampleBBox130           = setup.getString("wmsSampleBBox130",           wmsSampleBBox130);
+        wmsSampleTime              = setup.getString("wmsSampleTime",              wmsSampleTime);
 
-        EDDTableIdExample          = setup.getNotNothingString("EDDTableIdExample",          "");
-        EDDTableVariablesExample   = setup.getNotNothingString("EDDTableVariablesExample",   "");
-        EDDTableConstraintsExample = setup.getNotNothingString("EDDTableConstraintsExample", "");
-        EDDTableDataValueExample   = setup.getNotNothingString("EDDTableDataValueExample",   "");
-        EDDTableDataTimeExample    = setup.getNotNothingString("EDDTableDataTimeExample",    "");
-        EDDTableGraphExample       = setup.getNotNothingString("EDDTableGraphExample",       "");
-        EDDTableMapExample         = setup.getNotNothingString("EDDTableMapExample",         "");
-        EDDTableMatlabPlotExample  = setup.getNotNothingString("EDDTableMatlabPlotExample",  "");
+        adminInstitution           = setup.getNotNothingString("adminInstitution",           errorInMethod);
+        adminInstitutionUrl        = setup.getNotNothingString("adminInstitutionUrl",        errorInMethod);
+        adminIndividualName        = setup.getNotNothingString("adminIndividualName",        errorInMethod);
+        adminPosition              = setup.getNotNothingString("adminPosition",              errorInMethod);
+        adminPhone                 = setup.getNotNothingString("adminPhone",                 errorInMethod); 
+        adminAddress               = setup.getNotNothingString("adminAddress",               errorInMethod);
+        adminCity                  = setup.getNotNothingString("adminCity",                  errorInMethod);
+        adminStateOrProvince       = setup.getNotNothingString("adminStateOrProvince",       errorInMethod); 
+        adminPostalCode            = setup.getNotNothingString("adminPostalCode",            errorInMethod);
+        adminCountry               = setup.getNotNothingString("adminCountry",               errorInMethod);
+        adminEmail                 = setup.getNotNothingString("adminEmail",                 errorInMethod);
 
-        adminInstitution           = setup.getNotNothingString("adminInstitution",           "");
-        adminIndividualName        = setup.getNotNothingString("adminIndividualName",        "");
-        adminPosition              = setup.getNotNothingString("adminPosition",              "");
-        adminPhone                 = setup.getNotNothingString("adminPhone",                 ""); 
-        adminAddress               = setup.getNotNothingString("adminAddress",               "");
-        adminCity                  = setup.getNotNothingString("adminCity",                  "");
-        adminStateOrProvince       = setup.getNotNothingString("adminStateOrProvince",       ""); 
-        adminPostalCode            = setup.getNotNothingString("adminPostalCode",            "");
-        adminCountry               = setup.getNotNothingString("adminCountry",               "");
-        adminEmail                 = setup.getNotNothingString("adminEmail",                 "");
-
-        if (adminInstitution.length() == 0 || adminInstitution.startsWith("Your"))
+        if (adminInstitution.startsWith("Your"))
             throw new RuntimeException("setup.xml error: invalid <adminInstitution>=" + adminInstitution);  
-        if (adminIndividualName.length() == 0 || adminIndividualName.startsWith("Your"))
+        if (!adminInstitutionUrl.startsWith("http") || !String2.isUrl(adminInstitutionUrl))
+            throw new RuntimeException("setup.xml error: invalid <adminInstitutionUrl>=" + adminInstitutionUrl);  
+        if (adminIndividualName.startsWith("Your"))
             throw new RuntimeException("setup.xml error: invalid <adminIndividualName>=" + adminIndividualName);             
-        if (adminPosition.length() == 0)
-            throw new RuntimeException("setup.xml error: invalid <adminPosition>=" + adminPosition);             
-        if (adminPhone.length() == 0 || adminPhone.indexOf("999-999") >= 0)
+        //if (adminPosition.length() == 0)
+        //    throw new RuntimeException("setup.xml error: invalid <adminPosition>=" + adminPosition);             
+        if (adminPhone.indexOf("999-999") >= 0)
             throw new RuntimeException("setup.xml error: invalid <adminPhone>=" + adminPhone);              
-        if (adminAddress.length() == 0 || adminAddress.equals("123 Main St."))
+        if (adminAddress.equals("123 Main St."))
             throw new RuntimeException("setup.xml error: invalid <adminAddress>=" + adminAddress);  
-        if (adminCity.length() == 0 || adminCity.equals("Some Town"))
+        if (adminCity.equals("Some Town"))
             throw new RuntimeException("setup.xml error: invalid <adminCity>=" + adminCity);  
-        if (adminStateOrProvince.length() == 0)
-            throw new RuntimeException("setup.xml error: invalid <adminStateOrProvince>=" + adminStateOrProvince);  
-        if (adminPostalCode.length() == 0 || adminPostalCode.equals("99999"))
+        //if (adminStateOrProvince.length() == 0)
+        //    throw new RuntimeException("setup.xml error: invalid <adminStateOrProvince>=" + adminStateOrProvince);  
+        if (adminPostalCode.equals("99999"))
             throw new RuntimeException("setup.xml error: invalid <adminPostalCode>=" + adminPostalCode);  
-        if (adminCountry.length() == 0)
-            throw new RuntimeException("setup.xml error: invalid <adminCountry>=" + adminCountry);  
+        //if (adminCountry.length() == 0)
+        //    throw new RuntimeException("setup.xml error: invalid <adminCountry>=" + adminCountry);  
         if (!String2.isEmailAddress(adminEmail) || adminEmail.startsWith("your.")) 
             throw new RuntimeException("setup.xml error: invalid <adminEmail>=" + adminEmail);  
 
-        accessConstraints          = setup.getNotNothingString("accessConstraints",          ""); 
-        accessRequiresAuthorization= setup.getNotNothingString("accessRequiresAuthorization",""); 
-        fees                       = setup.getNotNothingString("fees",                       "");
-        keywords                   = setup.getNotNothingString("keywords",                   "");
-        legal                      = setup.getNotNothingString("legal",                      "");
+        accessConstraints          = setup.getNotNothingString("accessConstraints",          errorInMethod); 
+        accessRequiresAuthorization= setup.getNotNothingString("accessRequiresAuthorization",errorInMethod); 
+        fees                       = setup.getNotNothingString("fees",                       errorInMethod);
+        keywords                   = setup.getNotNothingString("keywords",                   errorInMethod);
+
         units_standard             = setup.getString(          "units_standard",             "UDUNITS");
 
         fgdcActive                 = setup.getBoolean(         "fgdcActive",                 true); 
         iso19115Active             = setup.getBoolean(         "iso19115Active",             true); 
+        jsonldActive               = setup.getBoolean(         "jsonldActive",               true); 
 //until geoServicesRest is finished, it is always inactive
 geoServicesRestActive      = false; //setup.getBoolean(         "geoServicesRestActive",      false); 
         filesActive                = setup.getBoolean(         "filesActive",                true); 
         dataProviderFormActive     = setup.getBoolean(         "dataProviderFormActive",     true); 
+        outOfDateDatasetsActive    = setup.getBoolean(         "outOfDateDatasetsActive",    true); 
+        politicalBoundariesActive  = setup.getBoolean(         "politicalBoundariesActive",  true); 
+        wmsClientActive            = setup.getBoolean(         "wmsClientActive",            true); 
+        SgtMap.drawPoliticalBoundaries = politicalBoundariesActive;
+
+
 //until SOS is finished, it is always inactive
 sosActive = false;//        sosActive                  = setup.getBoolean(         "sosActive",                  false); 
         if (sosActive) {
-            sosFeatureOfInterest   = setup.getNotNothingString("sosFeatureOfInterest",       "");
-            sosStandardNamePrefix  = setup.getNotNothingString("sosStandardNamePrefix",      "");
-            sosUrnBase             = setup.getNotNothingString("sosUrnBase",                 "");
+            sosFeatureOfInterest   = setup.getNotNothingString("sosFeatureOfInterest",       errorInMethod);
+            sosStandardNamePrefix  = setup.getNotNothingString("sosStandardNamePrefix",      errorInMethod);
+            sosUrnBase             = setup.getNotNothingString("sosUrnBase",                 errorInMethod);
 
-            //make the sosGmlName, e.g., http://coastwatch.pfeg.noaa.gov:8080 -> gov.noaa.pfeg.coastwatch
+            //make the sosGmlName, e.g., https://coastwatch.pfeg.noaa.gov -> gov.noaa.pfeg.coastwatch
             sosBaseGmlName = baseUrl; 
             int po = sosBaseGmlName.indexOf("//");
             if (po > 0)
@@ -1530,53 +1737,53 @@ sosActive = false;//        sosActive                  = setup.getBoolean(      
         }
 
 //until it is finished, it is always inactive
-wcsActive                  = false; //setup.getBoolean(         "wcsActive",                  false); 
-
-        wmsActive                  = setup.getBoolean(         "wmsActive",                  true); 
-        wmsSampleDatasetID         = setup.getNotNothingString("wmsSampleDatasetID",         "");
-        wmsSampleVariable          = setup.getNotNothingString("wmsSampleVariable",          "");
-        wmsSampleBBox              = setup.getNotNothingString("wmsSampleBBox",              "");
+wcsActive = false; //setup.getBoolean(         "wcsActive",                  false); 
 
         authentication             = setup.getString(          "authentication",             "");
         datasetsRegex              = setup.getString(          "datasetsRegex",              ".*");
-        drawLandMask               = setup.getString(          "drawLandMask",               null);
+        drawLandMask               = setup.getString(          "drawLandMask",               null);    //new name
         if (drawLandMask == null) //2014-08-28 changed defaults below to "under". It will be in v1.48
-            drawLandMask           = setup.getString(          "drawLand",                   "under"); 
+            drawLandMask           = setup.getString(          "drawLand",                   "under"); //old name
         if (!drawLandMask.equals("under") && 
             !drawLandMask.equals("over"))
-             drawLandMask = "under"; //default
-        endBodyHtml                = setup.getNotNothingString("endBodyHtml",                "");
-        endBodyHtml                = String2.replaceAll(endBodyHtml, "&erddapVersion;", erddapVersion);
-        flagKeyKey                 = setup.getString(          "flagKeyKey",                 "");
-        if (flagKeyKey == null || flagKeyKey.length() == 0)  flagKeyKey = "flagKeyKey";
-        fontFamily                 = setup.getString(          "fontFamily",                 "SansSerif");
+             drawLandMask = DEFAULT_drawLandMask; //default="under"
+        flagKeyKey                 = setup.getNotNothingString("flagKeyKey",                 errorInMethod);
+        if (flagKeyKey.toUpperCase().indexOf("CHANGE THIS") >= 0)
+              //really old default: "A stitch in time saves nine. CHANGE THIS!!!"  
+              //current default:    "CHANGE THIS TO YOUR FAVORITE QUOTE"
+            throw new RuntimeException(
+            String2.ERROR + ": You must change the <flagKeyKey> in setup.xml to a new, unique, non-default value. " +
+            "NOTE that this will cause the flagKeys used by your datasets to change. " +
+            "Any subscriptions using the old flagKeys will need to be redone.");
+        fontFamily                 = setup.getString(          "fontFamily",                 "DejaVu Sans");
         graphBackgroundColor = new Color(String2.parseInt(
-                                     setup.getString(          "graphBackgroundColor",       "0xffccccff")), true); //hasAlpha
+                                     setup.getString(          "graphBackgroundColor",       "" + DEFAULT_graphBackgroundColorInt)), true); //hasAlpha
         googleClientID             = setup.getString(          "googleClientID",             null);
-        googleEarthLogoFile        = setup.getNotNothingString("googleEarthLogoFile",        "");
-        highResLogoImageFile       = setup.getNotNothingString("highResLogoImageFile",       "");
-        legendTitle1               = setup.getString(          "legendTitle1",               null);
-        legendTitle2               = setup.getString(          "legendTitle2",               null);
+        orcidClientID              = setup.getString(          "orcidClientID",              null);
+        orcidClientSecret          = setup.getString(          "orcidClientSecret",          null);
+        googleEarthLogoFile        = setup.getNotNothingString("googleEarthLogoFile",        errorInMethod);
+        highResLogoImageFile       = setup.getNotNothingString("highResLogoImageFile",       errorInMethod);
         listPrivateDatasets        = setup.getBoolean(         "listPrivateDatasets",        false);
-        loadDatasetsMinMillis      = Math.max(1,setup.getInt(  "loadDatasetsMinMinutes",     15)) * 60000L;
-        loadDatasetsMaxMillis      = setup.getInt(             "loadDatasetsMaxMinutes",     60) * 60000L;
-        loadDatasetsMaxMillis      = Math.max(loadDatasetsMinMillis * 2, loadDatasetsMaxMillis);
         logMaxSizeMB               = Math2.minMax(1, 2000, setup.getInt("logMaxSizeMB", 20));  //2048MB=2GB
-        lowResLogoImageFile        = setup.getNotNothingString("lowResLogoImageFile",        "");
-        partialRequestMaxBytes     = setup.getInt(             "partialRequestMaxBytes",     partialRequestMaxBytes);
-        partialRequestMaxCells     = setup.getInt(             "partialRequestMaxCells",     partialRequestMaxCells);
-        questionMarkImageFile      = setup.getNotNothingString("questionMarkImageFile",      "");
+
+        //v2.00: these are now also in datasets.xml
+        cacheMillis                = setup.getInt(             "cacheMinutes",               DEFAULT_cacheMinutes)            * 60000L; 
+        loadDatasetsMinMillis      = Math.max(1,setup.getInt(  "loadDatasetsMinMinutes",     DEFAULT_loadDatasetsMinMinutes)) * 60000L;
+        loadDatasetsMaxMillis      = setup.getInt(             "loadDatasetsMaxMinutes",     DEFAULT_loadDatasetsMaxMinutes)  * 60000L;
+        loadDatasetsMaxMillis      = Math.max(loadDatasetsMinMillis * 2, loadDatasetsMaxMillis);
+        partialRequestMaxBytes     = setup.getInt(             "partialRequestMaxBytes",     DEFAULT_partialRequestMaxBytes);
+        partialRequestMaxCells     = setup.getInt(             "partialRequestMaxCells",     DEFAULT_partialRequestMaxCells);
+        unusualActivity            = setup.getInt(             "unusualActivity",            DEFAULT_unusualActivity);
+
+        lowResLogoImageFile        = setup.getNotNothingString("lowResLogoImageFile",        errorInMethod);
         quickRestart               = setup.getBoolean(         "quickRestart",               true);      
         passwordEncoding           = setup.getString(          "passwordEncoding",           "UEPSHA256");
         searchEngine               = setup.getString(          "searchEngine",               "original");
-        startBodyHtml              = setup.getNotNothingString("startBodyHtml",              "");
-        startHeadHtml              = setup.getNotNothingString("startHeadHtml",              "");
+
         subscribeToRemoteErddapDataset = setup.getBoolean(     "subscribeToRemoteErddapDataset", true);
         subscriptionSystemActive   = setup.getBoolean(         "subscriptionSystemActive",   true);
         convertersActive           = setup.getBoolean(         "convertersActive",           true);
         slideSorterActive          = setup.getBoolean(         "slideSorterActive",          true);
-        theShortDescriptionHtml    = setup.getNotNothingString("theShortDescriptionHtml",    "");
-        unusualActivity            = setup.getInt(             "unusualActivity",            unusualActivity);
         variablesMustHaveIoosCategory = setup.getBoolean(      "variablesMustHaveIoosCategory", true);
         warName                    = setup.getString(          "warName",                    "erddap");
 
@@ -1590,32 +1797,51 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
         }
         
        
-        errorInMethod = "ERROR while initializing SgtGraph.";
+        errorInMethod = "ERROR while initializing SgtGraph: ";
         sgtGraph = new SgtGraph(fontFamily);
 
+        //ensure erddapVersion is okay
+        int upo = erddapVersion.indexOf('_');
+        double ev = String2.parseDouble(upo >= 0? erddapVersion.substring(0, upo) :
+            erddapVersion);
+        if (upo == -1 && erddapVersion.length() == 4 && ev > 1.8 && ev < 10) {} //it's just a number
+        else if ((upo != -1 && upo != 4) ||
+            ev <= 1.8 || ev >=10 || Double.isNaN(ev) || 
+            erddapVersion.indexOf(' ') >= 0 ||
+            !String2.isAsciiPrintable(erddapVersion))
+            throw new SimpleException(
+                "The format of EDStatic.erddapVersion must be d.dd[_someAsciiText]. (ev=" + ev + ")");            
+
         //ensure authentication setup is okay
-        errorInMethod = "ERROR while checking authentication setup.";
+        errorInMethod = "ERROR while checking authentication setup: ";
         if (authentication == null)
             authentication = "";
         authentication = authentication.trim().toLowerCase();
         if (!authentication.equals("") &&
             !authentication.equals("custom") &&
             !authentication.equals("email")  &&
-            !authentication.equals("google") 
-            //&& !authentication.equals("openid")  //OUT-OF-DATE
+            !authentication.equals("google") &&
+            !authentication.equals("orcid")  &&
+            !authentication.equals("oauth2") 
             )
             throw new RuntimeException(
                 "setup.xml error: authentication=" + authentication + 
-                " must be (nothing)|custom|google|email.");  //was also "openid"  //google NOT FINISHED
+                " must be (nothing)|custom|email|google|orcid|oauth2."); 
         if (!authentication.equals("") && !baseHttpsUrl.startsWith("https://"))
             throw new RuntimeException(
                 "setup.xml error: " + 
                 ": For any <authentication> other than \"\", the baseHttpsUrl=" + baseHttpsUrl + 
                 " must start with \"https://\".");
-        if (authentication.equals("google") && !String2.isSomething(googleClientID))
+        if ((authentication.equals("google") || authentication.equals("auth2")) && 
+            !String2.isSomething(googleClientID))
             throw new RuntimeException(
                 "setup.xml error: " + 
-                ": When authentication=google, you must provide your <googleClientID>.");
+                ": When authentication=google or oauth2, you must provide your <googleClientID>.");
+        if ((authentication.equals("orcid") || authentication.equals("auth2")) && 
+            (!String2.isSomething(orcidClientID) || !String2.isSomething(orcidClientSecret)))
+            throw new RuntimeException(
+                "setup.xml error: " + 
+                ": When authentication=orcid or oauth2, you must provide your <orcidClientID> and <orcidClientSecret>.");
         if (authentication.equals("custom") &&
             (!passwordEncoding.equals("MD5") &&
              !passwordEncoding.equals("UEPMD5") &&
@@ -1628,10 +1854,11 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
 
 
         //things set as a consequence of setup.xml
-        erddapUrl        = baseUrl        + "/" + warName;
-        erddapHttpsUrl   = baseHttpsUrl   + "/" + warName;
-        imageDirUrl      = erddapUrl      + "/" + IMAGES_DIR;   //static images, never need https:
-        imageDirHttpsUrl = erddapHttpsUrl + "/" + IMAGES_DIR;   //static images, never need https:
+        erddapUrl          = baseUrl        + "/" + warName;
+        erddapHttpsUrl     = baseHttpsUrl   + "/" + warName;
+        preferredErddapUrl = baseHttpsUrl.startsWith("https://")? erddapHttpsUrl : erddapUrl;
+        imageDirUrl        = erddapUrl      + "/" + IMAGES_DIR;   
+        imageDirHttpsUrl   = erddapHttpsUrl + "/" + IMAGES_DIR;   
         //downloadDirUrl   = erddapUrl      + "/" + DOWNLOAD_DIR;  //if uncommented, you need downloadDirHttpsUrl too
 
         //???if logoImgTag is needed, convert to method logoImgTag(loggedInAs)
@@ -1639,8 +1866,10 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
         //    "alt=\"logo\" title=\"logo\">\n";
 
 
+        
         //**** messages.xml *************************************************************
-        //read static messages from messages(2).xml in contentDirectory?
+        //This is read AFTER setup.xml. If that is a problem for something, defer reading it in setup and add it below.
+        //Read static messages from messages(2).xml in contentDirectory.
         String messagesFileName = contentDirectory + 
             "messages" + (developmentMode? "2" : "") + ".xml";
         if (File2.isFile(messagesFileName)) {
@@ -1653,760 +1882,1006 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
                 "gov/noaa/pfel/erddap/util/messages.xml";
             String2.log("Using default messages.xml from  " + messagesFileName);
         }
-        errorInMethod = "ERROR while reading messages.xml.";
+        errorInMethod = "ERROR while reading messages.xml: ";
         ResourceBundle2 messages = ResourceBundle2.fromXml(XML.parseXml(messagesFileName, false));
 
 
         //read all the static Strings from messages.xml
-        admKeywords                = messages.getNotNothingString("admKeywords",                "");
-        admSubsetVariables         = messages.getNotNothingString("admSubsetVariables",         "");
-        admSummary                 = messages.getNotNothingString("admSummary",                 "");
-        admTitle                   = messages.getNotNothingString("admTitle",                   "");
-        advl_datasetID             = messages.getNotNothingString("advl_datasetID",             "");
-        advc_accessible            = messages.getNotNothingString("advc_accessible",            "");
-        advl_accessible            = messages.getNotNothingString("advl_accessible",            "");
-        advl_institution           = messages.getNotNothingString("advl_institution",           "");
-        advc_dataStructure         = messages.getNotNothingString("advc_dataStructure",         "");
-        advl_dataStructure         = messages.getNotNothingString("advl_dataStructure",         "");
-        advr_dataStructure         = messages.getNotNothingString("advr_dataStructure",         "");
-        advl_cdm_data_type         = messages.getNotNothingString("advl_cdm_data_type",         "");
-        advr_cdm_data_type         = messages.getNotNothingString("advr_cdm_data_type",         "");
-        advl_class                 = messages.getNotNothingString("advl_class",                 "");
-        advr_class                 = messages.getNotNothingString("advr_class",                 "");
-        advl_title                 = messages.getNotNothingString("advl_title",                 "");
-        advl_minLongitude          = messages.getNotNothingString("advl_minLongitude",          "");
-        advl_maxLongitude          = messages.getNotNothingString("advl_maxLongitude",          "");
-        advl_longitudeSpacing      = messages.getNotNothingString("advl_longitudeSpacing",      "");
-        advl_minLatitude           = messages.getNotNothingString("advl_minLatitude",           "");
-        advl_maxLatitude           = messages.getNotNothingString("advl_maxLatitude",           "");
-        advl_latitudeSpacing       = messages.getNotNothingString("advl_latitudeSpacing",       "");
-        advl_minAltitude           = messages.getNotNothingString("advl_minAltitude",           "");
-        advl_maxAltitude           = messages.getNotNothingString("advl_maxAltitude",           "");
-        advl_minTime               = messages.getNotNothingString("advl_minTime",               "");
-        advc_maxTime               = messages.getNotNothingString("advc_maxTime",               "");
-        advl_maxTime               = messages.getNotNothingString("advl_maxTime",               "");
-        advl_timeSpacing           = messages.getNotNothingString("advl_timeSpacing",           "");
-        advc_griddap               = messages.getNotNothingString("advc_griddap",               "");
-        advl_griddap               = messages.getNotNothingString("advl_griddap",               "");
-        advl_subset                = messages.getNotNothingString("advl_subset",                "");
-        advc_tabledap              = messages.getNotNothingString("advc_tabledap",              "");
-        advl_tabledap              = messages.getNotNothingString("advl_tabledap",              "");
-        advl_MakeAGraph            = messages.getNotNothingString("advl_MakeAGraph",            "");
-        advc_sos                   = messages.getNotNothingString("advc_sos",                   "");
-        advl_sos                   = messages.getNotNothingString("advl_sos",                   "");
-        advl_wcs                   = messages.getNotNothingString("advl_wcs",                   "");
-        advl_wms                   = messages.getNotNothingString("advl_wms",                   "");
-        advc_files                 = messages.getNotNothingString("advc_files",                 "");
-        advl_files                 = messages.getNotNothingString("advl_files",                 "");
-        advc_fgdc                  = messages.getNotNothingString("advc_fgdc",                  "");
-        advl_fgdc                  = messages.getNotNothingString("advl_fgdc",                  "");
-        advc_iso19115              = messages.getNotNothingString("advc_iso19115",              "");
-        advl_iso19115              = messages.getNotNothingString("advl_iso19115",              "");
-        advc_metadata              = messages.getNotNothingString("advc_metadata",              "");
-        advl_metadata              = messages.getNotNothingString("advl_metadata",              "");
-        advl_sourceUrl             = messages.getNotNothingString("advl_sourceUrl",             "");
-        advl_infoUrl               = messages.getNotNothingString("advl_infoUrl",               "");
-        advl_rss                   = messages.getNotNothingString("advl_rss",                   "");
-        advc_email                 = messages.getNotNothingString("advc_email",                 "");
-        advl_email                 = messages.getNotNothingString("advl_email",                 "");
-        advl_summary               = messages.getNotNothingString("advl_summary",               "");
-        advancedSearch             = messages.getNotNothingString("advancedSearch",             "");
-        advancedSearchResults      = messages.getNotNothingString("advancedSearchResults",      "");
-        advancedSearchDirections   = messages.getNotNothingString("advancedSearchDirections",   "");
-        advancedSearchHtml         = messages.getNotNothingString("advancedSearchHtml",         "");
-        advancedSearchBounds       = messages.getNotNothingString("advancedSearchBounds",       "");
-        advancedSearchMinLat       = messages.getNotNothingString("advancedSearchMinLat",       "");
-        advancedSearchMaxLat       = messages.getNotNothingString("advancedSearchMaxLat",       "");
-        advancedSearchMinLon       = messages.getNotNothingString("advancedSearchMinLon",       "");
-        advancedSearchMaxLon       = messages.getNotNothingString("advancedSearchMaxLon",       "");
-        advancedSearchMinMaxLon    = messages.getNotNothingString("advancedSearchMinMaxLon",    "");
-        advancedSearchMinTime      = messages.getNotNothingString("advancedSearchMinTime",      "");
-        advancedSearchMaxTime      = messages.getNotNothingString("advancedSearchMaxTime",      "");
-        advancedSearchClear        = messages.getNotNothingString("advancedSearchClear",        "");
-        advancedSearchClearHelp    = messages.getNotNothingString("advancedSearchClearHelp",    "");
-        advancedSearchCategoryTooltip = messages.getNotNothingString("advancedSearchCategoryTooltip", "");
-        advancedSearchRangeTooltip = messages.getNotNothingString("advancedSearchRangeTooltip", "");
-        advancedSearchMapTooltip   = messages.getNotNothingString("advancedSearchMapTooltip",   "");
-        advancedSearchLonTooltip   = messages.getNotNothingString("advancedSearchLonTooltip",   "");
-        advancedSearchTimeTooltip  = messages.getNotNothingString("advancedSearchTimeTooltip",  "");
-        advancedSearchWithCriteria = messages.getNotNothingString("advancedSearchWithCriteria", "");
-        advancedSearchFewerCriteria= messages.getNotNothingString("advancedSearchFewerCriteria","");
-        advancedSearchNoCriteria   = messages.getNotNothingString("advancedSearchNoCriteria",   "");
-        blacklistMsg               = messages.getNotNothingString("blacklistMsg",               "");
-        PrimitiveArray.ArrayAddN           = messages.getNotNothingString("ArrayAddN",          "");
-        PrimitiveArray.ArrayAppendTables   = messages.getNotNothingString("ArrayAppendTables",  "");
-        PrimitiveArray.ArrayAtInsert       = messages.getNotNothingString("ArrayAtInsert",      "");
-        PrimitiveArray.ArrayDiff           = messages.getNotNothingString("ArrayDiff",          "");
-        PrimitiveArray.ArrayDifferentSize  = messages.getNotNothingString("ArrayDifferentSize", "");
-        PrimitiveArray.ArrayDifferentValue = messages.getNotNothingString("ArrayDifferentValue","");
-        PrimitiveArray.ArrayDiffString     = messages.getNotNothingString("ArrayDiffString",    "");
-        PrimitiveArray.ArrayMissingValue   = messages.getNotNothingString("ArrayMissingValue",  "");
-        PrimitiveArray.ArrayNotAscending   = messages.getNotNothingString("ArrayNotAscending",  "");
-        PrimitiveArray.ArrayNotDescending  = messages.getNotNothingString("ArrayNotDescending", "");
-        PrimitiveArray.ArrayNotEvenlySpaced= messages.getNotNothingString("ArrayNotEvenlySpaced","");
-        PrimitiveArray.ArrayRemove         = messages.getNotNothingString("ArrayRemove",        "");
-        PrimitiveArray.ArraySubsetStart    = messages.getNotNothingString("ArraySubsetStart",   "");
-        PrimitiveArray.ArraySubsetStride   = messages.getNotNothingString("ArraySubsetStride",  "");
-        categoryTitleHtml          = messages.getNotNothingString("categoryTitleHtml",          "");
-        category1Html              = messages.getNotNothingString("category1Html",              "");
-        category2Html              = messages.getNotNothingString("category2Html",              "");
-        category3Html              = messages.getNotNothingString("category3Html",              "");
-        categoryPickAttribute      = messages.getNotNothingString("categoryPickAttribute",      "");
-        categorySearchHtml         = messages.getNotNothingString("categorySearchHtml",         "");
-        categorySearchDifferentHtml= messages.getNotNothingString("categorySearchDifferentHtml","");
-        categoryClickHtml          = messages.getNotNothingString("categoryClickHtml",          "");
-        categoryNotAnOption        = messages.getNotNothingString("categoryNotAnOption",        "");
-        clickAccessHtml            = messages.getNotNothingString("clickAccessHtml",            "");
-        clickAccess                = messages.getNotNothingString("clickAccess",                "");
-        clickBackgroundInfo        = messages.getNotNothingString("clickBackgroundInfo",        "");
-        clickERDDAP                = messages.getNotNothingString("clickERDDAP",                "");
-        clickInfo                  = messages.getNotNothingString("clickInfo",                  "");
-        clickToSubmit              = messages.getNotNothingString("clickToSubmit",              "");
-        convertOceanicAtmosphericAcronyms             = messages.getNotNothingString("convertOceanicAtmosphericAcronyms",             "");
-        convertOceanicAtmosphericAcronymsIntro        = messages.getNotNothingString("convertOceanicAtmosphericAcronymsIntro",        "");
-        convertOceanicAtmosphericAcronymsNotes        = messages.getNotNothingString("convertOceanicAtmosphericAcronymsNotes",        "");
-        convertOceanicAtmosphericAcronymsService      = messages.getNotNothingString("convertOceanicAtmosphericAcronymsService",      "");
-        convertOceanicAtmosphericVariableNames        = messages.getNotNothingString("convertOceanicAtmosphericVariableNames",        "");
-        convertOceanicAtmosphericVariableNamesIntro   = messages.getNotNothingString("convertOceanicAtmosphericVariableNamesIntro",   "");
-        convertOceanicAtmosphericVariableNamesNotes   = messages.getNotNothingString("convertOceanicAtmosphericVariableNamesNotes",   "");
-        convertOceanicAtmosphericVariableNamesService = messages.getNotNothingString("convertOceanicAtmosphericVariableNamesService", "");
-        convertFipsCounty          = messages.getNotNothingString("convertFipsCounty",          "");
-        convertFipsCountyIntro     = messages.getNotNothingString("convertFipsCountyIntro",     "");
-        convertFipsCountyNotes     = messages.getNotNothingString("convertFipsCountyNotes",     "");
-        convertFipsCountyService   = messages.getNotNothingString("convertFipsCountyService",   "");
-        convertHtml                = messages.getNotNothingString("convertHtml",                "");
-        convertKeywords            = messages.getNotNothingString("convertKeywords",            "");
-        convertKeywordsCfTooltip   = messages.getNotNothingString("convertKeywordsCfTooltip",   "");
-        convertKeywordsGcmdTooltip = messages.getNotNothingString("convertKeywordsGcmdTooltip", "");
-        convertKeywordsIntro       = messages.getNotNothingString("convertKeywordsIntro",       "");
-        convertKeywordsNotes       = messages.getNotNothingString("convertKeywordsNotes",       "");
-        convertKeywordsService     = messages.getNotNothingString("convertKeywordsService",     "");
-        convertTime                = messages.getNotNothingString("convertTime",                "");
-        convertTimeReference       = messages.getNotNothingString("convertTimeReference",       "");
-        convertTimeIntro           = messages.getNotNothingString("convertTimeIntro",           "");
-        convertTimeNotes           = messages.getNotNothingString("convertTimeNotes",           "");
-        convertTimeService         = messages.getNotNothingString("convertTimeService",         "");
-        convertTimeUnitsHelp       = messages.getNotNothingString("convertTimeUnitsHelp",       "");
-        convertUnits               = messages.getNotNothingString("convertUnits",               "");
-        convertUnitsComparison     = messages.getNotNothingString("convertUnitsComparison",     "");
-        convertUnitsFilter         = messages.getNotNothingString("convertUnitsFilter",         "");
-        convertUnitsIntro          = messages.getNotNothingString("convertUnitsIntro",          "");
-        convertUnitsNotes          = messages.getNotNothingString("convertUnitsNotes",          "");
-        convertUnitsService        = messages.getNotNothingString("convertUnitsService",        "");
-        cookiesHelp                = messages.getNotNothingString("cookiesHelp",                "");
-        daf                        = messages.getNotNothingString("daf",                        "");
-        dafGridBypass              = messages.getNotNothingString("dafGridBypass",              "");
-        dafGridHtml                = messages.getNotNothingString("dafGridHtml",                "");
-        dafTableBypass             = messages.getNotNothingString("dafTableBypass",             "");
-        dafTableHtml               = messages.getNotNothingString("dafTableHtml",               "");
-        dasTitle                   = messages.getNotNothingString("dasTitle",                   "");
-        dataAccessNotAllowed       = messages.getNotNothingString("dataAccessNotAllowed",       "");
-        databaseUnableToConnect    = messages.getNotNothingString("databaseUnableToConnect",    "");
-        disabled                   = messages.getNotNothingString("disabled",                   "");
-        distinctValuesHtml         = messages.getNotNothingString("distinctValuesHtml",         "");
-        doWithGraphs               = messages.getNotNothingString("doWithGraphs",               "");
+        acceptEncodingHtml         = messages.getNotNothingString("acceptEncodingHtml",         errorInMethod);
+        addConstraints             = messages.getNotNothingString("addConstraints",             errorInMethod);
+        admKeywords                = messages.getNotNothingString("admKeywords",                errorInMethod);
+        admSubsetVariables         = messages.getNotNothingString("admSubsetVariables",         errorInMethod);
+        admSummary                 = messages.getNotNothingString("admSummary",                 errorInMethod);
+        admTitle                   = messages.getNotNothingString("admTitle",                   errorInMethod);
+        advl_datasetID             = messages.getNotNothingString("advl_datasetID",             errorInMethod);
+        advc_accessible            = messages.getNotNothingString("advc_accessible",            errorInMethod);
+        advl_accessible            = messages.getNotNothingString("advl_accessible",            errorInMethod);
+        advl_institution           = messages.getNotNothingString("advl_institution",           errorInMethod);
+        advc_dataStructure         = messages.getNotNothingString("advc_dataStructure",         errorInMethod);
+        advl_dataStructure         = messages.getNotNothingString("advl_dataStructure",         errorInMethod);
+        advr_dataStructure         = messages.getNotNothingString("advr_dataStructure",         errorInMethod);
+        advl_cdm_data_type         = messages.getNotNothingString("advl_cdm_data_type",         errorInMethod);
+        advr_cdm_data_type         = messages.getNotNothingString("advr_cdm_data_type",         errorInMethod);
+        advl_class                 = messages.getNotNothingString("advl_class",                 errorInMethod);
+        advr_class                 = messages.getNotNothingString("advr_class",                 errorInMethod);
+        advl_title                 = messages.getNotNothingString("advl_title",                 errorInMethod);
+        advl_minLongitude          = messages.getNotNothingString("advl_minLongitude",          errorInMethod);
+        advl_maxLongitude          = messages.getNotNothingString("advl_maxLongitude",          errorInMethod);
+        advl_longitudeSpacing      = messages.getNotNothingString("advl_longitudeSpacing",      errorInMethod);
+        advl_minLatitude           = messages.getNotNothingString("advl_minLatitude",           errorInMethod);
+        advl_maxLatitude           = messages.getNotNothingString("advl_maxLatitude",           errorInMethod);
+        advl_latitudeSpacing       = messages.getNotNothingString("advl_latitudeSpacing",       errorInMethod);
+        advl_minAltitude           = messages.getNotNothingString("advl_minAltitude",           errorInMethod);
+        advl_maxAltitude           = messages.getNotNothingString("advl_maxAltitude",           errorInMethod);
+        advl_minTime               = messages.getNotNothingString("advl_minTime",               errorInMethod);
+        advc_maxTime               = messages.getNotNothingString("advc_maxTime",               errorInMethod);
+        advl_maxTime               = messages.getNotNothingString("advl_maxTime",               errorInMethod);
+        advl_timeSpacing           = messages.getNotNothingString("advl_timeSpacing",           errorInMethod);
+        advc_griddap               = messages.getNotNothingString("advc_griddap",               errorInMethod);
+        advl_griddap               = messages.getNotNothingString("advl_griddap",               errorInMethod);
+        advl_subset                = messages.getNotNothingString("advl_subset",                errorInMethod);
+        advc_tabledap              = messages.getNotNothingString("advc_tabledap",              errorInMethod);
+        advl_tabledap              = messages.getNotNothingString("advl_tabledap",              errorInMethod);
+        advl_MakeAGraph            = messages.getNotNothingString("advl_MakeAGraph",            errorInMethod);
+        advc_sos                   = messages.getNotNothingString("advc_sos",                   errorInMethod);
+        advl_sos                   = messages.getNotNothingString("advl_sos",                   errorInMethod);
+        advl_wcs                   = messages.getNotNothingString("advl_wcs",                   errorInMethod);
+        advl_wms                   = messages.getNotNothingString("advl_wms",                   errorInMethod);
+        advc_files                 = messages.getNotNothingString("advc_files",                 errorInMethod);
+        advl_files                 = messages.getNotNothingString("advl_files",                 errorInMethod);
+        advc_fgdc                  = messages.getNotNothingString("advc_fgdc",                  errorInMethod);
+        advl_fgdc                  = messages.getNotNothingString("advl_fgdc",                  errorInMethod);
+        advc_iso19115              = messages.getNotNothingString("advc_iso19115",              errorInMethod);
+        advl_iso19115              = messages.getNotNothingString("advl_iso19115",              errorInMethod);
+        advc_metadata              = messages.getNotNothingString("advc_metadata",              errorInMethod);
+        advl_metadata              = messages.getNotNothingString("advl_metadata",              errorInMethod);
+        advl_sourceUrl             = messages.getNotNothingString("advl_sourceUrl",             errorInMethod);
+        advl_infoUrl               = messages.getNotNothingString("advl_infoUrl",               errorInMethod);
+        advl_rss                   = messages.getNotNothingString("advl_rss",                   errorInMethod);
+        advc_email                 = messages.getNotNothingString("advc_email",                 errorInMethod);
+        advl_email                 = messages.getNotNothingString("advl_email",                 errorInMethod);
+        advl_summary               = messages.getNotNothingString("advl_summary",               errorInMethod);
+        advc_testOutOfDate         = messages.getNotNothingString("advc_testOutOfDate",         errorInMethod);
+        advl_testOutOfDate         = messages.getNotNothingString("advl_testOutOfDate",         errorInMethod);
+        advc_outOfDate             = messages.getNotNothingString("advc_outOfDate",             errorInMethod);
+        advl_outOfDate             = messages.getNotNothingString("advl_outOfDate",             errorInMethod);
+        advn_outOfDate             = messages.getNotNothingString("advn_outOfDate",             errorInMethod);
+        advancedSearch             = messages.getNotNothingString("advancedSearch",             errorInMethod);
+        advancedSearchResults      = messages.getNotNothingString("advancedSearchResults",      errorInMethod);
+        advancedSearchDirections   = messages.getNotNothingString("advancedSearchDirections",   errorInMethod);
+        advancedSearchTooltip      = messages.getNotNothingString("advancedSearchTooltip",      errorInMethod);
+        advancedSearchBounds       = messages.getNotNothingString("advancedSearchBounds",       errorInMethod);
+        advancedSearchMinLat       = messages.getNotNothingString("advancedSearchMinLat",       errorInMethod);
+        advancedSearchMaxLat       = messages.getNotNothingString("advancedSearchMaxLat",       errorInMethod);
+        advancedSearchMinLon       = messages.getNotNothingString("advancedSearchMinLon",       errorInMethod);
+        advancedSearchMaxLon       = messages.getNotNothingString("advancedSearchMaxLon",       errorInMethod);
+        advancedSearchMinMaxLon    = messages.getNotNothingString("advancedSearchMinMaxLon",    errorInMethod);
+        advancedSearchMinTime      = messages.getNotNothingString("advancedSearchMinTime",      errorInMethod);
+        advancedSearchMaxTime      = messages.getNotNothingString("advancedSearchMaxTime",      errorInMethod);
+        advancedSearchClear        = messages.getNotNothingString("advancedSearchClear",        errorInMethod);
+        advancedSearchClearHelp    = messages.getNotNothingString("advancedSearchClearHelp",    errorInMethod);
+        advancedSearchCategoryTooltip = messages.getNotNothingString("advancedSearchCategoryTooltip", errorInMethod);
+        advancedSearchRangeTooltip = messages.getNotNothingString("advancedSearchRangeTooltip", errorInMethod);
+        advancedSearchMapTooltip   = messages.getNotNothingString("advancedSearchMapTooltip",   errorInMethod);
+        advancedSearchLonTooltip   = messages.getNotNothingString("advancedSearchLonTooltip",   errorInMethod);
+        advancedSearchTimeTooltip  = messages.getNotNothingString("advancedSearchTimeTooltip",  errorInMethod);
+        advancedSearchWithCriteria = messages.getNotNothingString("advancedSearchWithCriteria", errorInMethod);
+        advancedSearchFewerCriteria= messages.getNotNothingString("advancedSearchFewerCriteria",errorInMethod);
+        advancedSearchNoCriteria   = messages.getNotNothingString("advancedSearchNoCriteria",   errorInMethod);
+        autoRefresh                = messages.getNotNothingString("autoRefresh",                errorInMethod);
+        blacklistMsg               = messages.getNotNothingString("blacklistMsg",               errorInMethod);
+        PrimitiveArray.ArrayAddN           = messages.getNotNothingString("ArrayAddN",          errorInMethod);
+        PrimitiveArray.ArrayAppendTables   = messages.getNotNothingString("ArrayAppendTables",  errorInMethod);
+        PrimitiveArray.ArrayAtInsert       = messages.getNotNothingString("ArrayAtInsert",      errorInMethod);
+        PrimitiveArray.ArrayDiff           = messages.getNotNothingString("ArrayDiff",          errorInMethod);
+        PrimitiveArray.ArrayDifferentSize  = messages.getNotNothingString("ArrayDifferentSize", errorInMethod);
+        PrimitiveArray.ArrayDifferentValue = messages.getNotNothingString("ArrayDifferentValue",errorInMethod);
+        PrimitiveArray.ArrayDiffString     = messages.getNotNothingString("ArrayDiffString",    errorInMethod);
+        PrimitiveArray.ArrayMissingValue   = messages.getNotNothingString("ArrayMissingValue",  errorInMethod);
+        PrimitiveArray.ArrayNotAscending   = messages.getNotNothingString("ArrayNotAscending",  errorInMethod);
+        PrimitiveArray.ArrayNotDescending  = messages.getNotNothingString("ArrayNotDescending", errorInMethod);
+        PrimitiveArray.ArrayNotEvenlySpaced= messages.getNotNothingString("ArrayNotEvenlySpaced",errorInMethod);
+        PrimitiveArray.ArrayRemove         = messages.getNotNothingString("ArrayRemove",        errorInMethod);
+        PrimitiveArray.ArraySubsetStart    = messages.getNotNothingString("ArraySubsetStart",   errorInMethod);
+        PrimitiveArray.ArraySubsetStride   = messages.getNotNothingString("ArraySubsetStride",  errorInMethod);
+        categoryTitleHtml          = messages.getNotNothingString("categoryTitleHtml",          errorInMethod);
+        category1Html              = messages.getNotNothingString("category1Html",              errorInMethod);
+        category2Html              = messages.getNotNothingString("category2Html",              errorInMethod);
+        category3Html              = messages.getNotNothingString("category3Html",              errorInMethod);
+        categoryPickAttribute      = messages.getNotNothingString("categoryPickAttribute",      errorInMethod);
+        categorySearchHtml         = messages.getNotNothingString("categorySearchHtml",         errorInMethod);
+        categorySearchDifferentHtml= messages.getNotNothingString("categorySearchDifferentHtml",errorInMethod);
+        categoryClickHtml          = messages.getNotNothingString("categoryClickHtml",          errorInMethod);
+        categoryNotAnOption        = messages.getNotNothingString("categoryNotAnOption",        errorInMethod);
+        caughtInterrupted    = " " + messages.getNotNothingString("caughtInterrupted",          errorInMethod);
+        clickAccess                = messages.getNotNothingString("clickAccess",                errorInMethod);
+        clickBackgroundInfo        = messages.getNotNothingString("clickBackgroundInfo",        errorInMethod);
+        clickERDDAP                = messages.getNotNothingString("clickERDDAP",                errorInMethod);
+        clickInfo                  = messages.getNotNothingString("clickInfo",                  errorInMethod);
+        clickToSubmit              = messages.getNotNothingString("clickToSubmit",              errorInMethod);
+        HtmlWidgets.comboBoxAlt    = messages.getNotNothingString("comboBoxAlt",                errorInMethod);
+        convertOceanicAtmosphericAcronyms             = messages.getNotNothingString("convertOceanicAtmosphericAcronyms",             errorInMethod);
+        convertOceanicAtmosphericAcronymsIntro        = messages.getNotNothingString("convertOceanicAtmosphericAcronymsIntro",        errorInMethod);
+        convertOceanicAtmosphericAcronymsNotes        = messages.getNotNothingString("convertOceanicAtmosphericAcronymsNotes",        errorInMethod);
+        convertOceanicAtmosphericAcronymsService      = messages.getNotNothingString("convertOceanicAtmosphericAcronymsService",      errorInMethod);
+        convertOceanicAtmosphericVariableNames        = messages.getNotNothingString("convertOceanicAtmosphericVariableNames",        errorInMethod);
+        convertOceanicAtmosphericVariableNamesIntro   = messages.getNotNothingString("convertOceanicAtmosphericVariableNamesIntro",   errorInMethod);
+        convertOceanicAtmosphericVariableNamesNotes   = messages.getNotNothingString("convertOceanicAtmosphericVariableNamesNotes",   errorInMethod);
+        convertOceanicAtmosphericVariableNamesService = messages.getNotNothingString("convertOceanicAtmosphericVariableNamesService", errorInMethod);
+        convertFipsCounty          = messages.getNotNothingString("convertFipsCounty",          errorInMethod);
+        convertFipsCountyIntro     = messages.getNotNothingString("convertFipsCountyIntro",     errorInMethod);
+        convertFipsCountyNotes     = messages.getNotNothingString("convertFipsCountyNotes",     errorInMethod);
+        convertFipsCountyService   = messages.getNotNothingString("convertFipsCountyService",   errorInMethod);
+        convertHtml                = messages.getNotNothingString("convertHtml",                errorInMethod);
+        convertKeywords            = messages.getNotNothingString("convertKeywords",            errorInMethod);
+        convertKeywordsCfTooltip   = messages.getNotNothingString("convertKeywordsCfTooltip",   errorInMethod);
+        convertKeywordsGcmdTooltip = messages.getNotNothingString("convertKeywordsGcmdTooltip", errorInMethod);
+        convertKeywordsIntro       = messages.getNotNothingString("convertKeywordsIntro",       errorInMethod);
+        convertKeywordsNotes       = messages.getNotNothingString("convertKeywordsNotes",       errorInMethod);
+        convertKeywordsService     = messages.getNotNothingString("convertKeywordsService",     errorInMethod);
+        convertTime                = messages.getNotNothingString("convertTime",                errorInMethod);
+        convertTimeBypass          = messages.getNotNothingString("convertTimeBypass",          errorInMethod);
+        convertTimeReference       = messages.getNotNothingString("convertTimeReference",       errorInMethod);
+        convertTimeIntro           = messages.getNotNothingString("convertTimeIntro",           errorInMethod);
+        convertTimeNotes           = messages.getNotNothingString("convertTimeNotes",           errorInMethod);
+        convertTimeService         = messages.getNotNothingString("convertTimeService",         errorInMethod);
+        convertTimeNumberTooltip   = messages.getNotNothingString("convertTimeNumberTooltip",   errorInMethod);
+        convertTimeStringTimeTooltip=messages.getNotNothingString("convertTimeStringTimeTooltip",errorInMethod);
+        convertTimeUnitsTooltip    = messages.getNotNothingString("convertTimeUnitsTooltip",    errorInMethod);
+        convertTimeUnitsHelp       = messages.getNotNothingString("convertTimeUnitsHelp",       errorInMethod);
+        convertTimeIsoFormatError  = messages.getNotNothingString("convertTimeIsoFormatError",  errorInMethod);
+        convertTimeNoSinceError    = messages.getNotNothingString("convertTimeNoSinceError",    errorInMethod);
+        convertTimeNumberError     = messages.getNotNothingString("convertTimeNumberError",     errorInMethod);
+        convertTimeNumericTimeError= messages.getNotNothingString("convertTimeNumericTimeError",errorInMethod);
+        convertTimeParametersError = messages.getNotNothingString("convertTimeParametersError", errorInMethod);
+        convertTimeStringFormatError=messages.getNotNothingString("convertTimeStringFormatError",errorInMethod);
+        convertTimeTwoTimeError    = messages.getNotNothingString("convertTimeTwoTimeError",    errorInMethod);
+        convertTimeUnitsError      = messages.getNotNothingString("convertTimeUnitsError",      errorInMethod);
+        convertUnits               = messages.getNotNothingString("convertUnits",               errorInMethod);
+        convertUnitsComparison     = messages.getNotNothingString("convertUnitsComparison",     errorInMethod);
+        convertUnitsFilter         = messages.getNotNothingString("convertUnitsFilter",         errorInMethod);
+        convertUnitsIntro          = messages.getNotNothingString("convertUnitsIntro",          errorInMethod);
+        convertUnitsNotes          = messages.getNotNothingString("convertUnitsNotes",          errorInMethod);
+        convertUnitsService        = messages.getNotNothingString("convertUnitsService",        errorInMethod);
+        convertURLs                = messages.getNotNothingString("convertURLs",                errorInMethod);
+        convertURLsIntro           = messages.getNotNothingString("convertURLsIntro",           errorInMethod);
+        convertURLsNotes           = messages.getNotNothingString("convertURLsNotes",           errorInMethod);
+        convertURLsService         = messages.getNotNothingString("convertURLsService",         errorInMethod);
+        cookiesHelp                = messages.getNotNothingString("cookiesHelp",                errorInMethod);
+        daf                        = messages.getNotNothingString("daf",                        errorInMethod);
+        dafGridBypassTooltip       = messages.getNotNothingString("dafGridBypassTooltip",       errorInMethod);
+        dafGridTooltip             = messages.getNotNothingString("dafGridTooltip",             errorInMethod);
+        dafTableBypassTooltip      = messages.getNotNothingString("dafTableBypassTooltip",      errorInMethod);
+        dafTableTooltip            = messages.getNotNothingString("dafTableTooltip",            errorInMethod);
+        dasTitle                   = messages.getNotNothingString("dasTitle",                   errorInMethod);
+        dataAccessNotAllowed       = messages.getNotNothingString("dataAccessNotAllowed",       errorInMethod);
+        databaseUnableToConnect    = messages.getNotNothingString("databaseUnableToConnect",    errorInMethod);
+        disabled                   = messages.getNotNothingString("disabled",                   errorInMethod);
+        distinctValuesTooltip      = messages.getNotNothingString("distinctValuesTooltip",      errorInMethod);
+        doWithGraphs               = messages.getNotNothingString("doWithGraphs",               errorInMethod);
 
-        dtAccessible               = messages.getNotNothingString("dtAccessible",               "");
-        dtAccessibleYes            = messages.getNotNothingString("dtAccessibleYes",            "");
-        dtAccessibleGraphs         = messages.getNotNothingString("dtAccessibleGraphs",         "");
-        dtAccessibleNo             = messages.getNotNothingString("dtAccessibleNo",             "");
-        dtAccessibleLogIn          = messages.getNotNothingString("dtAccessibleLogIn",          "");
-        dtLogIn                    = messages.getNotNothingString("dtLogIn",                    "");
-        dtDAF1                     = messages.getNotNothingString("dtDAF1",                     "");
-        dtDAF2                     = messages.getNotNothingString("dtDAF2",                     "");
-        dtFiles                    = messages.getNotNothingString("dtFiles",                    "");
-        dtMAG                      = messages.getNotNothingString("dtMAG",                      "");
-        dtSOS                      = messages.getNotNothingString("dtSOS",                      "");
-        dtSubset                   = messages.getNotNothingString("dtSubset",                   "");
-        dtWCS                      = messages.getNotNothingString("dtWCS",                      "");
-        dtWMS                      = messages.getNotNothingString("dtWMS",                      "");
+        dtAccessible               = messages.getNotNothingString("dtAccessible",               errorInMethod);
+        dtAccessibleYes            = messages.getNotNothingString("dtAccessibleYes",            errorInMethod);
+        dtAccessibleGraphs         = messages.getNotNothingString("dtAccessibleGraphs",         errorInMethod);
+        dtAccessibleNo             = messages.getNotNothingString("dtAccessibleNo",             errorInMethod);
+        dtAccessibleLogIn          = messages.getNotNothingString("dtAccessibleLogIn",          errorInMethod);
+        dtLogIn                    = messages.getNotNothingString("dtLogIn",                    errorInMethod);
+        dtDAF1                     = messages.getNotNothingString("dtDAF1",                     errorInMethod);
+        dtDAF2                     = messages.getNotNothingString("dtDAF2",                     errorInMethod);
+        dtFiles                    = messages.getNotNothingString("dtFiles",                    errorInMethod);
+        dtMAG                      = messages.getNotNothingString("dtMAG",                      errorInMethod);
+        dtSOS                      = messages.getNotNothingString("dtSOS",                      errorInMethod);
+        dtSubset                   = messages.getNotNothingString("dtSubset",                   errorInMethod);
+        dtWCS                      = messages.getNotNothingString("dtWCS",                      errorInMethod);
+        dtWMS                      = messages.getNotNothingString("dtWMS",                      errorInMethod);
         
-        EDDDatasetID               = messages.getNotNothingString("EDDDatasetID",               "");
-        EDDFgdc                    = messages.getNotNothingString("EDDFgdc",                    "");
-        EDDFgdcMetadata            = messages.getNotNothingString("EDDFgdcMetadata",            "");
-        EDDFiles                   = messages.getNotNothingString("EDDFiles",                   "");
-        EDDIso19115                = messages.getNotNothingString("EDDIso19115",                "");
-        EDDIso19115Metadata        = messages.getNotNothingString("EDDIso19115Metadata",        "");
-        EDDMetadata                = messages.getNotNothingString("EDDMetadata",                "");
-        EDDBackground              = messages.getNotNothingString("EDDBackground",              "");
-        EDDClickOnSubmitHtml       = messages.getNotNothingString("EDDClickOnSubmitHtml",       "");
-        EDDInformation             = messages.getNotNothingString("EDDInformation",             "");
-        EDDInstitution             = messages.getNotNothingString("EDDInstitution",             "");
-        EDDSummary                 = messages.getNotNothingString("EDDSummary",                 "");
-        EDDDatasetTitle            = messages.getNotNothingString("EDDDatasetTitle",            "");
-        EDDDownloadData            = messages.getNotNothingString("EDDDownloadData",            "");
-        EDDMakeAGraph              = messages.getNotNothingString("EDDMakeAGraph",              "");
-        EDDMakeAMap                = messages.getNotNothingString("EDDMakeAMap",                "");
-        EDDFileType                = messages.getNotNothingString("EDDFileType",                "");
-        EDDFileTypeInformation     = messages.getNotNothingString("EDDFileTypeInformation",     "");
-        EDDSelectFileType          = messages.getNotNothingString("EDDSelectFileType",          "");
-        EDDMinimum                 = messages.getNotNothingString("EDDMinimum",                 "");
-        EDDMaximum                 = messages.getNotNothingString("EDDMaximum",                 "");
-        EDDConstraint              = messages.getNotNothingString("EDDConstraint",              "");
+        EDDDatasetID               = messages.getNotNothingString("EDDDatasetID",               errorInMethod);
+        EDDFgdc                    = messages.getNotNothingString("EDDFgdc",                    errorInMethod);
+        EDDFgdcMetadata            = messages.getNotNothingString("EDDFgdcMetadata",            errorInMethod);
+        EDDFiles                   = messages.getNotNothingString("EDDFiles",                   errorInMethod);
+        EDDIso19115                = messages.getNotNothingString("EDDIso19115",                errorInMethod);
+        EDDIso19115Metadata        = messages.getNotNothingString("EDDIso19115Metadata",        errorInMethod);
+        EDDMetadata                = messages.getNotNothingString("EDDMetadata",                errorInMethod);
+        EDDBackground              = messages.getNotNothingString("EDDBackground",              errorInMethod);
+        EDDClickOnSubmitHtml       = messages.getNotNothingString("EDDClickOnSubmitHtml",       errorInMethod);
+        EDDInformation             = messages.getNotNothingString("EDDInformation",             errorInMethod);
+        EDDInstitution             = messages.getNotNothingString("EDDInstitution",             errorInMethod);
+        EDDSummary                 = messages.getNotNothingString("EDDSummary",                 errorInMethod);
+        EDDDatasetTitle            = messages.getNotNothingString("EDDDatasetTitle",            errorInMethod);
+        EDDDownloadData            = messages.getNotNothingString("EDDDownloadData",            errorInMethod);
+        EDDMakeAGraph              = messages.getNotNothingString("EDDMakeAGraph",              errorInMethod);
+        EDDMakeAMap                = messages.getNotNothingString("EDDMakeAMap",                errorInMethod);
+        EDDFileType                = messages.getNotNothingString("EDDFileType",                errorInMethod);
+        EDDFileTypeInformation     = messages.getNotNothingString("EDDFileTypeInformation",     errorInMethod);
+        EDDSelectFileType          = messages.getNotNothingString("EDDSelectFileType",          errorInMethod);
+        EDDMinimum                 = messages.getNotNothingString("EDDMinimum",                 errorInMethod);
+        EDDMaximum                 = messages.getNotNothingString("EDDMaximum",                 errorInMethod);
+        EDDConstraint              = messages.getNotNothingString("EDDConstraint",              errorInMethod);
 
-        EDDChangedWasnt            = messages.getNotNothingString("EDDChangedWasnt",            "");
-        EDDChangedDifferentNVar    = messages.getNotNothingString("EDDChangedDifferentNVar",    "");
-        EDDChanged2Different       = messages.getNotNothingString("EDDChanged2Different",       "");
-        EDDChanged1Different       = messages.getNotNothingString("EDDChanged1Different",       "");
-        EDDChangedCGADifferent     = messages.getNotNothingString("EDDChangedCGADifferent",     "");
-        EDDChangedAxesDifferentNVar= messages.getNotNothingString("EDDChangedAxesDifferentNVar","");
-        EDDChangedAxes2Different   = messages.getNotNothingString("EDDChangedAxes2Different",   "");
-        EDDChangedAxes1Different   = messages.getNotNothingString("EDDChangedAxes1Different",   "");
-        EDDChangedNoValue          = messages.getNotNothingString("EDDChangedNoValue",          "");
-        EDDChangedTableToGrid      = messages.getNotNothingString("EDDChangedTableToGrid",      "");
+        EDDChangedWasnt            = messages.getNotNothingString("EDDChangedWasnt",            errorInMethod);
+        EDDChangedDifferentNVar    = messages.getNotNothingString("EDDChangedDifferentNVar",    errorInMethod);
+        EDDChanged2Different       = messages.getNotNothingString("EDDChanged2Different",       errorInMethod);
+        EDDChanged1Different       = messages.getNotNothingString("EDDChanged1Different",       errorInMethod);
+        EDDChangedCGADifferent     = messages.getNotNothingString("EDDChangedCGADifferent",     errorInMethod);
+        EDDChangedAxesDifferentNVar= messages.getNotNothingString("EDDChangedAxesDifferentNVar",errorInMethod);
+        EDDChangedAxes2Different   = messages.getNotNothingString("EDDChangedAxes2Different",   errorInMethod);
+        EDDChangedAxes1Different   = messages.getNotNothingString("EDDChangedAxes1Different",   errorInMethod);
+        EDDChangedNoValue          = messages.getNotNothingString("EDDChangedNoValue",          errorInMethod);
+        EDDChangedTableToGrid      = messages.getNotNothingString("EDDChangedTableToGrid",      errorInMethod);
 
-        EDDSimilarDifferentNVar    = messages.getNotNothingString("EDDSimilarDifferentNVar",    "");
-        EDDSimilarDifferent        = messages.getNotNothingString("EDDSimilarDifferent",        "");
+        EDDSimilarDifferentNVar    = messages.getNotNothingString("EDDSimilarDifferentNVar",    errorInMethod);
+        EDDSimilarDifferent        = messages.getNotNothingString("EDDSimilarDifferent",        errorInMethod);
 
-        EDDGridDownloadTooltipHtml = messages.getNotNothingString("EDDGridDownloadTooltipHtml", "");
-        EDDGridDapDescription      = messages.getNotNothingString("EDDGridDapDescription",      "");
-        EDDGridDapLongDescription  = messages.getNotNothingString("EDDGridDapLongDescription",  "");
-        EDDGridDownloadDataHtml    = messages.getNotNothingString("EDDGridDownloadDataHtml",    "");
-        EDDGridDimension           = messages.getNotNothingString("EDDGridDimension",           "");
-        EDDGridDimensionRanges     = messages.getNotNothingString("EDDGridDimensionRanges",     "");
-        EDDGridFirst               = messages.getNotNothingString("EDDGridFirst",               "");
-        EDDGridLast                = messages.getNotNothingString("EDDGridLast",                "");
-        EDDGridStart               = messages.getNotNothingString("EDDGridStart",               "");
-        EDDGridStop                = messages.getNotNothingString("EDDGridStop",                "");
-        EDDGridStartStopHelp       = messages.getNotNothingString("EDDGridStartStopHelp",       "");
-        EDDGridStride              = messages.getNotNothingString("EDDGridStride",              "");
-        EDDGridNValues             = messages.getNotNothingString("EDDGridNValues",             "");
-        EDDGridNValuesHtml         = messages.getNotNothingString("EDDGridNValuesHtml",         "");
-        EDDGridSpacing             = messages.getNotNothingString("EDDGridSpacing",             "");
-        EDDGridJustOneValue        = messages.getNotNothingString("EDDGridJustOneValue",        "");
-        EDDGridEven                = messages.getNotNothingString("EDDGridEven",                "");
-        EDDGridUneven              = messages.getNotNothingString("EDDGridUneven",              "");
-        EDDGridDimensionHtml       = messages.getNotNothingString("EDDGridDimensionHtml",       "");
-        EDDGridDimensionFirstHtml  = messages.getNotNothingString("EDDGridDimensionFirstHtml",  "");
-        EDDGridDimensionLastHtml   = messages.getNotNothingString("EDDGridDimensionLastHtml",   "");
-        EDDGridVarHasDimHtml       = messages.getNotNothingString("EDDGridVarHasDimHtml",       "");
-        EDDGridSSSHtml             = messages.getNotNothingString("EDDGridSSSHtml",             "");
-        EDDGridStartHtml           = messages.getNotNothingString("EDDGridStartHtml",           "");
-        EDDGridStopHtml            = messages.getNotNothingString("EDDGridStopHtml",            "");
-        EDDGridStrideHtml          = messages.getNotNothingString("EDDGridStrideHtml",          "");
-        EDDGridSpacingHtml         = messages.getNotNothingString("EDDGridSpacingHtml",         "");
-        EDDGridGridVariableHtml    = messages.getNotNothingString("EDDGridGridVariableHtml",    "");
+        EDDGridDownloadTooltip     = messages.getNotNothingString("EDDGridDownloadTooltip",     errorInMethod);
+        EDDGridDapDescription      = messages.getNotNothingString("EDDGridDapDescription",      errorInMethod);
+        EDDGridDapLongDescription  = messages.getNotNothingString("EDDGridDapLongDescription",  errorInMethod);
+        EDDGridDownloadDataTooltip = messages.getNotNothingString("EDDGridDownloadDataTooltip", errorInMethod);
+        EDDGridDimension           = messages.getNotNothingString("EDDGridDimension",           errorInMethod);
+        EDDGridDimensionRanges     = messages.getNotNothingString("EDDGridDimensionRanges",     errorInMethod);
+        EDDGridFirst               = messages.getNotNothingString("EDDGridFirst",               errorInMethod);
+        EDDGridLast                = messages.getNotNothingString("EDDGridLast",                errorInMethod);
+        EDDGridStart               = messages.getNotNothingString("EDDGridStart",               errorInMethod);
+        EDDGridStop                = messages.getNotNothingString("EDDGridStop",                errorInMethod);
+        EDDGridStartStopTooltip    = messages.getNotNothingString("EDDGridStartStopTooltip",    errorInMethod);
+        EDDGridStride              = messages.getNotNothingString("EDDGridStride",              errorInMethod);
+        EDDGridNValues             = messages.getNotNothingString("EDDGridNValues",             errorInMethod);
+        EDDGridNValuesHtml         = messages.getNotNothingString("EDDGridNValuesHtml",         errorInMethod);
+        EDDGridSpacing             = messages.getNotNothingString("EDDGridSpacing",             errorInMethod);
+        EDDGridJustOneValue        = messages.getNotNothingString("EDDGridJustOneValue",        errorInMethod);
+        EDDGridEven                = messages.getNotNothingString("EDDGridEven",                errorInMethod);
+        EDDGridUneven              = messages.getNotNothingString("EDDGridUneven",              errorInMethod);
+        EDDGridDimensionTooltip    = messages.getNotNothingString("EDDGridDimensionTooltip",    errorInMethod);
+        EDDGridDimensionFirstTooltip = messages.getNotNothingString("EDDGridDimensionFirstTooltip", errorInMethod);
+        EDDGridDimensionLastTooltip  = messages.getNotNothingString("EDDGridDimensionLastTooltip",  errorInMethod);
+        EDDGridVarHasDimTooltip    = messages.getNotNothingString("EDDGridVarHasDimTooltip",    errorInMethod);
+        EDDGridSSSTooltip          = messages.getNotNothingString("EDDGridSSSTooltip",          errorInMethod);
+        EDDGridStartTooltip        = messages.getNotNothingString("EDDGridStartTooltip",        errorInMethod);
+        EDDGridStopTooltip         = messages.getNotNothingString("EDDGridStopTooltip",         errorInMethod);
+        EDDGridStrideTooltip       = messages.getNotNothingString("EDDGridStrideTooltip",       errorInMethod);
+        EDDGridSpacingTooltip      = messages.getNotNothingString("EDDGridSpacingTooltip",      errorInMethod);
+        EDDGridGridVariableHtml    = messages.getNotNothingString("EDDGridGridVariableHtml",    errorInMethod);
 
-        EDDTableConstraints        = messages.getNotNothingString("EDDTableConstraints",        "");
-        EDDTableDapDescription     = messages.getNotNothingString("EDDTableDapDescription",     "");
-        EDDTableDapLongDescription = messages.getNotNothingString("EDDTableDapLongDescription", "");
-        EDDTableDownloadDataHtml   = messages.getNotNothingString("EDDTableDownloadDataHtml",   "");
-        EDDTableTabularDatasetHtml = messages.getNotNothingString("EDDTableTabularDatasetHtml", "");
-        EDDTableVariable           = messages.getNotNothingString("EDDTableVariable",           "");
-        EDDTableCheckAll           = messages.getNotNothingString("EDDTableCheckAll",           "");
-        EDDTableCheckAllTooltip    = messages.getNotNothingString("EDDTableCheckAllTooltip",    "");
-        EDDTableUncheckAll         = messages.getNotNothingString("EDDTableUncheckAll",         "");
-        EDDTableUncheckAllTooltip  = messages.getNotNothingString("EDDTableUncheckAllTooltip",  "");
-        EDDTableMinimumTooltip     = messages.getNotNothingString("EDDTableMinimumTooltip",     "");
-        EDDTableMaximumTooltip     = messages.getNotNothingString("EDDTableMaximumTooltip",     "");
-        EDDTableCheckTheVariables  = messages.getNotNothingString("EDDTableCheckTheVariables",  "");
-        EDDTableSelectAnOperator   = messages.getNotNothingString("EDDTableSelectAnOperator",   "");
-        EDDTableOptConstraint1Html = messages.getNotNothingString("EDDTableOptConstraint1Html", "");
-        EDDTableOptConstraint2Html = messages.getNotNothingString("EDDTableOptConstraint2Html", "");
-        EDDTableOptConstraintVar   = messages.getNotNothingString("EDDTableOptConstraintVar",   "");
-        EDDTableNumericConstraintHtml=messages.getNotNothingString("EDDTableNumericConstraintHtml","");
-        EDDTableStringConstraintHtml=messages.getNotNothingString("EDDTableStringConstraintHtml","");
-        EDDTableTimeConstraintHtml = messages.getNotNothingString("EDDTableTimeConstraintHtml", "");
-        EDDTableConstraintHtml     = messages.getNotNothingString("EDDTableConstraintHtml",     "");
-        EDDTableSelectConstraint   = messages.getNotNothingString("EDDTableSelectConstraint",   "");
+        //default EDDGrid...Example
+        EDDGridErddapUrlExample    = messages.getNotNothingString("EDDGridErddapUrlExample",    errorInMethod);
+        EDDGridIdExample           = messages.getNotNothingString("EDDGridIdExample",           errorInMethod);
+        EDDGridDimensionExample    = messages.getNotNothingString("EDDGridDimensionExample",    errorInMethod);
+        EDDGridNoHyperExample      = messages.getNotNothingString("EDDGridNoHyperExample",      errorInMethod);
+        EDDGridDimNamesExample     = messages.getNotNothingString("EDDGridDimNamesExample",     errorInMethod);
+        EDDGridDataTimeExample     = messages.getNotNothingString("EDDGridDataTimeExample",     errorInMethod);
+        EDDGridDataValueExample    = messages.getNotNothingString("EDDGridDataValueExample",    errorInMethod);
+        EDDGridDataIndexExample    = messages.getNotNothingString("EDDGridDataIndexExample",    errorInMethod);
+        EDDGridGraphExample        = messages.getNotNothingString("EDDGridGraphExample",        errorInMethod);
+        EDDGridMapExample          = messages.getNotNothingString("EDDGridMapExample",          errorInMethod);
+        EDDGridMatlabPlotExample   = messages.getNotNothingString("EDDGridMatlabPlotExample",   errorInMethod);
 
-        errorTitle                 = messages.getNotNothingString("errorTitle",                 "");
-        errorRequestUrl            = messages.getNotNothingString("errorRequestUrl",            "");
-        errorRequestQuery          = messages.getNotNothingString("errorRequestQuery",          "");
-        errorTheError              = messages.getNotNothingString("errorTheError",              "");
-        errorCopyFrom              = messages.getNotNothingString("errorCopyFrom",              "");
-        errorFileNotFound          = messages.getNotNothingString("errorFileNotFound",          "");
-        errorFileNotFoundImage     = messages.getNotNothingString("errorFileNotFoundImage",     "");
-        errorInternal              = messages.getNotNothingString("errorInternal",              "") +
-            " ";
-        errorJsonpFunctionName     = messages.getNotNothingString("errorJsonpFunctionName",     "");
-        errorMoreThan2GB           = messages.getNotNothingString("errorMoreThan2GB",           "");
-        errorNotFound              = messages.getNotNothingString("errorNotFound",              "");
-        errorNotFoundIn            = messages.getNotNothingString("errorNotFoundIn",            "");
-        errorOdvLLTGrid            = messages.getNotNothingString("errorOdvLLTGrid",            "");
-        errorOdvLLTTable           = messages.getNotNothingString("errorOdvLLTTable",           "");
-        errorOnWebPage             = messages.getNotNothingString("errorOnWebPage",             "");
-        errorXWasntSpecified       = messages.getNotNothingString("errorXWasntSpecified",       "");
+        //admin provides EDDGrid...Example
+        EDDGridErddapUrlExample    = setup.getString("EDDGridErddapUrlExample",    EDDGridErddapUrlExample);
+        EDDGridIdExample           = setup.getString("EDDGridIdExample",           EDDGridIdExample);
+        EDDGridDimensionExample    = setup.getString("EDDGridDimensionExample",    EDDGridDimensionExample);
+        EDDGridNoHyperExample      = setup.getString("EDDGridNoHyperExample",      EDDGridNoHyperExample);
+        EDDGridDimNamesExample     = setup.getString("EDDGridDimNamesExample",     EDDGridDimNamesExample);
+        EDDGridDataIndexExample    = setup.getString("EDDGridDataIndexExample",    EDDGridDataIndexExample);
+        EDDGridDataValueExample    = setup.getString("EDDGridDataValueExample",    EDDGridDataValueExample);
+        EDDGridDataTimeExample     = setup.getString("EDDGridDataTimeExample",     EDDGridDataTimeExample);
+        EDDGridGraphExample        = setup.getString("EDDGridGraphExample",        EDDGridGraphExample);
+        EDDGridMapExample          = setup.getString("EDDGridMapExample",          EDDGridMapExample);
+        EDDGridMatlabPlotExample   = setup.getString("EDDGridMatlabPlotExample",   EDDGridMatlabPlotExample);
+
+        //variants encoded to be Html Examples
+        EDDGridDimensionExampleHE  = XML.encodeAsHTML(EDDGridDimensionExample);
+        EDDGridDataIndexExampleHE  = XML.encodeAsHTML(EDDGridDataIndexExample);
+        EDDGridDataValueExampleHE  = XML.encodeAsHTML(EDDGridDataValueExample);
+        EDDGridDataTimeExampleHE   = XML.encodeAsHTML(EDDGridDataTimeExample);
+        EDDGridGraphExampleHE      = XML.encodeAsHTML(EDDGridGraphExample);
+        EDDGridMapExampleHE        = XML.encodeAsHTML(EDDGridMapExample);
+
+        //variants encoded to be Html Attributes
+        EDDGridDimensionExampleHA  = XML.encodeAsHTMLAttribute(SSR.pseudoPercentEncode(EDDGridDimensionExample));
+        EDDGridDataIndexExampleHA  = XML.encodeAsHTMLAttribute(SSR.pseudoPercentEncode(EDDGridDataIndexExample));
+        EDDGridDataValueExampleHA  = XML.encodeAsHTMLAttribute(SSR.pseudoPercentEncode(EDDGridDataValueExample));
+        EDDGridDataTimeExampleHA   = XML.encodeAsHTMLAttribute(SSR.pseudoPercentEncode(EDDGridDataTimeExample));
+        EDDGridGraphExampleHA      = XML.encodeAsHTMLAttribute(SSR.pseudoPercentEncode(EDDGridGraphExample));
+        EDDGridMapExampleHA        = XML.encodeAsHTMLAttribute(SSR.pseudoPercentEncode(EDDGridMapExample)); 
+
+
+        EDDTableConstraints        = messages.getNotNothingString("EDDTableConstraints",        errorInMethod);
+        EDDTableDapDescription     = messages.getNotNothingString("EDDTableDapDescription",     errorInMethod);
+        EDDTableDapLongDescription = messages.getNotNothingString("EDDTableDapLongDescription", errorInMethod);
+        EDDTableDownloadDataTooltip  =messages.getNotNothingString("EDDTableDownloadDataTooltip",   errorInMethod);
+        EDDTableTabularDatasetTooltip=messages.getNotNothingString("EDDTableTabularDatasetTooltip", errorInMethod);
+        EDDTableVariable           = messages.getNotNothingString("EDDTableVariable",           errorInMethod);
+        EDDTableCheckAll           = messages.getNotNothingString("EDDTableCheckAll",           errorInMethod);
+        EDDTableCheckAllTooltip    = messages.getNotNothingString("EDDTableCheckAllTooltip",    errorInMethod);
+        EDDTableUncheckAll         = messages.getNotNothingString("EDDTableUncheckAll",         errorInMethod);
+        EDDTableUncheckAllTooltip  = messages.getNotNothingString("EDDTableUncheckAllTooltip",  errorInMethod);
+        EDDTableMinimumTooltip     = messages.getNotNothingString("EDDTableMinimumTooltip",     errorInMethod);
+        EDDTableMaximumTooltip     = messages.getNotNothingString("EDDTableMaximumTooltip",     errorInMethod);
+        EDDTableCheckTheVariables  = messages.getNotNothingString("EDDTableCheckTheVariables",  errorInMethod);
+        EDDTableSelectAnOperator   = messages.getNotNothingString("EDDTableSelectAnOperator",   errorInMethod);
+        EDDTableFromEDDGridSummary = messages.getNotNothingString("EDDTableFromEDDGridSummary", errorInMethod);
+        EDDTableOptConstraint1Html = messages.getNotNothingString("EDDTableOptConstraint1Html", errorInMethod);
+        EDDTableOptConstraint2Html = messages.getNotNothingString("EDDTableOptConstraint2Html", errorInMethod);
+        EDDTableOptConstraintVar   = messages.getNotNothingString("EDDTableOptConstraintVar",   errorInMethod);
+        EDDTableNumericConstraintTooltip=messages.getNotNothingString("EDDTableNumericConstraintTooltip",errorInMethod);
+        EDDTableStringConstraintTooltip =messages.getNotNothingString("EDDTableStringConstraintTooltip",errorInMethod);
+        EDDTableTimeConstraintTooltip   =messages.getNotNothingString("EDDTableTimeConstraintTooltip", errorInMethod);
+        EDDTableConstraintTooltip  = messages.getNotNothingString("EDDTableConstraintTooltip",  errorInMethod);
+        EDDTableSelectConstraintTooltip =messages.getNotNothingString("EDDTableSelectConstraintTooltip",   errorInMethod);
+
+        //default EDDGrid...Example
+        EDDTableErddapUrlExample   = messages.getNotNothingString("EDDTableErddapUrlExample",   errorInMethod);
+        EDDTableIdExample          = messages.getNotNothingString("EDDTableIdExample",          errorInMethod);
+        EDDTableVariablesExample   = messages.getNotNothingString("EDDTableVariablesExample",   errorInMethod);
+        EDDTableConstraintsExample = messages.getNotNothingString("EDDTableConstraintsExample", errorInMethod);
+        EDDTableDataValueExample   = messages.getNotNothingString("EDDTableDataValueExample",   errorInMethod);
+        EDDTableDataTimeExample    = messages.getNotNothingString("EDDTableDataTimeExample",    errorInMethod);
+        EDDTableGraphExample       = messages.getNotNothingString("EDDTableGraphExample",       errorInMethod);
+        EDDTableMapExample         = messages.getNotNothingString("EDDTableMapExample",         errorInMethod);
+        EDDTableMatlabPlotExample  = messages.getNotNothingString("EDDTableMatlabPlotExample",  errorInMethod);
+
+        //admin provides EDDGrid...Example
+        EDDTableErddapUrlExample   = setup.getString("EDDTableErddapUrlExample",   EDDTableErddapUrlExample);
+        EDDTableIdExample          = setup.getString("EDDTableIdExample",          EDDTableIdExample);
+        EDDTableVariablesExample   = setup.getString("EDDTableVariablesExample",   EDDTableVariablesExample);
+        EDDTableConstraintsExample = setup.getString("EDDTableConstraintsExample", EDDTableConstraintsExample);
+        EDDTableDataValueExample   = setup.getString("EDDTableDataValueExample",   EDDTableDataValueExample);
+        EDDTableDataTimeExample    = setup.getString("EDDTableDataTimeExample",    EDDTableDataTimeExample);
+        EDDTableGraphExample       = setup.getString("EDDTableGraphExample",       EDDTableGraphExample);
+        EDDTableMapExample         = setup.getString("EDDTableMapExample",         EDDTableMapExample);
+        EDDTableMatlabPlotExample  = setup.getString("EDDTableMatlabPlotExample",  EDDTableMatlabPlotExample);
+
+        //variants encoded to be Html Examples
+        EDDTableConstraintsExampleHE = XML.encodeAsHTML(EDDTableConstraintsExample);
+        EDDTableDataTimeExampleHE    = XML.encodeAsHTML(EDDTableDataTimeExample);
+        EDDTableDataValueExampleHE   = XML.encodeAsHTML(EDDTableDataValueExample);
+        EDDTableGraphExampleHE       = XML.encodeAsHTML(EDDTableGraphExample);
+        EDDTableMapExampleHE         = XML.encodeAsHTML(EDDTableMapExample);
+
+        //variants encoded to be Html Attributes
+        EDDTableConstraintsExampleHA = XML.encodeAsHTMLAttribute(SSR.pseudoPercentEncode(EDDTableConstraintsExample));
+        EDDTableDataTimeExampleHA    = XML.encodeAsHTMLAttribute(SSR.pseudoPercentEncode(EDDTableDataTimeExample));
+        EDDTableDataValueExampleHA   = XML.encodeAsHTMLAttribute(SSR.pseudoPercentEncode(EDDTableDataValueExample));
+        EDDTableGraphExampleHA       = XML.encodeAsHTMLAttribute(SSR.pseudoPercentEncode(EDDTableGraphExample));
+        EDDTableMapExampleHA         = XML.encodeAsHTMLAttribute(SSR.pseudoPercentEncode(EDDTableMapExample));
+
+        errorTitle                 = messages.getNotNothingString("errorTitle",                 errorInMethod);
+        errorRequestUrl            = messages.getNotNothingString("errorRequestUrl",            errorInMethod);
+        errorRequestQuery          = messages.getNotNothingString("errorRequestQuery",          errorInMethod);
+        errorTheError              = messages.getNotNothingString("errorTheError",              errorInMethod);
+        errorCopyFrom              = messages.getNotNothingString("errorCopyFrom",              errorInMethod);
+        errorFileNotFound          = messages.getNotNothingString("errorFileNotFound",          errorInMethod);
+        errorFileNotFoundImage     = messages.getNotNothingString("errorFileNotFoundImage",     errorInMethod);
+        errorInternal              = messages.getNotNothingString("errorInternal",              errorInMethod) + " ";
+        errorJsonpFunctionName     = messages.getNotNothingString("errorJsonpFunctionName",     errorInMethod);
+        errorJsonpNotAllowed       = messages.getNotNothingString("errorJsonpNotAllowed",       errorInMethod);
+        errorMoreThan2GB           = messages.getNotNothingString("errorMoreThan2GB",           errorInMethod);
+        errorNotFound              = messages.getNotNothingString("errorNotFound",              errorInMethod);
+        errorNotFoundIn            = messages.getNotNothingString("errorNotFoundIn",            errorInMethod);
+        errorOdvLLTGrid            = messages.getNotNothingString("errorOdvLLTGrid",            errorInMethod);
+        errorOdvLLTTable           = messages.getNotNothingString("errorOdvLLTTable",           errorInMethod);
+        errorOnWebPage             = messages.getNotNothingString("errorOnWebPage",             errorInMethod);
+        errorXWasntSpecified       = messages.getNotNothingString("errorXWasntSpecified",       errorInMethod);
         HtmlWidgets.errorXWasntSpecified = errorXWasntSpecified;
-        errorXWasTooLong           = messages.getNotNothingString("errorXWasTooLong",           "");
+        errorXWasTooLong           = messages.getNotNothingString("errorXWasTooLong",           errorInMethod);
         HtmlWidgets.errorXWasTooLong = errorXWasTooLong;
-        externalLink         = " " + messages.getNotNothingString("externalLink",               "");
-        externalWebSite            = messages.getNotNothingString("externalWebSite",            "");
-        fileHelp_asc               = messages.getNotNothingString("fileHelp_asc",               "");
-        fileHelp_csv               = messages.getNotNothingString("fileHelp_csv",               "");
-        fileHelp_csvp              = messages.getNotNothingString("fileHelp_csvp",              "");
-        fileHelp_csv0              = messages.getNotNothingString("fileHelp_csv0",              "");
-        fileHelp_das               = messages.getNotNothingString("fileHelp_das",               "");
-        fileHelp_dds               = messages.getNotNothingString("fileHelp_dds",               "");
-        fileHelp_dods              = messages.getNotNothingString("fileHelp_dods",              "");
-        fileHelpGrid_esriAscii     = messages.getNotNothingString("fileHelpGrid_esriAscii",     "");
-        fileHelpTable_esriAscii    = messages.getNotNothingString("fileHelpTable_esriAscii",    "");
-        fileHelp_fgdc              = messages.getNotNothingString("fileHelp_fgdc",              "");
-        fileHelp_geoJson           = messages.getNotNothingString("fileHelp_geoJson",           "");
-        fileHelp_graph             = messages.getNotNothingString("fileHelp_graph",             "");
-        fileHelpGrid_help          = messages.getNotNothingString("fileHelpGrid_help",          "");
-        fileHelpTable_help         = messages.getNotNothingString("fileHelpTable_help",         "");
-        fileHelp_html              = messages.getNotNothingString("fileHelp_html",              "");
-        fileHelp_htmlTable         = messages.getNotNothingString("fileHelp_htmlTable",         "");
-        fileHelp_iso19115          = messages.getNotNothingString("fileHelp_iso19115",          "");
-        fileHelp_json              = messages.getNotNothingString("fileHelp_json",              "");
-        fileHelp_mat               = messages.getNotNothingString("fileHelp_mat",               "");
-        fileHelpGrid_nc            = messages.getNotNothingString("fileHelpGrid_nc",            "");
-        fileHelpTable_nc           = messages.getNotNothingString("fileHelpTable_nc",           "");
-        fileHelp_ncHeader          = messages.getNotNothingString("fileHelp_ncHeader",          "");
-        fileHelp_ncCF              = messages.getNotNothingString("fileHelp_ncCF",              "");
-        fileHelp_ncCFHeader        = messages.getNotNothingString("fileHelp_ncCFHeader",        "");
-        fileHelp_ncCFMA            = messages.getNotNothingString("fileHelp_ncCFMA",            "");
-        fileHelp_ncCFMAHeader      = messages.getNotNothingString("fileHelp_ncCFMAHeader",      "");
-        fileHelp_ncml              = messages.getNotNothingString("fileHelp_ncml",              "");
-        fileHelpGrid_odvTxt        = messages.getNotNothingString("fileHelpGrid_odvTxt",        "");
-        fileHelpTable_odvTxt       = messages.getNotNothingString("fileHelpTable_odvTxt",       "");
-        fileHelp_subset            = messages.getNotNothingString("fileHelp_subset",            "");
-        fileHelp_tsv               = messages.getNotNothingString("fileHelp_tsv",               "");
-        fileHelp_tsvp              = messages.getNotNothingString("fileHelp_tsvp",              "");
-        fileHelp_tsv0              = messages.getNotNothingString("fileHelp_tsv0",              "");
-        fileHelp_xhtml             = messages.getNotNothingString("fileHelp_xhtml",             "");
-        fileHelp_geotif            = messages.getNotNothingString("fileHelp_geotif",            "");
-        fileHelpGrid_kml           = messages.getNotNothingString("fileHelpGrid_kml",           "");
-        fileHelpTable_kml          = messages.getNotNothingString("fileHelpTable_kml",          "");
-        fileHelp_smallPdf          = messages.getNotNothingString("fileHelp_smallPdf",          "");
-        fileHelp_pdf               = messages.getNotNothingString("fileHelp_pdf",               "");
-        fileHelp_largePdf          = messages.getNotNothingString("fileHelp_largePdf",          "");
-        fileHelp_smallPng          = messages.getNotNothingString("fileHelp_smallPng",          "");
-        fileHelp_png               = messages.getNotNothingString("fileHelp_png",               "");
-        fileHelp_largePng          = messages.getNotNothingString("fileHelp_largePng",          "");
-        fileHelp_transparentPng    = messages.getNotNothingString("fileHelp_transparentPng",    "");
-        filesDescription           = messages.getNotNothingString("filesDescription",           "");
-        filesDocumentation         = messages.getNotNothingString("filesDocumentation",         "");
-        filesSort                  = messages.getNotNothingString("filesSort",                  "");
-        filesWarning               = messages.getNotNothingString("filesWarning",               "");
-        functions                  = messages.getNotNothingString("functions",                  "");
-        functionHtml               = messages.getNotNothingString("functionHtml",               "");
-        functionDistinctCheck      = messages.getNotNothingString("functionDistinctCheck",      "");
-        functionDistinctHtml       = messages.getNotNothingString("functionDistinctHtml",       "");
-        functionOrderByHtml        = messages.getNotNothingString("functionOrderByHtml",        "");
-        functionOrderBySort        = messages.getNotNothingString("functionOrderBySort",        "");
-        functionOrderBySort1       = messages.getNotNothingString("functionOrderBySort1",       "");
-        functionOrderBySort2       = messages.getNotNothingString("functionOrderBySort2",       "");
-        functionOrderBySort3       = messages.getNotNothingString("functionOrderBySort3",       "");
-        functionOrderBySort4       = messages.getNotNothingString("functionOrderBySort4",       "");
-        functionOrderBySortLeast   = messages.getNotNothingString("functionOrderBySortLeast",   "");
-        functionOrderBySortRowMax  = messages.getNotNothingString("functionOrderBySortRowMax",  "");
-        geoServicesDescription     = messages.getNotNothingString("geoServicesDescription",     "");
-        getStartedHtml             = messages.getNotNothingString("getStartedHtml",             "");
+        extensionsNoRangeRequests  = StringArray.arrayFromCSV(
+                                     messages.getNotNothingString("extensionsNoRangeRequests",  errorInMethod),
+                                     ",", true, false); //trim, keepNothing
+        externalLink         = " " + messages.getNotNothingString("externalLink",               errorInMethod);
+        externalWebSite            = messages.getNotNothingString("externalWebSite",            errorInMethod);
+        fileHelp_asc               = messages.getNotNothingString("fileHelp_asc",               errorInMethod);
+        fileHelp_csv               = messages.getNotNothingString("fileHelp_csv",               errorInMethod);
+        fileHelp_csvp              = messages.getNotNothingString("fileHelp_csvp",              errorInMethod);
+        fileHelp_csv0              = messages.getNotNothingString("fileHelp_csv0",              errorInMethod);
+        fileHelp_dataTable         = messages.getNotNothingString("fileHelp_dataTable",         errorInMethod);
+        fileHelp_das               = messages.getNotNothingString("fileHelp_das",               errorInMethod);
+        fileHelp_dds               = messages.getNotNothingString("fileHelp_dds",               errorInMethod);
+        fileHelp_dods              = messages.getNotNothingString("fileHelp_dods",              errorInMethod);
+        fileHelpGrid_esriAscii     = messages.getNotNothingString("fileHelpGrid_esriAscii",     errorInMethod);
+        fileHelpTable_esriCsv      = messages.getNotNothingString("fileHelpTable_esriCsv",      errorInMethod);
+        fileHelp_fgdc              = messages.getNotNothingString("fileHelp_fgdc",              errorInMethod);
+        fileHelp_geoJson           = messages.getNotNothingString("fileHelp_geoJson",           errorInMethod);
+        fileHelp_graph             = messages.getNotNothingString("fileHelp_graph",             errorInMethod);
+        fileHelpGrid_help          = messages.getNotNothingString("fileHelpGrid_help",          errorInMethod);
+        fileHelpTable_help         = messages.getNotNothingString("fileHelpTable_help",         errorInMethod);
+        fileHelp_html              = messages.getNotNothingString("fileHelp_html",              errorInMethod);
+        fileHelp_htmlTable         = messages.getNotNothingString("fileHelp_htmlTable",         errorInMethod);
+        fileHelp_iso19115          = messages.getNotNothingString("fileHelp_iso19115",          errorInMethod);
+        fileHelp_itxGrid           = messages.getNotNothingString("fileHelp_itxGrid",           errorInMethod);
+        fileHelp_itxTable          = messages.getNotNothingString("fileHelp_itxTable",          errorInMethod);
+        fileHelp_json              = messages.getNotNothingString("fileHelp_json",              errorInMethod);
+        fileHelp_jsonlCSV1         = messages.getNotNothingString("fileHelp_jsonlCSV1",         errorInMethod);
+        fileHelp_jsonlCSV          = messages.getNotNothingString("fileHelp_jsonlCSV",          errorInMethod);
+        fileHelp_jsonlKVP          = messages.getNotNothingString("fileHelp_jsonlKVP",          errorInMethod);
+        fileHelp_mat               = messages.getNotNothingString("fileHelp_mat",               errorInMethod);
+        fileHelpGrid_nc3           = messages.getNotNothingString("fileHelpGrid_nc3",           errorInMethod);
+        fileHelpGrid_nc4           = messages.getNotNothingString("fileHelpGrid_nc4",           errorInMethod);
+        fileHelpTable_nc3          = messages.getNotNothingString("fileHelpTable_nc3",          errorInMethod);
+        fileHelpTable_nc4          = messages.getNotNothingString("fileHelpTable_nc4",          errorInMethod);
+        fileHelp_nc3Header         = messages.getNotNothingString("fileHelp_nc3Header",         errorInMethod);
+        fileHelp_nc4Header         = messages.getNotNothingString("fileHelp_nc4Header",         errorInMethod);
+        fileHelp_nccsv             = messages.getNotNothingString("fileHelp_nccsv",             errorInMethod);
+        fileHelp_nccsvMetadata     = messages.getNotNothingString("fileHelp_nccsvMetadata",     errorInMethod);
+        fileHelp_ncCF              = messages.getNotNothingString("fileHelp_ncCF",              errorInMethod);
+        fileHelp_ncCFHeader        = messages.getNotNothingString("fileHelp_ncCFHeader",        errorInMethod);
+        fileHelp_ncCFMA            = messages.getNotNothingString("fileHelp_ncCFMA",            errorInMethod);
+        fileHelp_ncCFMAHeader      = messages.getNotNothingString("fileHelp_ncCFMAHeader",      errorInMethod);
+        fileHelp_ncml              = messages.getNotNothingString("fileHelp_ncml",              errorInMethod);
+        fileHelp_ncoJson           = messages.getNotNothingString("fileHelp_ncoJson",           errorInMethod);
+        fileHelpGrid_odvTxt        = messages.getNotNothingString("fileHelpGrid_odvTxt",        errorInMethod);
+        fileHelpTable_odvTxt       = messages.getNotNothingString("fileHelpTable_odvTxt",       errorInMethod);
+        fileHelp_subset            = messages.getNotNothingString("fileHelp_subset",            errorInMethod);
+        fileHelp_timeGaps          = messages.getNotNothingString("fileHelp_timeGaps",          errorInMethod);
+        fileHelp_tsv               = messages.getNotNothingString("fileHelp_tsv",               errorInMethod);
+        fileHelp_tsvp              = messages.getNotNothingString("fileHelp_tsvp",              errorInMethod);
+        fileHelp_tsv0              = messages.getNotNothingString("fileHelp_tsv0",              errorInMethod);
+        fileHelp_wav               = messages.getNotNothingString("fileHelp_wav",               errorInMethod);
+        fileHelp_xhtml             = messages.getNotNothingString("fileHelp_xhtml",             errorInMethod);
+        fileHelp_geotif            = messages.getNotNothingString("fileHelp_geotif",            errorInMethod);
+        fileHelpGrid_kml           = messages.getNotNothingString("fileHelpGrid_kml",           errorInMethod);
+        fileHelpTable_kml          = messages.getNotNothingString("fileHelpTable_kml",          errorInMethod);
+        fileHelp_smallPdf          = messages.getNotNothingString("fileHelp_smallPdf",          errorInMethod);
+        fileHelp_pdf               = messages.getNotNothingString("fileHelp_pdf",               errorInMethod);
+        fileHelp_largePdf          = messages.getNotNothingString("fileHelp_largePdf",          errorInMethod);
+        fileHelp_smallPng          = messages.getNotNothingString("fileHelp_smallPng",          errorInMethod);
+        fileHelp_png               = messages.getNotNothingString("fileHelp_png",               errorInMethod);
+        fileHelp_largePng          = messages.getNotNothingString("fileHelp_largePng",          errorInMethod);
+        fileHelp_transparentPng    = messages.getNotNothingString("fileHelp_transparentPng",    errorInMethod);
+        filesDescription           = messages.getNotNothingString("filesDescription",           errorInMethod);
+        filesDocumentation         = messages.getNotNothingString("filesDocumentation",         errorInMethod);
+        filesSort                  = messages.getNotNothingString("filesSort",                  errorInMethod);
+        filesWarning               = messages.getNotNothingString("filesWarning",               errorInMethod);
+        functions                  = messages.getNotNothingString("functions",                  errorInMethod);
+        functionTooltip            = messages.getNotNothingString("functionTooltip",            errorInMethod);
+        functionDistinctCheck      = messages.getNotNothingString("functionDistinctCheck",      errorInMethod);
+        functionDistinctTooltip    = messages.getNotNothingString("functionDistinctTooltip",    errorInMethod);
+        functionOrderByExtra       = messages.getNotNothingString("functionOrderByExtra",       errorInMethod);
+        functionOrderByTooltip     = messages.getNotNothingString("functionOrderByTooltip",     errorInMethod);
+        functionOrderBySort        = messages.getNotNothingString("functionOrderBySort",        errorInMethod);
+        functionOrderBySort1       = messages.getNotNothingString("functionOrderBySort1",       errorInMethod);
+        functionOrderBySort2       = messages.getNotNothingString("functionOrderBySort2",       errorInMethod);
+        functionOrderBySort3       = messages.getNotNothingString("functionOrderBySort3",       errorInMethod);
+        functionOrderBySort4       = messages.getNotNothingString("functionOrderBySort4",       errorInMethod);
+        functionOrderBySortLeast   = messages.getNotNothingString("functionOrderBySortLeast",   errorInMethod);
+        functionOrderBySortRowMax  = messages.getNotNothingString("functionOrderBySortRowMax",  errorInMethod);
+        generatedAt                = messages.getNotNothingString("generatedAt",                errorInMethod);
+        geoServicesDescription     = messages.getNotNothingString("geoServicesDescription",     errorInMethod);
+        getStartedHtml             = messages.getNotNothingString("getStartedHtml",             errorInMethod);
         TableWriterHtmlTable.htmlTableMaxMB     = messages.getInt("htmlTableMaxMB", TableWriterHtmlTable.htmlTableMaxMB);                                   
-        htmlTableMaxMessage        = messages.getNotNothingString("htmlTableMaxMessage",        "");
-        imageDataCourtesyOf        = messages.getNotNothingString("imageDataCourtesyOf",        "");
-        imageWidths                = String2.toIntArray(String2.split(messages.getNotNothingString("imageWidths",  ""), ','));
-        imageHeights               = String2.toIntArray(String2.split(messages.getNotNothingString("imageHeights", ""), ','));
-        indexViewAll               = messages.getNotNothingString("indexViewAll",               "");
-        indexSearchWith            = messages.getNotNothingString("indexSearchWith",            "");
-        indexDevelopersSearch      = messages.getNotNothingString("indexDevelopersSearch",      "");
-        indexProtocol              = messages.getNotNothingString("indexProtocol",              "");
-        indexDescription           = messages.getNotNothingString("indexDescription",           "");
-        indexDatasets              = messages.getNotNothingString("indexDatasets",              "");
-        indexDocumentation         = messages.getNotNothingString("indexDocumentation",         "");
-        indexRESTfulSearch         = messages.getNotNothingString("indexRESTfulSearch",         "");
-        indexAllDatasetsSearch     = messages.getNotNothingString("indexAllDatasetsSearch",     "");
-        indexOpenSearch            = messages.getNotNothingString("indexOpenSearch",            "");
-        indexServices              = messages.getNotNothingString("indexServices",              "");
-        indexDescribeServices      = messages.getNotNothingString("indexDescribeServices",      "");
-        indexMetadata              = messages.getNotNothingString("indexMetadata",              "");
-        indexWAF1                  = messages.getNotNothingString("indexWAF1",                  "");
-        indexWAF2                  = messages.getNotNothingString("indexWAF2",                  "");
-        indexConverters            = messages.getNotNothingString("indexConverters",            "");
-        indexDescribeConverters    = messages.getNotNothingString("indexDescribeConverters",    "");
-        infoAboutFrom              = messages.getNotNothingString("infoAboutFrom",              "");
-        infoTableTitleHtml         = messages.getNotNothingString("infoTableTitleHtml",         "");
-        infoRequestForm            = messages.getNotNothingString("infoRequestForm",            "");
-        inotifyFix                 = messages.getNotNothingString("inotifyFix",                 "");
-        justGenerateAndView        = messages.getNotNothingString("justGenerateAndView",        "");
-        justGenerateAndViewHtml    = messages.getNotNothingString("justGenerateAndViewHtml",    "");
-        justGenerateAndViewUrl     = messages.getNotNothingString("justGenerateAndViewUrl",     "");
-        justGenerateAndViewGraphUrlHtml = messages.getNotNothingString("justGenerateAndViewGraphUrlHtml", "");
-        license                    = messages.getNotNothingString("license",                    "");
-        listAll                    = messages.getNotNothingString("listAll",                    "");
-        listOfDatasets             = messages.getNotNothingString("listOfDatasets",             "");
-        LogIn                      = messages.getNotNothingString("LogIn",                      "");
-        login                      = messages.getNotNothingString("login",                      "");
-        loginAttemptBlocked        = messages.getNotNothingString("loginAttemptBlocked",        "");
-        loginDescribeCustom        = messages.getNotNothingString("loginDescribeCustom",        "");
-        loginDescribeEmail         = messages.getNotNothingString("loginDescribeEmail",         "");
-        loginDescribeGoogle        = messages.getNotNothingString("loginDescribeGoogle",        "");
-        loginDescribeOpenID        = messages.getNotNothingString("loginDescribeOpenID",        "");
-        loginCanNot                = messages.getNotNothingString("loginCanNot",                "");
-        loginAreNot                = messages.getNotNothingString("loginAreNot",                "");
-        loginToLogIn               = messages.getNotNothingString("loginToLogIn",               "");
-        loginEmailAddress          = messages.getNotNothingString("loginEmailAddress",          "");
-        loginYourEmailAddress      = messages.getNotNothingString("loginYourEmailAddress",      "");
-        loginUserName              = messages.getNotNothingString("loginUserName",              "");
-        loginPassword              = messages.getNotNothingString("loginPassword",              "");
-        loginUserNameAndPassword   = messages.getNotNothingString("loginUserNameAndPassword",   "");
-        loginGoogleSignIn          = messages.getNotNothingString("loginGoogleSignIn",          "");
-        loginGoogleErddap          = messages.getNotNothingString("loginGoogleErddap",          "");
-        loginOpenID                = messages.getNotNothingString("loginOpenID",                "");
-        loginOpenIDOr              = messages.getNotNothingString("loginOpenIDOr",              "");
-        loginOpenIDCreate          = messages.getNotNothingString("loginOpenIDCreate",          "");
-        loginOpenIDFree            = messages.getNotNothingString("loginOpenIDFree",            "");
-        loginOpenIDSame            = messages.getNotNothingString("loginOpenIDSame",            "");
-        loginAs                    = messages.getNotNothingString("loginAs",                    "");
-        loginFailed                = messages.getNotNothingString("loginFailed",                "");
-        loginSucceeded             = messages.getNotNothingString("loginSucceeded",             "");
-        loginInvalid               = messages.getNotNothingString("loginInvalid",               "");
-        loginNot                   = messages.getNotNothingString("loginNot",                   "");
-        loginBack                  = messages.getNotNothingString("loginBack",                  "");
-        loginProblemExact          = messages.getNotNothingString("loginProblemExact",          "");
-        loginProblemExpire         = messages.getNotNothingString("loginProblemExpire",         "");
-        loginProblemGoogleAgain    = messages.getNotNothingString("loginProblemGoogleAgain",    "");
-        loginProblemSameBrowser    = messages.getNotNothingString("loginProblemSameBrowser",    "");
-        loginProblem3Times         = messages.getNotNothingString("loginProblem3Times",         "");
-        loginProblems              = messages.getNotNothingString("loginProblems",              "");
-        loginProblemsAfter         = messages.getNotNothingString("loginProblemsAfter",         "");
-        loginPublicAccess          = messages.getNotNothingString("loginPublicAccess",          "");
-        LogOut                     = messages.getNotNothingString("LogOut",                     "");
-        logout                     = messages.getNotNothingString("logout",                     "");
-        logoutOpenID               = messages.getNotNothingString("logoutOpenID",               "");
-        logoutSuccess              = messages.getNotNothingString("logoutSuccess",              "");
-        mag                        = messages.getNotNothingString("mag",                        "");
-        magAxisX                   = messages.getNotNothingString("magAxisX",                   "");
-        magAxisY                   = messages.getNotNothingString("magAxisY",                   "");
-        magAxisColor               = messages.getNotNothingString("magAxisColor",               "");
-        magAxisStickX              = messages.getNotNothingString("magAxisStickX",              "");
-        magAxisStickY              = messages.getNotNothingString("magAxisStickY",              "");
-        magAxisVectorX             = messages.getNotNothingString("magAxisVectorX",             "");
-        magAxisVectorY             = messages.getNotNothingString("magAxisVectorY",             "");
-        magAxisHelpGraphX          = messages.getNotNothingString("magAxisHelpGraphX",          "");
-        magAxisHelpGraphY          = messages.getNotNothingString("magAxisHelpGraphY",          "");
-        magAxisHelpMarkerColor     = messages.getNotNothingString("magAxisHelpMarkerColor",     "");
-        magAxisHelpSurfaceColor    = messages.getNotNothingString("magAxisHelpSurfaceColor",    "");
-        magAxisHelpStickX          = messages.getNotNothingString("magAxisHelpStickX",          "");
-        magAxisHelpStickY          = messages.getNotNothingString("magAxisHelpStickY",          "");
-        magAxisHelpMapX            = messages.getNotNothingString("magAxisHelpMapX",            "");
-        magAxisHelpMapY            = messages.getNotNothingString("magAxisHelpMapY",            "");
-        magAxisHelpVectorX         = messages.getNotNothingString("magAxisHelpVectorX",         "");
-        magAxisHelpVectorY         = messages.getNotNothingString("magAxisHelpVectorY",         "");
-        magAxisVarHelp             = messages.getNotNothingString("magAxisVarHelp",             "");
-        magAxisVarHelpGrid         = messages.getNotNothingString("magAxisVarHelpGrid",         "");
-        magConstraintHelp          = messages.getNotNothingString("magConstraintHelp",          "");
-        magDocumentation           = messages.getNotNothingString("magDocumentation",           "");
-        magDownload                = messages.getNotNothingString("magDownload",                "");
-        magDownloadTooltip         = messages.getNotNothingString("magDownloadTooltip",         "");
-        magFileType                = messages.getNotNothingString("magFileType",                "");
-        magGraphType               = messages.getNotNothingString("magGraphType",               "");
-        magGraphTypeTooltipGrid    = messages.getNotNothingString("magGraphTypeTooltipGrid",    "");
-        magGraphTypeTooltipTable   = messages.getNotNothingString("magGraphTypeTooltipTable",   "");
-        magGS                      = messages.getNotNothingString("magGS",                      "");
-        magGSMarkerType            = messages.getNotNothingString("magGSMarkerType",            "");
-        magGSSize                  = messages.getNotNothingString("magGSSize",                  "");
-        magGSColor                 = messages.getNotNothingString("magGSColor",                 "");
-        magGSColorBar              = messages.getNotNothingString("magGSColorBar",              "");
-        magGSColorBarTooltip       = messages.getNotNothingString("magGSColorBarTooltip",       "");
-        magGSContinuity            = messages.getNotNothingString("magGSContinuity",            "");
-        magGSContinuityTooltip     = messages.getNotNothingString("magGSContinuityTooltip",     "");
-        magGSScale                 = messages.getNotNothingString("magGSScale",                 "");
-        magGSScaleTooltip          = messages.getNotNothingString("magGSScaleTooltip",          "");
-        magGSMin                   = messages.getNotNothingString("magGSMin",                   "");
-        magGSMinTooltip            = messages.getNotNothingString("magGSMinTooltip",            "");
-        magGSMax                   = messages.getNotNothingString("magGSMax",                   "");
-        magGSMaxTooltip            = messages.getNotNothingString("magGSMaxTooltip",            "");
-        magGSNSections             = messages.getNotNothingString("magGSNSections",             "");
-        magGSNSectionsTooltip      = messages.getNotNothingString("magGSNSectionsTooltip",      "");
-        magGSLandMask              = messages.getNotNothingString("magGSLandMask",              "");
-        magGSLandMaskTooltipGrid   = messages.getNotNothingString("magGSLandMaskTooltipGrid",   "");
-        magGSLandMaskTooltipTable  = messages.getNotNothingString("magGSLandMaskTooltipTable",  "");
-        magGSVectorStandard        = messages.getNotNothingString("magGSVectorStandard",        "");
-        magGSVectorStandardTooltip = messages.getNotNothingString("magGSVectorStandardTooltip", "");
-        magGSYAscendingTooltip     = messages.getNotNothingString("magGSYAscendingTooltip",     "");
-        magGSYAxisMin              = messages.getNotNothingString("magGSYAxisMin",              "");
-        magGSYAxisMax              = messages.getNotNothingString("magGSYAxisMax",              "");
-        magGSYRangeMinTooltip      = messages.getNotNothingString("magGSYRangeMinTooltip",      ""); 
-        magGSYRangeMaxTooltip      = messages.getNotNothingString("magGSYRangeMaxTooltip",      "");
-        magGSYRangeTooltip         = messages.getNotNothingString("magGSYRangeTooltip",         "");        
-        magItemFirst               = messages.getNotNothingString("magItemFirst",               "");
-        magItemPrevious            = messages.getNotNothingString("magItemPrevious",            "");
-        magItemNext                = messages.getNotNothingString("magItemNext",                "");
-        magItemLast                = messages.getNotNothingString("magItemLast",                "");
-        magJust1Value              = messages.getNotNothingString("magJust1Value",              "");
-        magRange                   = messages.getNotNothingString("magRange",                   "");
-        magRangeTo                 = messages.getNotNothingString("magRangeTo",                 "");
-        magRedraw                  = messages.getNotNothingString("magRedraw",                  "");
-        magRedrawTooltip           = messages.getNotNothingString("magRedrawTooltip",           "");
-        magTimeRange               = messages.getNotNothingString("magTimeRange",               "");
-        magTimeRangeFirst          = messages.getNotNothingString("magTimeRangeFirst",          "");
-        magTimeRangeBack           = messages.getNotNothingString("magTimeRangeBack",           "");
-        magTimeRangeForward        = messages.getNotNothingString("magTimeRangeForward",        "");
-        magTimeRangeLast           = messages.getNotNothingString("magTimeRangeLast",           "");
-        magTimeRangeTooltip        = messages.getNotNothingString("magTimeRangeTooltip",        "");
-        magTimeRangeTooltip2       = messages.getNotNothingString("magTimeRangeTooltip2",       "");
-        magTimesVary               = messages.getNotNothingString("magTimesVary",               "");
-        magViewUrl                 = messages.getNotNothingString("magViewUrl",                 "");
-        magZoom                    = messages.getNotNothingString("magZoom",                    "");
-        magZoomCenter              = messages.getNotNothingString("magZoomCenter",              "");
-        magZoomCenterTooltip       = messages.getNotNothingString("magZoomCenterTooltip",       "");
-        magZoomIn                  = messages.getNotNothingString("magZoomIn",                  "");
-        magZoomInTooltip           = messages.getNotNothingString("magZoomInTooltip",           "");
-        magZoomOut                 = messages.getNotNothingString("magZoomOut",                 "");
-        magZoomOutTooltip          = messages.getNotNothingString("magZoomOutTooltip",          "");
-        magZoomALittle             = messages.getNotNothingString("magZoomALittle",             "");
-        magZoomData                = messages.getNotNothingString("magZoomData",                "");
-        magZoomOutData             = messages.getNotNothingString("magZoomOutData",             "");
-        magGridHtml                = messages.getNotNothingString("magGridHtml",                "");
-        magTableHtml               = messages.getNotNothingString("magTableHtml",               "");
-        Math2.memoryTooMuchData    = messages.getNotNothingString("memoryTooMuchData",          "");
-        Math2.memoryArraySize      = messages.getNotNothingString("memoryArraySize",            "");
-      Math2.memoryThanCurrentlySafe= messages.getNotNothingString("memoryThanCurrentlySafe",    "");
-        Math2.memoryThanSafe       = messages.getNotNothingString("memoryThanSafe",             "");
-        metadataDownload           = messages.getNotNothingString("metadataDownload",           "");
-        moreInformation            = messages.getNotNothingString("moreInformation",            "");
-        MustBe.THERE_IS_NO_DATA    = messages.getNotNothingString("MustBeThereIsNoData",        "");
-        MustBe.NotNull             = messages.getNotNothingString("MustBeNotNull",              "");
-        MustBe.NotEmpty            = messages.getNotNothingString("MustBeNotEmpty",             "");
-        MustBe.InternalError       = messages.getNotNothingString("MustBeInternalError",        "");
-        MustBe.OutOfMemoryError    = messages.getNotNothingString("MustBeOutOfMemoryError",     "");
-        nMatching1                 = messages.getNotNothingString("nMatching1",                 "");
-        nMatchingAlphabetical      = messages.getNotNothingString("nMatchingAlphabetical",      "");
-        nMatchingMostRelevant      = messages.getNotNothingString("nMatchingMostRelevant",      "");
-        nMatchingPage              = messages.getNotNothingString("nMatchingPage",              "");
-        nMatchingCurrent           = messages.getNotNothingString("nMatchingCurrent",           "");
-        noDataFixedValue           = messages.getNotNothingString("noDataFixedValue",           "");
-        noDataNoLL                 = messages.getNotNothingString("noDataNoLL",                 "");
-        noDatasetWith              = messages.getNotNothingString("noDatasetWith",              "");
-        noPage1                    = messages.getNotNothingString("noPage1",                    "");
-        noPage2                    = messages.getNotNothingString("noPage2",                    "");
-        notAllowed                 = messages.getNotNothingString("notAllowed",                 "");
-        notAuthorized              = messages.getNotNothingString("notAuthorized",              "");
-        notAuthorizedForData       = messages.getNotNothingString("notAuthorizedForData",       "");
-        notAvailable               = messages.getNotNothingString("notAvailable",               "");
-        noXxx                      = messages.getNotNothingString("noXxx",                      "");
-        noXxxBecause               = messages.getNotNothingString("noXxxBecause",               "");
-        noXxxBecause2              = messages.getNotNothingString("noXxxBecause2",              "");
-        noXxxNotActive             = messages.getNotNothingString("noXxxNotActive",             "");
-        noXxxNoAxis1               = messages.getNotNothingString("noXxxNoAxis1",               "");
-        noXxxNoCdmDataType         = messages.getNotNothingString("noXxxNoCdmDataType",         "");
-        noXxxNoColorBar            = messages.getNotNothingString("noXxxNoColorBar",            "");
-        noXxxNoLL                  = messages.getNotNothingString("noXxxNoLL",                  "");
-        noXxxNoLLEvenlySpaced      = messages.getNotNothingString("noXxxNoLLEvenlySpaced",      "");
-        noXxxNoLLGt1               = messages.getNotNothingString("noXxxNoLLGt1",               "");
-        noXxxNoLLT                 = messages.getNotNothingString("noXxxNoLLT",                 "");
-        noXxxNoLonIn180            = messages.getNotNothingString("noXxxNoLonIn180",            "");
-        noXxxNoNonString           = messages.getNotNothingString("noXxxNoNonString",           "");
-        noXxxNo2NonString          = messages.getNotNothingString("noXxxNo2NonString",          "");
-        noXxxNoStation             = messages.getNotNothingString("noXxxNoStation",             "");
-        noXxxNoStationID           = messages.getNotNothingString("noXxxNoStationID",           "");
-        noXxxNoSubsetVariables     = messages.getNotNothingString("noXxxNoSubsetVariables",     "");
-        noXxxNoOLLSubsetVariables  = messages.getNotNothingString("noXxxNoOLLSubsetVariables",  "");
-        noXxxNoMinMax              = messages.getNotNothingString("noXxxNoMinMax",              "");
-        noXxxItsGridded            = messages.getNotNothingString("noXxxItsGridded",            "");
-        noXxxItsTabular            = messages.getNotNothingString("noXxxItsTabular",            "");
-        optional                   = messages.getNotNothingString("optional",                   "");
-        orRefineSearchWith         = messages.getNotNothingString("orRefineSearchWith",         "");
+        htmlTableMaxMessage        = messages.getNotNothingString("htmlTableMaxMessage",        errorInMethod);
+        imageDataCourtesyOf        = messages.getNotNothingString("imageDataCourtesyOf",        errorInMethod);
+        imageWidths                = String2.toIntArray(String2.split(messages.getNotNothingString("imageWidths",  errorInMethod), ','));
+        imageHeights               = String2.toIntArray(String2.split(messages.getNotNothingString("imageHeights", errorInMethod), ','));
+        indexViewAll               = messages.getNotNothingString("indexViewAll",               errorInMethod);
+        indexSearchWith            = messages.getNotNothingString("indexSearchWith",            errorInMethod);
+        indexDevelopersSearch      = messages.getNotNothingString("indexDevelopersSearch",      errorInMethod);
+        indexProtocol              = messages.getNotNothingString("indexProtocol",              errorInMethod);
+        indexDescription           = messages.getNotNothingString("indexDescription",           errorInMethod);
+        indexDatasets              = messages.getNotNothingString("indexDatasets",              errorInMethod);
+        indexDocumentation         = messages.getNotNothingString("indexDocumentation",         errorInMethod);
+        indexRESTfulSearch         = messages.getNotNothingString("indexRESTfulSearch",         errorInMethod);
+        indexAllDatasetsSearch     = messages.getNotNothingString("indexAllDatasetsSearch",     errorInMethod);
+        indexOpenSearch            = messages.getNotNothingString("indexOpenSearch",            errorInMethod);
+        indexServices              = messages.getNotNothingString("indexServices",              errorInMethod);
+        indexDescribeServices      = messages.getNotNothingString("indexDescribeServices",      errorInMethod);
+        indexMetadata              = messages.getNotNothingString("indexMetadata",              errorInMethod);
+        indexWAF1                  = messages.getNotNothingString("indexWAF1",                  errorInMethod);
+        indexWAF2                  = messages.getNotNothingString("indexWAF2",                  errorInMethod);
+        indexConverters            = messages.getNotNothingString("indexConverters",            errorInMethod);
+        indexDescribeConverters    = messages.getNotNothingString("indexDescribeConverters",    errorInMethod);
+        infoAboutFrom              = messages.getNotNothingString("infoAboutFrom",              errorInMethod);
+        infoTableTitleHtml         = messages.getNotNothingString("infoTableTitleHtml",         errorInMethod);
+        infoRequestForm            = messages.getNotNothingString("infoRequestForm",            errorInMethod);
+        inotifyFix                 = messages.getNotNothingString("inotifyFix",                 errorInMethod);
+        justGenerateAndView        = messages.getNotNothingString("justGenerateAndView",        errorInMethod);
+        justGenerateAndViewTooltip = messages.getNotNothingString("justGenerateAndViewTooltip", errorInMethod);
+        justGenerateAndViewUrl     = messages.getNotNothingString("justGenerateAndViewUrl",     errorInMethod);
+        justGenerateAndViewGraphUrlTooltip = messages.getNotNothingString("justGenerateAndViewGraphUrlTooltip", errorInMethod);
+        legal                      = messages.getNotNothingString("legal",                      errorInMethod);
+        legal                      =    setup.getString(          "legal",                      legal); //optionally in setup.xml
+        legendTitle1               = messages.getString(          "legendTitle1",               "");
+        legendTitle1               =    setup.getString(          "legendTitle1",               legendTitle1); //optionally in setup.xml
+        legendTitle2               = messages.getString(          "legendTitle2",               "");
+        legendTitle2               =    setup.getString(          "legendTitle2",               legendTitle2); //optionally in setup.xml
+
+        license                    = messages.getNotNothingString("license",                    errorInMethod);
+        listAll                    = messages.getNotNothingString("listAll",                    errorInMethod);
+        listOfDatasets             = messages.getNotNothingString("listOfDatasets",             errorInMethod);
+        LogIn                      = messages.getNotNothingString("LogIn",                      errorInMethod);
+        login                      = messages.getNotNothingString("login",                      errorInMethod);
+        loginAttemptBlocked        = messages.getNotNothingString("loginAttemptBlocked",        errorInMethod);
+        loginDescribeCustom        = messages.getNotNothingString("loginDescribeCustom",        errorInMethod);
+        loginDescribeEmail         = messages.getNotNothingString("loginDescribeEmail",         errorInMethod);
+        loginDescribeGoogle        = messages.getNotNothingString("loginDescribeGoogle",        errorInMethod);
+        loginDescribeOrcid         = messages.getNotNothingString("loginDescribeOrcid",         errorInMethod);
+        loginDescribeOauth2        = messages.getNotNothingString("loginDescribeOauth2",        errorInMethod);
+        loginCanNot                = messages.getNotNothingString("loginCanNot",                errorInMethod);
+        loginAreNot                = messages.getNotNothingString("loginAreNot",                errorInMethod);
+        loginToLogIn               = messages.getNotNothingString("loginToLogIn",               errorInMethod);
+        loginEmailAddress          = messages.getNotNothingString("loginEmailAddress",          errorInMethod);
+        loginYourEmailAddress      = messages.getNotNothingString("loginYourEmailAddress",      errorInMethod);
+        loginUserName              = messages.getNotNothingString("loginUserName",              errorInMethod);
+        loginPassword              = messages.getNotNothingString("loginPassword",              errorInMethod);
+        loginUserNameAndPassword   = messages.getNotNothingString("loginUserNameAndPassword",   errorInMethod);
+        loginGoogleSignIn          = messages.getNotNothingString("loginGoogleSignIn",          errorInMethod);
+        loginGoogleSignIn2         = messages.getNotNothingString("loginGoogleSignIn2",         errorInMethod);
+        loginOrcidSignIn           = messages.getNotNothingString("loginOrcidSignIn",           errorInMethod);
+        loginErddap                = messages.getNotNothingString("loginErddap",                errorInMethod);
+        loginOpenID                = messages.getNotNothingString("loginOpenID",                errorInMethod);
+        loginOpenIDOr              = messages.getNotNothingString("loginOpenIDOr",              errorInMethod);
+        loginOpenIDCreate          = messages.getNotNothingString("loginOpenIDCreate",          errorInMethod);
+        loginOpenIDFree            = messages.getNotNothingString("loginOpenIDFree",            errorInMethod);
+        loginOpenIDSame            = messages.getNotNothingString("loginOpenIDSame",            errorInMethod);
+        loginAs                    = messages.getNotNothingString("loginAs",                    errorInMethod);
+        loginPartwayAs             = messages.getNotNothingString("loginPartwayAs",             errorInMethod);
+        loginFailed                = messages.getNotNothingString("loginFailed",                errorInMethod);
+        loginSucceeded             = messages.getNotNothingString("loginSucceeded",             errorInMethod);
+        loginInvalid               = messages.getNotNothingString("loginInvalid",               errorInMethod);
+        loginNot                   = messages.getNotNothingString("loginNot",                   errorInMethod);
+        loginBack                  = messages.getNotNothingString("loginBack",                  errorInMethod);
+        loginProblemExact          = messages.getNotNothingString("loginProblemExact",          errorInMethod);
+        loginProblemExpire         = messages.getNotNothingString("loginProblemExpire",         errorInMethod);
+        loginProblemGoogleAgain    = messages.getNotNothingString("loginProblemGoogleAgain",    errorInMethod);
+        loginProblemOrcidAgain     = messages.getNotNothingString("loginProblemOrcidAgain",     errorInMethod);
+        loginProblemOauth2Again    = messages.getNotNothingString("loginProblemOauth2Again",    errorInMethod);
+        loginProblemSameBrowser    = messages.getNotNothingString("loginProblemSameBrowser",    errorInMethod);
+        loginProblem3Times         = messages.getNotNothingString("loginProblem3Times",         errorInMethod);
+        loginProblems              = messages.getNotNothingString("loginProblems",              errorInMethod);
+        loginProblemsAfter         = messages.getNotNothingString("loginProblemsAfter",         errorInMethod);
+        loginPublicAccess          = messages.getNotNothingString("loginPublicAccess",          errorInMethod);
+        LogOut                     = messages.getNotNothingString("LogOut",                     errorInMethod);
+        logout                     = messages.getNotNothingString("logout",                     errorInMethod);
+        logoutOpenID               = messages.getNotNothingString("logoutOpenID",               errorInMethod);
+        logoutSuccess              = messages.getNotNothingString("logoutSuccess",              errorInMethod);
+        mag                        = messages.getNotNothingString("mag",                        errorInMethod);
+        magAxisX                   = messages.getNotNothingString("magAxisX",                   errorInMethod);
+        magAxisY                   = messages.getNotNothingString("magAxisY",                   errorInMethod);
+        magAxisColor               = messages.getNotNothingString("magAxisColor",               errorInMethod);
+        magAxisStickX              = messages.getNotNothingString("magAxisStickX",              errorInMethod);
+        magAxisStickY              = messages.getNotNothingString("magAxisStickY",              errorInMethod);
+        magAxisVectorX             = messages.getNotNothingString("magAxisVectorX",             errorInMethod);
+        magAxisVectorY             = messages.getNotNothingString("magAxisVectorY",             errorInMethod);
+        magAxisHelpGraphX          = messages.getNotNothingString("magAxisHelpGraphX",          errorInMethod);
+        magAxisHelpGraphY          = messages.getNotNothingString("magAxisHelpGraphY",          errorInMethod);
+        magAxisHelpMarkerColor     = messages.getNotNothingString("magAxisHelpMarkerColor",     errorInMethod);
+        magAxisHelpSurfaceColor    = messages.getNotNothingString("magAxisHelpSurfaceColor",    errorInMethod);
+        magAxisHelpStickX          = messages.getNotNothingString("magAxisHelpStickX",          errorInMethod);
+        magAxisHelpStickY          = messages.getNotNothingString("magAxisHelpStickY",          errorInMethod);
+        magAxisHelpMapX            = messages.getNotNothingString("magAxisHelpMapX",            errorInMethod);
+        magAxisHelpMapY            = messages.getNotNothingString("magAxisHelpMapY",            errorInMethod);
+        magAxisHelpVectorX         = messages.getNotNothingString("magAxisHelpVectorX",         errorInMethod);
+        magAxisHelpVectorY         = messages.getNotNothingString("magAxisHelpVectorY",         errorInMethod);
+        magAxisVarHelp             = messages.getNotNothingString("magAxisVarHelp",             errorInMethod);
+        magAxisVarHelpGrid         = messages.getNotNothingString("magAxisVarHelpGrid",         errorInMethod);
+        magConstraintHelp          = messages.getNotNothingString("magConstraintHelp",          errorInMethod);
+        magDocumentation           = messages.getNotNothingString("magDocumentation",           errorInMethod);
+        magDownload                = messages.getNotNothingString("magDownload",                errorInMethod);
+        magDownloadTooltip         = messages.getNotNothingString("magDownloadTooltip",         errorInMethod);
+        magFileType                = messages.getNotNothingString("magFileType",                errorInMethod);
+        magGraphType               = messages.getNotNothingString("magGraphType",               errorInMethod);
+        magGraphTypeTooltipGrid    = messages.getNotNothingString("magGraphTypeTooltipGrid",    errorInMethod);
+        magGraphTypeTooltipTable   = messages.getNotNothingString("magGraphTypeTooltipTable",   errorInMethod);
+        magGS                      = messages.getNotNothingString("magGS",                      errorInMethod);
+        magGSMarkerType            = messages.getNotNothingString("magGSMarkerType",            errorInMethod);
+        magGSSize                  = messages.getNotNothingString("magGSSize",                  errorInMethod);
+        magGSColor                 = messages.getNotNothingString("magGSColor",                 errorInMethod);
+        magGSColorBar              = messages.getNotNothingString("magGSColorBar",              errorInMethod);
+        magGSColorBarTooltip       = messages.getNotNothingString("magGSColorBarTooltip",       errorInMethod);
+        magGSContinuity            = messages.getNotNothingString("magGSContinuity",            errorInMethod);
+        magGSContinuityTooltip     = messages.getNotNothingString("magGSContinuityTooltip",     errorInMethod);
+        magGSScale                 = messages.getNotNothingString("magGSScale",                 errorInMethod);
+        magGSScaleTooltip          = messages.getNotNothingString("magGSScaleTooltip",          errorInMethod);
+        magGSMin                   = messages.getNotNothingString("magGSMin",                   errorInMethod);
+        magGSMinTooltip            = messages.getNotNothingString("magGSMinTooltip",            errorInMethod);
+        magGSMax                   = messages.getNotNothingString("magGSMax",                   errorInMethod);
+        magGSMaxTooltip            = messages.getNotNothingString("magGSMaxTooltip",            errorInMethod);
+        magGSNSections             = messages.getNotNothingString("magGSNSections",             errorInMethod);
+        magGSNSectionsTooltip      = messages.getNotNothingString("magGSNSectionsTooltip",      errorInMethod);
+        magGSLandMask              = messages.getNotNothingString("magGSLandMask",              errorInMethod);
+        magGSLandMaskTooltipGrid   = messages.getNotNothingString("magGSLandMaskTooltipGrid",   errorInMethod);
+        magGSLandMaskTooltipTable  = messages.getNotNothingString("magGSLandMaskTooltipTable",  errorInMethod);
+        magGSVectorStandard        = messages.getNotNothingString("magGSVectorStandard",        errorInMethod);
+        magGSVectorStandardTooltip = messages.getNotNothingString("magGSVectorStandardTooltip", errorInMethod);
+        magGSYAscendingTooltip     = messages.getNotNothingString("magGSYAscendingTooltip",     errorInMethod);
+        magGSYAxisMin              = messages.getNotNothingString("magGSYAxisMin",              errorInMethod);
+        magGSYAxisMax              = messages.getNotNothingString("magGSYAxisMax",              errorInMethod);
+        magGSYRangeMinTooltip      = messages.getNotNothingString("magGSYRangeMinTooltip",      errorInMethod); 
+        magGSYRangeMaxTooltip      = messages.getNotNothingString("magGSYRangeMaxTooltip",      errorInMethod);
+        magGSYRangeTooltip         = messages.getNotNothingString("magGSYRangeTooltip",         errorInMethod);        
+        magGSYScaleTooltip         = messages.getNotNothingString("magGSYScaleTooltip",         errorInMethod);        
+        magItemFirst               = messages.getNotNothingString("magItemFirst",               errorInMethod);
+        magItemPrevious            = messages.getNotNothingString("magItemPrevious",            errorInMethod);
+        magItemNext                = messages.getNotNothingString("magItemNext",                errorInMethod);
+        magItemLast                = messages.getNotNothingString("magItemLast",                errorInMethod);
+        magJust1Value              = messages.getNotNothingString("magJust1Value",              errorInMethod);
+        magRange                   = messages.getNotNothingString("magRange",                   errorInMethod);
+        magRangeTo                 = messages.getNotNothingString("magRangeTo",                 errorInMethod);
+        magRedraw                  = messages.getNotNothingString("magRedraw",                  errorInMethod);
+        magRedrawTooltip           = messages.getNotNothingString("magRedrawTooltip",           errorInMethod);
+        magTimeRange               = messages.getNotNothingString("magTimeRange",               errorInMethod);
+        magTimeRangeFirst          = messages.getNotNothingString("magTimeRangeFirst",          errorInMethod);
+        magTimeRangeBack           = messages.getNotNothingString("magTimeRangeBack",           errorInMethod);
+        magTimeRangeForward        = messages.getNotNothingString("magTimeRangeForward",        errorInMethod);
+        magTimeRangeLast           = messages.getNotNothingString("magTimeRangeLast",           errorInMethod);
+        magTimeRangeTooltip        = messages.getNotNothingString("magTimeRangeTooltip",        errorInMethod);
+        magTimeRangeTooltip2       = messages.getNotNothingString("magTimeRangeTooltip2",       errorInMethod);
+        magTimesVary               = messages.getNotNothingString("magTimesVary",               errorInMethod);
+        magViewUrl                 = messages.getNotNothingString("magViewUrl",                 errorInMethod);
+        magZoom                    = messages.getNotNothingString("magZoom",                    errorInMethod);
+        magZoomCenter              = messages.getNotNothingString("magZoomCenter",              errorInMethod);
+        magZoomCenterTooltip       = messages.getNotNothingString("magZoomCenterTooltip",       errorInMethod);
+        magZoomIn                  = messages.getNotNothingString("magZoomIn",                  errorInMethod);
+        magZoomInTooltip           = messages.getNotNothingString("magZoomInTooltip",           errorInMethod);
+        magZoomOut                 = messages.getNotNothingString("magZoomOut",                 errorInMethod);
+        magZoomOutTooltip          = messages.getNotNothingString("magZoomOutTooltip",          errorInMethod);
+        magZoomALittle             = messages.getNotNothingString("magZoomALittle",             errorInMethod);
+        magZoomData                = messages.getNotNothingString("magZoomData",                errorInMethod);
+        magZoomOutData             = messages.getNotNothingString("magZoomOutData",             errorInMethod);
+        magGridTooltip             = messages.getNotNothingString("magGridTooltip",             errorInMethod);
+        magTableTooltip            = messages.getNotNothingString("magTableTooltip",            errorInMethod);
+        Math2.memoryTooMuchData    = messages.getNotNothingString("memoryTooMuchData",          errorInMethod);
+        Math2.memoryArraySize      = messages.getNotNothingString("memoryArraySize",            errorInMethod);
+      Math2.memoryThanCurrentlySafe= messages.getNotNothingString("memoryThanCurrentlySafe",    errorInMethod);
+        Math2.memoryThanSafe       = messages.getNotNothingString("memoryThanSafe",             errorInMethod);
+        metadataDownload           = messages.getNotNothingString("metadataDownload",           errorInMethod);
+        moreInformation            = messages.getNotNothingString("moreInformation",            errorInMethod);
+        MustBe.THERE_IS_NO_DATA    = messages.getNotNothingString("MustBeThereIsNoData",        errorInMethod);
+        MustBe.NotNull             = messages.getNotNothingString("MustBeNotNull",              errorInMethod);
+        MustBe.NotEmpty            = messages.getNotNothingString("MustBeNotEmpty",             errorInMethod);
+        MustBe.InternalError       = messages.getNotNothingString("MustBeInternalError",        errorInMethod);
+        MustBe.OutOfMemoryError    = messages.getNotNothingString("MustBeOutOfMemoryError",     errorInMethod);
+        nMatching1                 = messages.getNotNothingString("nMatching1",                 errorInMethod);
+        nMatching                  = messages.getNotNothingString("nMatching",                  errorInMethod);
+        nMatchingAlphabetical      = messages.getNotNothingString("nMatchingAlphabetical",      errorInMethod);
+        nMatchingMostRelevant      = messages.getNotNothingString("nMatchingMostRelevant",      errorInMethod);
+        nMatchingPage              = messages.getNotNothingString("nMatchingPage",              errorInMethod);
+        nMatchingCurrent           = messages.getNotNothingString("nMatchingCurrent",           errorInMethod);
+        noDataFixedValue           = messages.getNotNothingString("noDataFixedValue",           errorInMethod);
+        noDataNoLL                 = messages.getNotNothingString("noDataNoLL",                 errorInMethod);
+        noDatasetWith              = messages.getNotNothingString("noDatasetWith",              errorInMethod);
+        noPage1                    = messages.getNotNothingString("noPage1",                    errorInMethod);
+        noPage2                    = messages.getNotNothingString("noPage2",                    errorInMethod);
+        notAllowed                 = messages.getNotNothingString("notAllowed",                 errorInMethod);
+        notAuthorized              = messages.getNotNothingString("notAuthorized",              errorInMethod);
+        notAuthorizedForData       = messages.getNotNothingString("notAuthorizedForData",       errorInMethod);
+        notAvailable               = messages.getNotNothingString("notAvailable",               errorInMethod);
+        noXxx                      = messages.getNotNothingString("noXxx",                      errorInMethod);
+        noXxxBecause               = messages.getNotNothingString("noXxxBecause",               errorInMethod);
+        noXxxBecause2              = messages.getNotNothingString("noXxxBecause2",              errorInMethod);
+        noXxxNotActive             = messages.getNotNothingString("noXxxNotActive",             errorInMethod);
+        noXxxNoAxis1               = messages.getNotNothingString("noXxxNoAxis1",               errorInMethod);
+        noXxxNoCdmDataType         = messages.getNotNothingString("noXxxNoCdmDataType",         errorInMethod);
+        noXxxNoColorBar            = messages.getNotNothingString("noXxxNoColorBar",            errorInMethod);
+        noXxxNoLL                  = messages.getNotNothingString("noXxxNoLL",                  errorInMethod);
+        noXxxNoLLEvenlySpaced      = messages.getNotNothingString("noXxxNoLLEvenlySpaced",      errorInMethod);
+        noXxxNoLLGt1               = messages.getNotNothingString("noXxxNoLLGt1",               errorInMethod);
+        noXxxNoLLT                 = messages.getNotNothingString("noXxxNoLLT",                 errorInMethod);
+        noXxxNoLonIn180            = messages.getNotNothingString("noXxxNoLonIn180",            errorInMethod);
+        noXxxNoNonString           = messages.getNotNothingString("noXxxNoNonString",           errorInMethod);
+        noXxxNo2NonString          = messages.getNotNothingString("noXxxNo2NonString",          errorInMethod);
+        noXxxNoStation             = messages.getNotNothingString("noXxxNoStation",             errorInMethod);
+        noXxxNoStationID           = messages.getNotNothingString("noXxxNoStationID",           errorInMethod);
+        noXxxNoSubsetVariables     = messages.getNotNothingString("noXxxNoSubsetVariables",     errorInMethod);
+        noXxxNoOLLSubsetVariables  = messages.getNotNothingString("noXxxNoOLLSubsetVariables",  errorInMethod);
+        noXxxNoMinMax              = messages.getNotNothingString("noXxxNoMinMax",              errorInMethod);
+        noXxxItsGridded            = messages.getNotNothingString("noXxxItsGridded",            errorInMethod);
+        noXxxItsTabular            = messages.getNotNothingString("noXxxItsTabular",            errorInMethod);
+        optional                   = messages.getNotNothingString("optional",                   errorInMethod);
+        options                    = messages.getNotNothingString("options",                    errorInMethod);
+        orRefineSearchWith         = messages.getNotNothingString("orRefineSearchWith",         errorInMethod);
         orRefineSearchWith += " ";
-        orSearchWith               = messages.getNotNothingString("orSearchWith",               "");
+        orSearchWith               = messages.getNotNothingString("orSearchWith",               errorInMethod);
         orSearchWith += " ";
-        orComma                    = messages.getNotNothingString("orComma",                    "");
+        orComma                    = messages.getNotNothingString("orComma",                    errorInMethod);
         orComma += " ";
-        palettes                   = String2.split(messages.getNotNothingString("palettes",     ""), ',');
+        outOfDateHtml              = messages.getNotNothingString("outOfDateHtml",              errorInMethod);
+        palettes                   = String2.split(messages.getNotNothingString("palettes",     errorInMethod), ',');
         palettes0 = new String[palettes.length + 1];
         palettes0[0] = "";
         System.arraycopy(palettes, 0, palettes0, 1, palettes.length);
-        patientData                = messages.getNotNothingString("patientData",                "");
-        patientYourGraph           = messages.getNotNothingString("patientYourGraph",           "");
-        pdfWidths                  = String2.toIntArray(String2.split(messages.getNotNothingString("pdfWidths",    ""), ','));
-        pdfHeights                 = String2.toIntArray(String2.split(messages.getNotNothingString("pdfHeights",   ""), ','));
-        pickADataset               = messages.getNotNothingString("pickADataset",               "");
-        protocolSearchHtml         = messages.getNotNothingString("protocolSearchHtml",         "");
-        protocolSearch2Html        = messages.getNotNothingString("protocolSearch2Html",        "");
-        protocolClick              = messages.getNotNothingString("protocolClick",              "");
-        queryError                 = messages.getNotNothingString("queryError",                 "") + 
-                                     " ";
+        patientData                = messages.getNotNothingString("patientData",                errorInMethod);
+        patientYourGraph           = messages.getNotNothingString("patientYourGraph",           errorInMethod);
+        pdfWidths                  = String2.toIntArray(String2.split(messages.getNotNothingString("pdfWidths",  errorInMethod), ','));
+        pdfHeights                 = String2.toIntArray(String2.split(messages.getNotNothingString("pdfHeights", errorInMethod), ','));
+        percentEncode              = messages.getNotNothingString("percentEncode",              errorInMethod);
+        pickADataset               = messages.getNotNothingString("pickADataset",               errorInMethod);
+        protocolSearchHtml         = messages.getNotNothingString("protocolSearchHtml",         errorInMethod);
+        protocolSearch2Html        = messages.getNotNothingString("protocolSearch2Html",        errorInMethod);
+        protocolClick              = messages.getNotNothingString("protocolClick",              errorInMethod);
+        queryError                 = messages.getNotNothingString("queryError",                 errorInMethod) + " ";
         Table.QUERY_ERROR = queryError;
-        queryError180              = messages.getNotNothingString("queryError180",              "");
-        queryError1Value           = messages.getNotNothingString("queryError1Value",           "");
-        queryError1Var             = messages.getNotNothingString("queryError1Var",             "");
-        queryError2Var             = messages.getNotNothingString("queryError2Var",             "");
-        queryErrorActualRange      = messages.getNotNothingString("queryErrorActualRange",      "");
-        queryErrorAdjusted         = messages.getNotNothingString("queryErrorAdjusted",         "");
-        queryErrorAscending        = messages.getNotNothingString("queryErrorAscending",        "");
-        queryErrorConstraintNaN    = messages.getNotNothingString("queryErrorConstraintNaN",    "");
-        queryErrorEqualSpacing     = messages.getNotNothingString("queryErrorEqualSpacing",     "");
-        queryErrorExpectedAt       = messages.getNotNothingString("queryErrorExpectedAt",       "");
-        queryErrorFileType         = messages.getNotNothingString("queryErrorFileType",         "");
-        queryErrorInvalid          = messages.getNotNothingString("queryErrorInvalid",          "");
-        queryErrorLL               = messages.getNotNothingString("queryErrorLL",               "");
-        queryErrorLLGt1            = messages.getNotNothingString("queryErrorLLGt1",            "");
-        queryErrorLLT              = messages.getNotNothingString("queryErrorLLT",              "");
-        queryErrorNeverTrue        = messages.getNotNothingString("queryErrorNeverTrue",        "");
-        queryErrorNeverBothTrue    = messages.getNotNothingString("queryErrorNeverBothTrue",    "");
-        queryErrorNotAxis          = messages.getNotNothingString("queryErrorNotAxis",          "");
-        queryErrorNotExpectedAt    = messages.getNotNothingString("queryErrorNotExpectedAt",    "");
-        queryErrorNotFoundAfter    = messages.getNotNothingString("queryErrorNotFoundAfter",    "");
-        queryErrorOccursTwice      = messages.getNotNothingString("queryErrorOccursTwice",      "");
-        queryErrorOneOrderBy       = messages.getNotNothingString("queryErrorOneOrderBy",       "");
-        queryErrorOrderByVariable  = messages.getNotNothingString("queryErrorOrderByVariable",  "");
-        queryErrorUnknownVariable  = messages.getNotNothingString("queryErrorUnknownVariable",  "");
+        queryError180              = messages.getNotNothingString("queryError180",              errorInMethod);
+        queryError1Value           = messages.getNotNothingString("queryError1Value",           errorInMethod);
+        queryError1Var             = messages.getNotNothingString("queryError1Var",             errorInMethod);
+        queryError2Var             = messages.getNotNothingString("queryError2Var",             errorInMethod);
+        queryErrorActualRange      = messages.getNotNothingString("queryErrorActualRange",      errorInMethod);
+        queryErrorAdjusted         = messages.getNotNothingString("queryErrorAdjusted",         errorInMethod);
+        queryErrorAscending        = messages.getNotNothingString("queryErrorAscending",        errorInMethod);
+        queryErrorConstraintNaN    = messages.getNotNothingString("queryErrorConstraintNaN",    errorInMethod);
+        queryErrorEqualSpacing     = messages.getNotNothingString("queryErrorEqualSpacing",     errorInMethod);
+        queryErrorExpectedAt       = messages.getNotNothingString("queryErrorExpectedAt",       errorInMethod);
+        queryErrorFileType         = messages.getNotNothingString("queryErrorFileType",         errorInMethod);
+        queryErrorInvalid          = messages.getNotNothingString("queryErrorInvalid",          errorInMethod);
+        queryErrorLL               = messages.getNotNothingString("queryErrorLL",               errorInMethod);
+        queryErrorLLGt1            = messages.getNotNothingString("queryErrorLLGt1",            errorInMethod);
+        queryErrorLLT              = messages.getNotNothingString("queryErrorLLT",              errorInMethod);
+        queryErrorNeverTrue        = messages.getNotNothingString("queryErrorNeverTrue",        errorInMethod);
+        queryErrorNeverBothTrue    = messages.getNotNothingString("queryErrorNeverBothTrue",    errorInMethod);
+        queryErrorNotAxis          = messages.getNotNothingString("queryErrorNotAxis",          errorInMethod);
+        queryErrorNotExpectedAt    = messages.getNotNothingString("queryErrorNotExpectedAt",    errorInMethod);
+        queryErrorNotFoundAfter    = messages.getNotNothingString("queryErrorNotFoundAfter",    errorInMethod);
+        queryErrorOccursTwice      = messages.getNotNothingString("queryErrorOccursTwice",      errorInMethod);
+        Table.ORDER_BY_CLOSEST_ERROR=messages.getNotNothingString("queryErrorOrderByClosest",   errorInMethod);
+        Table.ORDER_BY_LIMIT_ERROR = messages.getNotNothingString("queryErrorOrderByLimit",     errorInMethod);
+        Table.ORDER_BY_MEAN_ERROR  = messages.getNotNothingString("queryErrorOrderByMean",      errorInMethod);
+        queryErrorOrderByVariable  = messages.getNotNothingString("queryErrorOrderByVariable",  errorInMethod);
+        queryErrorUnknownVariable  = messages.getNotNothingString("queryErrorUnknownVariable",  errorInMethod);
 
-        queryErrorGrid1Axis        = messages.getNotNothingString("queryErrorGrid1Axis",        "");
-        queryErrorGridAmp          = messages.getNotNothingString("queryErrorGridAmp",          "");
-        queryErrorGridDiagnostic   = messages.getNotNothingString("queryErrorGridDiagnostic",   "");
-        queryErrorGridBetween      = messages.getNotNothingString("queryErrorGridBetween",      "");
-        queryErrorGridLessMin      = messages.getNotNothingString("queryErrorGridLessMin",      "");
-        queryErrorGridGreaterMax   = messages.getNotNothingString("queryErrorGridGreaterMax",   "");
-        queryErrorGridMissing      = messages.getNotNothingString("queryErrorGridMissing",      "");
-        queryErrorGridNoAxisVar    = messages.getNotNothingString("queryErrorGridNoAxisVar",    "");
-        queryErrorGridNoDataVar    = messages.getNotNothingString("queryErrorGridNoDataVar",    "");
-        queryErrorGridNotIdentical = messages.getNotNothingString("queryErrorGridNotIdentical", "");
-        queryErrorGridSLessS       = messages.getNotNothingString("queryErrorGridSLessS",       "");
-        queryErrorLastEndP         = messages.getNotNothingString("queryErrorLastEndP",         "");
-        queryErrorLastExpected     = messages.getNotNothingString("queryErrorLastExpected",     "");
-        queryErrorLastUnexpected   = messages.getNotNothingString("queryErrorLastUnexpected",   "");
-        queryErrorLastPMInvalid    = messages.getNotNothingString("queryErrorLastPMInvalid",    "");
-        queryErrorLastPMInteger    = messages.getNotNothingString("queryErrorLastPMInteger",    "");        
-        rangesFromTo               = messages.getNotNothingString("rangesFromTo",               "");
-        requestFormatExamplesHtml  = messages.getNotNothingString("requestFormatExamplesHtml",  "");
-        resetTheForm               = messages.getNotNothingString("resetTheForm",               "");
-        resetTheFormWas            = messages.getNotNothingString("resetTheFormWas",            "");
-        resourceNotFound           = messages.getNotNothingString("resourceNotFound",           "");
-        resultsFormatExamplesHtml  = messages.getNotNothingString("resultsFormatExamplesHtml",  "");
-        resultsOfSearchFor         = messages.getNotNothingString("resultsOfSearchFor",         "");
-        restfulInformationFormats  = messages.getNotNothingString("restfulInformationFormats",  "");
-        restfulViaService          = messages.getNotNothingString("restfulViaService",          "");
-        rows                       = messages.getNotNothingString("rows",                       "");
-        searchTitle                = messages.getNotNothingString("searchTitle",                "");
-        searchDoFullTextHtml       = messages.getNotNothingString("searchDoFullTextHtml",       "");
-        searchFullTextHtml         = messages.getNotNothingString("searchFullTextHtml",         "");
-        searchButton               = messages.getNotNothingString("searchButton",               "");
-        searchClickTip             = messages.getNotNothingString("searchClickTip",             "");
-        searchHintsHtml            = messages.getNotNothingString("searchHintsHtml",            "");
-        searchHintsLuceneHtml      = messages.getNotNothingString("searchHintsLuceneHtml",      "");
-        searchHintsOriginalHtml    = messages.getNotNothingString("searchHintsOriginalHtml",    "");
-        searchNotAvailable         = messages.getNotNothingString("searchNotAvailable",         "");
-        searchTip                  = messages.getNotNothingString("searchTip",                  "");
-        searchSpelling             = messages.getNotNothingString("searchSpelling",             "");
-        searchFewerWords           = messages.getNotNothingString("searchFewerWords",           "");
-        searchWithQuery            = messages.getNotNothingString("searchWithQuery",            "");
-        selectNext                 = messages.getNotNothingString("selectNext",                 "");
-        selectPrevious             = messages.getNotNothingString("selectPrevious",             "");
-        seeProtocolDocumentation   = messages.getNotNothingString("seeProtocolDocumentation",   "");
-        sosDescriptionHtml         = messages.getNotNothingString("sosDescriptionHtml",         "");
-        sosLongDescriptionHtml     = messages.getNotNothingString("sosLongDescriptionHtml",     ""); 
-        ssUse                      = messages.getNotNothingString("ssUse",                      "");
-        ssBePatient                = messages.getNotNothingString("ssBePatient",                "");
-        ssInstructionsHtml         = messages.getNotNothingString("ssInstructionsHtml",         "");
-        standardShortDescriptionHtml=messages.getNotNothingString("standardShortDescriptionHtml","");
-        standardLicense            = messages.getNotNothingString("standardLicense",            "");
-        standardContact            = messages.getNotNothingString("standardContact",            "");
-        standardDataLicenses       = messages.getNotNothingString("standardDataLicenses",       "");
-        standardDisclaimerOfExternalLinks=messages.getNotNothingString("standardDisclaimerOfExternalLinks", "");
-        standardDisclaimerOfEndorsement=messages.getNotNothingString("standardDisclaimerOfEndorsement",            "");
-        standardGeneralDisclaimer  = messages.getNotNothingString("standardGeneralDisclaimer",  "");
-        standardPrivacyPolicy      = messages.getNotNothingString("standardPrivacyPolicy",      "");
-        submit                     = messages.getNotNothingString("submit",                     "");
-        submitTooltip              = messages.getNotNothingString("submitTooltip",              "");
-        subscriptionsTitle         = messages.getNotNothingString("subscriptionsTitle",         "");
-        subscriptionOptions        = messages.getNotNothingString("subscriptionOptions",        "");
-        subscriptionAdd            = messages.getNotNothingString("subscriptionAdd",            "");
-        subscriptionValidate       = messages.getNotNothingString("subscriptionValidate",       "");
-        subscriptionList           = messages.getNotNothingString("subscriptionList",           "");
-        subscriptionRemove         = messages.getNotNothingString("subscriptionRemove",         "");
-        subscriptionHtml           = messages.getNotNothingString("subscriptionHtml",           "");
-        subscription2Html          = messages.getNotNothingString("subscription2Html",          "");
-        subscriptionAbuse          = messages.getNotNothingString("subscriptionAbuse",          "");
-        subscriptionAddError       = messages.getNotNothingString("subscriptionAddError",       "");
-        subscriptionAddHtml        = messages.getNotNothingString("subscriptionAddHtml",        "");
-        subscriptionAdd2           = messages.getNotNothingString("subscriptionAdd2",           "");
-        subscriptionAddSuccess     = messages.getNotNothingString("subscriptionAddSuccess",     "");
-        subscriptionEmail          = messages.getNotNothingString("subscriptionEmail",          "");
-        subscriptionEmailInvalid   = messages.getNotNothingString("subscriptionEmailInvalid",   "");
-        subscriptionEmailTooLong   = messages.getNotNothingString("subscriptionEmailTooLong",   "");
-        subscriptionEmailUnspecified=messages.getNotNothingString("subscriptionEmailUnspecified","");
-        subscriptionIDInvalid      = messages.getNotNothingString("subscriptionIDInvalid",      "");
-        subscriptionIDTooLong      = messages.getNotNothingString("subscriptionIDTooLong",      "");
-        subscriptionIDUnspecified  = messages.getNotNothingString("subscriptionIDUnspecified",  "");
-        subscriptionKeyInvalid     = messages.getNotNothingString("subscriptionKeyInvalid",     "");
-        subscriptionKeyUnspecified = messages.getNotNothingString("subscriptionKeyUnspecified", "");
-        subscriptionListError      = messages.getNotNothingString("subscriptionListError",      "");
-        subscriptionListHtml       = messages.getNotNothingString("subscriptionListHtml",       "");
-        subscriptionListSuccess    = messages.getNotNothingString("subscriptionListSuccess",    "");
-        subscriptionRemoveError    = messages.getNotNothingString("subscriptionRemoveError",    "");
-        subscriptionRemoveHtml     = messages.getNotNothingString("subscriptionRemoveHtml",     "");
-        subscriptionRemove2        = messages.getNotNothingString("subscriptionRemove2",        "");
-        subscriptionRemoveSuccess  = messages.getNotNothingString("subscriptionRemoveSuccess",  "");
-        subscriptionRSS            = messages.getNotNothingString("subscriptionRSS",            "");
-        subscriptionsNotAvailable  = messages.getNotNothingString("subscriptionsNotAvailable",  "");
-        subscriptionUrlHtml        = messages.getNotNothingString("subscriptionUrlHtml",        "");
-        subscriptionUrlInvalid     = messages.getNotNothingString("subscriptionUrlInvalid",     "");
-        subscriptionUrlTooLong     = messages.getNotNothingString("subscriptionUrlTooLong",     "");
-        subscriptionValidateError  = messages.getNotNothingString("subscriptionValidateError",  "");
-        subscriptionValidateHtml   = messages.getNotNothingString("subscriptionValidateHtml",   "");
-        subscriptionValidateSuccess= messages.getNotNothingString("subscriptionValidateSuccess","");
-        subset                     = messages.getNotNothingString("subset",                     "");
-        subsetSelect               = messages.getNotNothingString("subsetSelect",               "");
-        subsetNMatching            = messages.getNotNothingString("subsetNMatching",            "");
-        subsetInstructions         = messages.getNotNothingString("subsetInstructions",         "");
-        subsetOption               = messages.getNotNothingString("subsetOption",               "");
-        subsetOptions              = messages.getNotNothingString("subsetOptions",              "");
-        subsetRefineMapDownload    = messages.getNotNothingString("subsetRefineMapDownload",    "");
-        subsetRefineSubsetDownload = messages.getNotNothingString("subsetRefineSubsetDownload", "");
-        subsetClickResetClosest    = messages.getNotNothingString("subsetClickResetClosest",    "");
-        subsetClickResetLL         = messages.getNotNothingString("subsetClickResetLL",         "");
-        subsetMetadata             = messages.getNotNothingString("subsetMetadata",             "");
-        subsetCount                = messages.getNotNothingString("subsetCount",                "");
-        subsetPercent              = messages.getNotNothingString("subsetPercent",              "");
-        subsetViewSelect           = messages.getNotNothingString("subsetViewSelect",           "");
-        subsetViewSelectDistinctCombos= messages.getNotNothingString("subsetViewSelectDistinctCombos","");
-        subsetViewSelectRelatedCounts = messages.getNotNothingString("subsetViewSelectRelatedCounts", "");
-        subsetWhen                 = messages.getNotNothingString("subsetWhen",                 "");
-        subsetWhenNoConstraints    = messages.getNotNothingString("subsetWhenNoConstraints",    "");
-        subsetWhenCounts           = messages.getNotNothingString("subsetWhenCounts",           "");
-        subsetComboClickSelect     = messages.getNotNothingString("subsetComboClickSelect",     "");
-        subsetNVariableCombos      = messages.getNotNothingString("subsetNVariableCombos",      "");
-        subsetShowingAllRows       = messages.getNotNothingString("subsetShowingAllRows",       "");
-        subsetShowingNRows         = messages.getNotNothingString("subsetShowingNRows",         "");
-        subsetChangeShowing        = messages.getNotNothingString("subsetChangeShowing",        "");
-        subsetNRowsRelatedData     = messages.getNotNothingString("subsetNRowsRelatedData",     "");
-        subsetViewRelatedChange    = messages.getNotNothingString("subsetViewRelatedChange",    "");
-        subsetTotalCount           = messages.getNotNothingString("subsetTotalCount",           "");
-        subsetView                 = messages.getNotNothingString("subsetView",                 "");
-        subsetViewCheck            = messages.getNotNothingString("subsetViewCheck",            "");
-        subsetViewCheck1           = messages.getNotNothingString("subsetViewCheck1",           "");
-        subsetViewDistinctMap      = messages.getNotNothingString("subsetViewDistinctMap",      "");
-        subsetViewRelatedMap       = messages.getNotNothingString("subsetViewRelatedMap",       "");
-        subsetViewDistinctDataCounts= messages.getNotNothingString("subsetViewDistinctDataCounts","");
-        subsetViewDistinctData     = messages.getNotNothingString("subsetViewDistinctData",     "");
-        subsetViewRelatedDataCounts= messages.getNotNothingString("subsetViewRelatedDataCounts","");
-        subsetViewRelatedData      = messages.getNotNothingString("subsetViewRelatedData",      "");
-        subsetViewDistinctMapTooltip       = messages.getNotNothingString("subsetViewDistinctMapTooltip",       "");
-        subsetViewRelatedMapTooltip        = messages.getNotNothingString("subsetViewRelatedMapTooltip",        "");
-        subsetViewDistinctDataCountsTooltip= messages.getNotNothingString("subsetViewDistinctDataCountsTooltip","");
-        subsetViewDistinctDataTooltip      = messages.getNotNothingString("subsetViewDistinctDataTooltip",      "");
-        subsetViewRelatedDataCountsTooltip = messages.getNotNothingString("subsetViewRelatedDataCountsTooltip", "");
-        subsetViewRelatedDataTooltip       = messages.getNotNothingString("subsetViewRelatedDataTooltip",       "");
-        subsetWarn                 = messages.getNotNothingString("subsetWarn",                 "");                    
-        subsetWarn10000            = messages.getNotNothingString("subsetWarn10000",            "");
-        subsetTooltip              = messages.getNotNothingString("subsetTooltip",              "");
-        subsetNotSetUp             = messages.getNotNothingString("subsetNotSetUp",             "");
-        subsetLongNotShown         = messages.getNotNothingString("subsetLongNotShown",         "");
+        queryErrorGrid1Axis        = messages.getNotNothingString("queryErrorGrid1Axis",        errorInMethod);
+        queryErrorGridAmp          = messages.getNotNothingString("queryErrorGridAmp",          errorInMethod);
+        queryErrorGridDiagnostic   = messages.getNotNothingString("queryErrorGridDiagnostic",   errorInMethod);
+        queryErrorGridBetween      = messages.getNotNothingString("queryErrorGridBetween",      errorInMethod);
+        queryErrorGridLessMin      = messages.getNotNothingString("queryErrorGridLessMin",      errorInMethod);
+        queryErrorGridGreaterMax   = messages.getNotNothingString("queryErrorGridGreaterMax",   errorInMethod);
+        queryErrorGridMissing      = messages.getNotNothingString("queryErrorGridMissing",      errorInMethod);
+        queryErrorGridNoAxisVar    = messages.getNotNothingString("queryErrorGridNoAxisVar",    errorInMethod);
+        queryErrorGridNoDataVar    = messages.getNotNothingString("queryErrorGridNoDataVar",    errorInMethod);
+        queryErrorGridNotIdentical = messages.getNotNothingString("queryErrorGridNotIdentical", errorInMethod);
+        queryErrorGridSLessS       = messages.getNotNothingString("queryErrorGridSLessS",       errorInMethod);
+        queryErrorLastEndP         = messages.getNotNothingString("queryErrorLastEndP",         errorInMethod);
+        queryErrorLastExpected     = messages.getNotNothingString("queryErrorLastExpected",     errorInMethod);
+        queryErrorLastUnexpected   = messages.getNotNothingString("queryErrorLastUnexpected",   errorInMethod);
+        queryErrorLastPMInvalid    = messages.getNotNothingString("queryErrorLastPMInvalid",    errorInMethod);
+        queryErrorLastPMInteger    = messages.getNotNothingString("queryErrorLastPMInteger",    errorInMethod);        
+        questionMarkImageFile      = messages.getNotNothingString("questionMarkImageFile",      errorInMethod);
+        questionMarkImageFile      =    setup.getString(          "questionMarkImageFile",      questionMarkImageFile); //optional
+        rangesFromTo               = messages.getNotNothingString("rangesFromTo",               errorInMethod);
+        requestFormatExamplesHtml  = messages.getNotNothingString("requestFormatExamplesHtml",  errorInMethod);
+        resetTheForm               = messages.getNotNothingString("resetTheForm",               errorInMethod);
+        resetTheFormWas            = messages.getNotNothingString("resetTheFormWas",            errorInMethod);
+        resourceNotFound           = messages.getNotNothingString("resourceNotFound",           errorInMethod);
+        resultsFormatExamplesHtml  = messages.getNotNothingString("resultsFormatExamplesHtml",  errorInMethod);
+        resultsOfSearchFor         = messages.getNotNothingString("resultsOfSearchFor",         errorInMethod);
+        restfulInformationFormats  = messages.getNotNothingString("restfulInformationFormats",  errorInMethod);
+        restfulViaService          = messages.getNotNothingString("restfulViaService",          errorInMethod);
+        rows                       = messages.getNotNothingString("rows",                       errorInMethod);
+        rssNo                      = messages.getNotNothingString("rssNo",                      errorInMethod);
+        searchTitle                = messages.getNotNothingString("searchTitle",                errorInMethod);
+        searchDoFullTextHtml       = messages.getNotNothingString("searchDoFullTextHtml",       errorInMethod);
+        searchFullTextHtml         = messages.getNotNothingString("searchFullTextHtml",         errorInMethod);
+        searchButton               = messages.getNotNothingString("searchButton",               errorInMethod);
+        searchClickTip             = messages.getNotNothingString("searchClickTip",             errorInMethod);
+        searchHintsLuceneTooltip   = messages.getNotNothingString("searchHintsLuceneTooltip",   errorInMethod);
+        searchHintsOriginalTooltip = messages.getNotNothingString("searchHintsOriginalTooltip", errorInMethod);
+        searchHintsTooltip         = messages.getNotNothingString("searchHintsTooltip",         errorInMethod);
+        searchNotAvailable         = messages.getNotNothingString("searchNotAvailable",         errorInMethod);
+        searchTip                  = messages.getNotNothingString("searchTip",                  errorInMethod);
+        searchSpelling             = messages.getNotNothingString("searchSpelling",             errorInMethod);
+        searchFewerWords           = messages.getNotNothingString("searchFewerWords",           errorInMethod);
+        searchWithQuery            = messages.getNotNothingString("searchWithQuery",            errorInMethod);
+        selectNext                 = messages.getNotNothingString("selectNext",                 errorInMethod);
+        selectPrevious             = messages.getNotNothingString("selectPrevious",             errorInMethod);
+        shiftXAllTheWayLeft        = messages.getNotNothingString("shiftXAllTheWayLeft",        errorInMethod);
+        shiftXLeft                 = messages.getNotNothingString("shiftXLeft",                 errorInMethod);
+        shiftXRight                = messages.getNotNothingString("shiftXRight",                errorInMethod);
+        shiftXAllTheWayRight       = messages.getNotNothingString("shiftXAllTheWayRight",       errorInMethod);
+        seeProtocolDocumentation   = messages.getNotNothingString("seeProtocolDocumentation",   errorInMethod);
+        sosDescriptionHtml         = messages.getNotNothingString("sosDescriptionHtml",         errorInMethod);
+        sosLongDescriptionHtml     = messages.getNotNothingString("sosLongDescriptionHtml",     errorInMethod); 
+        sparqlP01toP02pre          = messages.getNotNothingString("sparqlP01toP02pre",          errorInMethod); 
+        sparqlP01toP02post         = messages.getNotNothingString("sparqlP01toP02post",         errorInMethod); 
+        ssUse                      = messages.getNotNothingString("ssUse",                      errorInMethod);
+        ssUsePlain                 = XML.removeHTMLTags(ssUse);
+        ssBePatient                = messages.getNotNothingString("ssBePatient",                errorInMethod);
+        ssInstructionsHtml         = messages.getNotNothingString("ssInstructionsHtml",         errorInMethod);
 
-        theLongDescriptionHtml     = messages.getNotNothingString("theLongDescriptionHtml",     "");
-        Then                       = messages.getNotNothingString("Then",                       "");
-        unknownDatasetID           = messages.getNotNothingString("unknownDatasetID",           "");
-        unknownProtocol            = messages.getNotNothingString("unknownProtocol",            "");
-        unsupportedFileType        = messages.getNotNothingString("unsupportedFileType",        "");
-        viewAllDatasetsHtml        = messages.getNotNothingString("viewAllDatasetsHtml",        "");
-        waitThenTryAgain           = messages.getNotNothingString("waitThenTryAgain",           "");
+        statusHtml                 = messages.getNotNothingString("statusHtml",                 errorInMethod);
+        submit                     = messages.getNotNothingString("submit",                     errorInMethod);
+        submitTooltip              = messages.getNotNothingString("submitTooltip",              errorInMethod);
+        subscriptionsTitle         = messages.getNotNothingString("subscriptionsTitle",         errorInMethod);
+        subscriptionAdd            = messages.getNotNothingString("subscriptionAdd",            errorInMethod);
+        subscriptionValidate       = messages.getNotNothingString("subscriptionValidate",       errorInMethod);
+        subscriptionList           = messages.getNotNothingString("subscriptionList",           errorInMethod);
+        subscriptionRemove         = messages.getNotNothingString("subscriptionRemove",         errorInMethod);
+        subscription0Html          = messages.getNotNothingString("subscription0Html",          errorInMethod);
+        subscription1Html          = messages.getNotNothingString("subscription1Html",          errorInMethod);
+        subscription2Html          = messages.getNotNothingString("subscription2Html",          errorInMethod);
+        subscriptionAbuse          = messages.getNotNothingString("subscriptionAbuse",          errorInMethod);
+        subscriptionAddError       = messages.getNotNothingString("subscriptionAddError",       errorInMethod);
+        subscriptionAddHtml        = messages.getNotNothingString("subscriptionAddHtml",        errorInMethod);
+        subscriptionAdd2           = messages.getNotNothingString("subscriptionAdd2",           errorInMethod);
+        subscriptionAddSuccess     = messages.getNotNothingString("subscriptionAddSuccess",     errorInMethod);
+        subscriptionEmail          = messages.getNotNothingString("subscriptionEmail",          errorInMethod);
+        subscriptionEmailInvalid   = messages.getNotNothingString("subscriptionEmailInvalid",   errorInMethod);
+        subscriptionEmailTooLong   = messages.getNotNothingString("subscriptionEmailTooLong",   errorInMethod);
+        subscriptionEmailUnspecified=messages.getNotNothingString("subscriptionEmailUnspecified",errorInMethod);
+        subscriptionIDInvalid      = messages.getNotNothingString("subscriptionIDInvalid",      errorInMethod);
+        subscriptionIDTooLong      = messages.getNotNothingString("subscriptionIDTooLong",      errorInMethod);
+        subscriptionIDUnspecified  = messages.getNotNothingString("subscriptionIDUnspecified",  errorInMethod);
+        subscriptionKeyInvalid     = messages.getNotNothingString("subscriptionKeyInvalid",     errorInMethod);
+        subscriptionKeyUnspecified = messages.getNotNothingString("subscriptionKeyUnspecified", errorInMethod);
+        subscriptionListError      = messages.getNotNothingString("subscriptionListError",      errorInMethod);
+        subscriptionListHtml       = messages.getNotNothingString("subscriptionListHtml",       errorInMethod);
+        subscriptionListSuccess    = messages.getNotNothingString("subscriptionListSuccess",    errorInMethod);
+        subscriptionRemoveError    = messages.getNotNothingString("subscriptionRemoveError",    errorInMethod);
+        subscriptionRemoveHtml     = messages.getNotNothingString("subscriptionRemoveHtml",     errorInMethod);
+        subscriptionRemove2        = messages.getNotNothingString("subscriptionRemove2",        errorInMethod);
+        subscriptionRemoveSuccess  = messages.getNotNothingString("subscriptionRemoveSuccess",  errorInMethod);
+        subscriptionRSS            = messages.getNotNothingString("subscriptionRSS",            errorInMethod);
+        subscriptionsNotAvailable  = messages.getNotNothingString("subscriptionsNotAvailable",  errorInMethod);
+        subscriptionUrlHtml        = messages.getNotNothingString("subscriptionUrlHtml",        errorInMethod);
+        subscriptionUrlInvalid     = messages.getNotNothingString("subscriptionUrlInvalid",     errorInMethod);
+        subscriptionUrlTooLong     = messages.getNotNothingString("subscriptionUrlTooLong",     errorInMethod);
+        subscriptionValidateError  = messages.getNotNothingString("subscriptionValidateError",  errorInMethod);
+        subscriptionValidateHtml   = messages.getNotNothingString("subscriptionValidateHtml",   errorInMethod);
+        subscriptionValidateSuccess= messages.getNotNothingString("subscriptionValidateSuccess",errorInMethod);
+        subset                     = messages.getNotNothingString("subset",                     errorInMethod);
+        subsetSelect               = messages.getNotNothingString("subsetSelect",               errorInMethod);
+        subsetNMatching            = messages.getNotNothingString("subsetNMatching",            errorInMethod);
+        subsetInstructions         = messages.getNotNothingString("subsetInstructions",         errorInMethod);
+        subsetOption               = messages.getNotNothingString("subsetOption",               errorInMethod);
+        subsetOptions              = messages.getNotNothingString("subsetOptions",              errorInMethod);
+        subsetRefineMapDownload    = messages.getNotNothingString("subsetRefineMapDownload",    errorInMethod);
+        subsetRefineSubsetDownload = messages.getNotNothingString("subsetRefineSubsetDownload", errorInMethod);
+        subsetClickResetClosest    = messages.getNotNothingString("subsetClickResetClosest",    errorInMethod);
+        subsetClickResetLL         = messages.getNotNothingString("subsetClickResetLL",         errorInMethod);
+        subsetMetadata             = messages.getNotNothingString("subsetMetadata",             errorInMethod);
+        subsetCount                = messages.getNotNothingString("subsetCount",                errorInMethod);
+        subsetPercent              = messages.getNotNothingString("subsetPercent",              errorInMethod);
+        subsetViewSelect           = messages.getNotNothingString("subsetViewSelect",           errorInMethod);
+        subsetViewSelectDistinctCombos= messages.getNotNothingString("subsetViewSelectDistinctCombos",errorInMethod);
+        subsetViewSelectRelatedCounts = messages.getNotNothingString("subsetViewSelectRelatedCounts", errorInMethod);
+        subsetWhen                 = messages.getNotNothingString("subsetWhen",                 errorInMethod);
+        subsetWhenNoConstraints    = messages.getNotNothingString("subsetWhenNoConstraints",    errorInMethod);
+        subsetWhenCounts           = messages.getNotNothingString("subsetWhenCounts",           errorInMethod);
+        subsetComboClickSelect     = messages.getNotNothingString("subsetComboClickSelect",     errorInMethod);
+        subsetNVariableCombos      = messages.getNotNothingString("subsetNVariableCombos",      errorInMethod);
+        subsetShowingAllRows       = messages.getNotNothingString("subsetShowingAllRows",       errorInMethod);
+        subsetShowingNRows         = messages.getNotNothingString("subsetShowingNRows",         errorInMethod);
+        subsetChangeShowing        = messages.getNotNothingString("subsetChangeShowing",        errorInMethod);
+        subsetNRowsRelatedData     = messages.getNotNothingString("subsetNRowsRelatedData",     errorInMethod);
+        subsetViewRelatedChange    = messages.getNotNothingString("subsetViewRelatedChange",    errorInMethod);
+        subsetTotalCount           = messages.getNotNothingString("subsetTotalCount",           errorInMethod);
+        subsetView                 = messages.getNotNothingString("subsetView",                 errorInMethod);
+        subsetViewCheck            = messages.getNotNothingString("subsetViewCheck",            errorInMethod);
+        subsetViewCheck1           = messages.getNotNothingString("subsetViewCheck1",           errorInMethod);
+        subsetViewDistinctMap      = messages.getNotNothingString("subsetViewDistinctMap",      errorInMethod);
+        subsetViewRelatedMap       = messages.getNotNothingString("subsetViewRelatedMap",       errorInMethod);
+        subsetViewDistinctDataCounts= messages.getNotNothingString("subsetViewDistinctDataCounts",errorInMethod);
+        subsetViewDistinctData     = messages.getNotNothingString("subsetViewDistinctData",     errorInMethod);
+        subsetViewRelatedDataCounts= messages.getNotNothingString("subsetViewRelatedDataCounts",errorInMethod);
+        subsetViewRelatedData      = messages.getNotNothingString("subsetViewRelatedData",      errorInMethod);
+        subsetViewDistinctMapTooltip       = messages.getNotNothingString("subsetViewDistinctMapTooltip",       errorInMethod);
+        subsetViewRelatedMapTooltip        = messages.getNotNothingString("subsetViewRelatedMapTooltip",        errorInMethod);
+        subsetViewDistinctDataCountsTooltip= messages.getNotNothingString("subsetViewDistinctDataCountsTooltip",errorInMethod);
+        subsetViewDistinctDataTooltip      = messages.getNotNothingString("subsetViewDistinctDataTooltip",      errorInMethod);
+        subsetViewRelatedDataCountsTooltip = messages.getNotNothingString("subsetViewRelatedDataCountsTooltip", errorInMethod);
+        subsetViewRelatedDataTooltip       = messages.getNotNothingString("subsetViewRelatedDataTooltip",       errorInMethod);
+        subsetWarn                 = messages.getNotNothingString("subsetWarn",                 errorInMethod);                    
+        subsetWarn10000            = messages.getNotNothingString("subsetWarn10000",            errorInMethod);
+        subsetTooltip              = messages.getNotNothingString("subsetTooltip",              errorInMethod);
+        subsetNotSetUp             = messages.getNotNothingString("subsetNotSetUp",             errorInMethod);
+        subsetLongNotShown         = messages.getNotNothingString("subsetLongNotShown",         errorInMethod);
+
+        tabledapVideoIntro         = messages.getNotNothingString("tabledapVideoIntro",         errorInMethod);
+        theLongDescriptionHtml     = messages.getNotNothingString("theLongDescriptionHtml",     errorInMethod);
+        Then                       = messages.getNotNothingString("Then",                       errorInMethod);
+        unknownDatasetID           = messages.getNotNothingString("unknownDatasetID",           errorInMethod);
+        unknownProtocol            = messages.getNotNothingString("unknownProtocol",            errorInMethod);
+        unsupportedFileType        = messages.getNotNothingString("unsupportedFileType",        errorInMethod);
+        String tStandardizeUdunits[] = String2.split(
+                                     messages.getNotNothingString("standardizeUdunits",         errorInMethod) + "\n", '\n'); // +\n\n since xml content is trimmed.
+        String tUcumToUdunits[]    = String2.split(
+                                     messages.getNotNothingString("ucumToUdunits",              errorInMethod) + "\n", '\n'); // +\n\n since xml content is trimmed.
+        String tUdunitsToUcum[]    = String2.split(
+                                     messages.getNotNothingString("udunitsToUcum",              errorInMethod) + "\n", '\n'); // +\n\n since xml content is trimmed.
+        String tUpdateUrls[]       = String2.split(
+                                     messages.getNotNothingString("updateUrls",                 errorInMethod) + "\n", '\n'); // +\n\n since xml content is trimmed.
+
+        updateUrlsSkipAttributes   = StringArray.arrayFromCSV(
+                                     messages.getNotNothingString("updateUrlsSkipAttributes",   errorInMethod));
+        viewAllDatasetsHtml        = messages.getNotNothingString("viewAllDatasetsHtml",        errorInMethod);
+        waitThenTryAgain           = messages.getNotNothingString("waitThenTryAgain",           errorInMethod);
         gov.noaa.pfel.erddap.dataset.WaitThenTryAgainException.waitThenTryAgain = waitThenTryAgain;
-        warning                    = messages.getNotNothingString("warning",                    "");
-        wcsDescriptionHtml         = messages.getNotNothingString("wcsDescriptionHtml",         "");
-        wcsLongDescriptionHtml     = messages.getNotNothingString("wcsLongDescriptionHtml",     ""); 
-        wmsDescriptionHtml         = messages.getNotNothingString("wmsDescriptionHtml",         "");
-        wmsInstructions            = messages.getNotNothingString("wmsInstructions",            ""); 
-        wmsLongDescriptionHtml     = messages.getNotNothingString("wmsLongDescriptionHtml",     ""); 
-        wmsManyDatasets            = messages.getNotNothingString("wmsManyDatasets",            ""); 
+        warning                    = messages.getNotNothingString("warning",                    errorInMethod);
+        wcsDescriptionHtml         = messages.getNotNothingString("wcsDescriptionHtml",         errorInMethod);
+        wcsLongDescriptionHtml     = messages.getNotNothingString("wcsLongDescriptionHtml",     errorInMethod); 
+        wmsDescriptionHtml         = messages.getNotNothingString("wmsDescriptionHtml",         errorInMethod);
+        wmsInstructions            = messages.getNotNothingString("wmsInstructions",            errorInMethod); 
+        wmsLongDescriptionHtml     = messages.getNotNothingString("wmsLongDescriptionHtml",     errorInMethod); 
+        wmsManyDatasets            = messages.getNotNothingString("wmsManyDatasets",            errorInMethod); 
+
+        zoomIn                     = messages.getNotNothingString("zoomIn",                     errorInMethod); 
+        zoomOut                    = messages.getNotNothingString("zoomOut",                    errorInMethod); 
+
+        standardShortDescriptionHtml = messages.getNotNothingString("standardShortDescriptionHtml",errorInMethod);
+        standardShortDescriptionHtml = String2.replaceAll(standardShortDescriptionHtml, "&convertTimeReference;", convertersActive? convertTimeReference : "");
+        standardShortDescriptionHtml = String2.replaceAll(standardShortDescriptionHtml, "&wmsManyDatasets;", wmsActive? wmsManyDatasets : "");
+        DEFAULT_commonStandardNames        = String2.canonical(StringArray.arrayFromCSV(
+                                             messages.getNotNothingString("DEFAULT_commonStandardNames",errorInMethod)));
+                commonStandardNames        = DEFAULT_commonStandardNames;
+        DEFAULT_standardLicense            = messages.getNotNothingString("standardLicense",            errorInMethod);
+                standardLicense            = setup.getString(             "standardLicense",            DEFAULT_standardLicense);
+        DEFAULT_standardContact            = messages.getNotNothingString("standardContact",            errorInMethod);
+                standardContact            = setup.getString(             "standardContact",            DEFAULT_standardContact);
+                standardContact            = String2.replaceAll(standardContact, "&adminEmail;", SSR.getSafeEmailAddress(adminEmail));
+        DEFAULT_standardDataLicenses       = messages.getNotNothingString("standardDataLicenses",       errorInMethod);
+                standardDataLicenses       = setup.getString(             "standardDataLicenses",       DEFAULT_standardDataLicenses);
+        DEFAULT_standardDisclaimerOfExternalLinks=messages.getNotNothingString("standardDisclaimerOfExternalLinks", errorInMethod);
+                standardDisclaimerOfExternalLinks=setup.getString(             "standardDisclaimerOfExternalLinks", DEFAULT_standardDisclaimerOfExternalLinks);
+        DEFAULT_standardDisclaimerOfEndorsement  =messages.getNotNothingString("standardDisclaimerOfEndorsement",   errorInMethod);
+                standardDisclaimerOfEndorsement  =setup.getString(             "standardDisclaimerOfEndorsement",   DEFAULT_standardDisclaimerOfEndorsement);
+        DEFAULT_standardGeneralDisclaimer  = messages.getNotNothingString("standardGeneralDisclaimer",  errorInMethod);
+                standardGeneralDisclaimer  = setup.getString(             "standardGeneralDisclaimer",  DEFAULT_standardGeneralDisclaimer);
+        DEFAULT_standardPrivacyPolicy      = messages.getNotNothingString("standardPrivacyPolicy",      errorInMethod);
+                standardPrivacyPolicy      = setup.getString(             "standardPrivacyPolicy",      DEFAULT_standardPrivacyPolicy);
+
+        DEFAULT_startHeadHtml              = messages.getNotNothingString("startHeadHtml5",           errorInMethod);
+                startHeadHtml              = setup.getString(             "startHeadHtml5",           DEFAULT_startHeadHtml);
+        DEFAULT_startBodyHtml              = messages.getNotNothingString("startBodyHtml5",           errorInMethod);
+                startBodyHtml              = setup.getString(             "startBodyHtml5",           DEFAULT_startBodyHtml);
+        ampLoginInfoPo = startBodyHtml.indexOf(ampLoginInfo); 
+        DEFAULT_theShortDescriptionHtml    = messages.getNotNothingString("theShortDescriptionHtml",  errorInMethod);
+                theShortDescriptionHtml    = setup.getString(             "theShortDescriptionHtml",  DEFAULT_theShortDescriptionHtml);
+                theShortDescriptionHtml    = String2.replaceAll(theShortDescriptionHtml, "[standardShortDescriptionHtml]", standardShortDescriptionHtml);
+                theShortDescriptionHtml    = String2.replaceAll(theShortDescriptionHtml, "&requestFormatExamplesHtml;",    requestFormatExamplesHtml);
+        DEFAULT_endBodyHtml                = messages.getNotNothingString("endBodyHtml5",             errorInMethod);
+                endBodyHtml                = setup.getString(             "endBodyHtml5",             DEFAULT_endBodyHtml);
+                endBodyHtml                = String2.replaceAll(endBodyHtml, "&erddapVersion;", erddapVersion);
+        //ensure HTML5
+        Test.ensureTrue(startHeadHtml.startsWith("<!DOCTYPE html>"),
+            "<startHeadHtml> must start with \"<!DOCTYPE html>\".");
 
         Test.ensureEqual(imageWidths.length,  3, "imageWidths.length must be 3.");
         Test.ensureEqual(imageHeights.length, 3, "imageHeights.length must be 3.");
         Test.ensureEqual(pdfWidths.length,    3, "pdfWidths.length must be 3.");
         Test.ensureEqual(pdfHeights.length,   3, "pdfHeights.length must be 3.");
+
+        int nStandardizeUdunits = tStandardizeUdunits.length / 3;
+        for (int i = 0; i < nStandardizeUdunits; i++) {
+            int i3 = i * 3;
+            Test.ensureTrue( String2.isSomething(tStandardizeUdunits[ i3]),   "standardizeUdunits line #" + (i3 + 0) + " is empty.");
+            Test.ensureTrue( String2.isSomething(tStandardizeUdunits[ i3+1]), "standardizeUdunits line #" + (i3 + 1) + " is empty.");
+            Test.ensureEqual(tStandardizeUdunits[i3+2].trim(), "",            "standardizeUdunits line #" + (i3 + 2) + " isn't empty.");
+            standardizeUdunitsHM.put(
+                String2.canonical(tStandardizeUdunits[i3].trim()), 
+                String2.canonical(tStandardizeUdunits[i3 + 1].trim()));
+        }       
+
+        int nUcumToUdunits = tUcumToUdunits.length / 3;
+        for (int i = 0; i < nUcumToUdunits; i++) {
+            int i3 = i * 3;
+            Test.ensureTrue( String2.isSomething(tUcumToUdunits[ i3]),   "ucumToUdunits line #" + (i3 + 0) + " is empty.");
+            Test.ensureTrue( String2.isSomething(tUcumToUdunits[ i3+1]), "ucumToUdunits line #" + (i3 + 1) + " is empty.");
+            Test.ensureEqual(tUcumToUdunits[i3+2].trim(), "",            "ucumToUdunits line #" + (i3 + 2) + " isn't empty.");
+            ucumToUdunitsHM.put(
+                String2.canonical(tUcumToUdunits[i3].trim()), 
+                String2.canonical(tUcumToUdunits[i3 + 1].trim()));
+        }       
+
+        int nUdunitsToUcum = tUdunitsToUcum.length / 3;
+        for (int i = 0; i < nUdunitsToUcum; i++) {
+            int i3 = i * 3;
+            Test.ensureTrue( String2.isSomething(tUdunitsToUcum[ i3]),   "udunitsToUcum line #" + (i3 + 0) + " is empty.");
+            Test.ensureTrue( String2.isSomething(tUdunitsToUcum[ i3+1]), "udunitsToUcum line #" + (i3 + 1) + " is empty.");
+            Test.ensureEqual(tUdunitsToUcum[i3+2].trim(), "",            "udunitsToUcum line #" + (i3 + 2) + " isn't empty.");
+            udunitsToUcumHM.put(
+                String2.canonical(tUdunitsToUcum[i3].trim()), 
+                String2.canonical(tUdunitsToUcum[i3 + 1].trim()));
+        }       
+
+
+        int nUpdateUrls = tUpdateUrls.length / 3;
+        updateUrlsFrom = new String[nUpdateUrls];
+        updateUrlsTo   = new String[nUpdateUrls];
+        for (int i = 0; i < nUpdateUrls; i++) {
+            int i3 = i * 3;
+            updateUrlsFrom[i] = String2.canonical(tUpdateUrls[i3].trim());
+            updateUrlsTo[  i] = String2.canonical(tUpdateUrls[i3 + 1].trim());
+            Test.ensureTrue( String2.isSomething(tUpdateUrls[ i3]),   "updateUrls line #" + (i3 + 0) + " is empty.");
+            Test.ensureTrue( String2.isSomething(tUpdateUrls[ i3+1]), "updateUrls line #" + (i3 + 1) + " is empty.");
+            Test.ensureEqual(tUpdateUrls[i3+2].trim(), "",            "updateUrls line #" + (i3 + 0) + " isn't empty.");
+        }       
 
         for (int p = 0; p < palettes.length; p++) {
             String tName = fullPaletteDirectory + palettes[p] + ".cpt";
@@ -2415,32 +2890,71 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
                 "\" is listed in <palettes>, but there is no file " + tName);
         }
 
-        ampLoginInfoPo = startBodyHtml.indexOf(ampLoginInfo); 
-        //String2.log("ampLoginInfoPo=" + ampLoginInfoPo);
+        //try to create an nc4 file
+accessibleViaNC4 = ".nc4 is not yet supported.";
+/* DISABLED until nc4 is thread safe -- next netcdf-java
+        String testNc4Name = fullTestCacheDirectory + 
+            "testNC4_" + Calendar2.getCompactCurrentISODateTimeStringLocal() + ".nc";
+        //String2.log("testNc4Name=" + testNc4Name);
+        try {
+            NetcdfFileWriter nc = NetcdfFileWriter.createNew(
+                NetcdfFileWriter.Version.netcdf4, testNc4Name);
+            try {
+                Group rootGroup = nc.addGroup(null, "");
+                nc.setFill(false);
+            
+                int nRows = 4;
+                Dimension dimension  = nc.addDimension(rootGroup, "row", nRows);
+                Variable var = nc.addVariable(rootGroup, "myLongs", 
+                    DataType.getType(long.class), Arrays.asList(dimension)); 
 
-        searchHintsHtml = searchHintsHtml + "\n" +
-            (useLuceneSearchEngine? searchHintsLuceneHtml : searchHintsOriginalHtml);
+                //leave "define" mode
+                nc.create();  //error is thrown here if netcdf-c not found
+
+                //write the data
+                Array array = Array.factory(long.class, new int[]{nRows}, new long[]{0,1,2,3});
+                nc.write(var, new int[]{0}, array);
+
+                //if close throws Throwable, it is trouble
+                nc.close(); //it calls flush() and doesn't like flush called separately
+                nc = null;
+
+                //success!
+                accessibleViaNC4 = "";
+                String2.log(".nc4 files can be created in this ERDDAP installation.");
+
+            } finally {
+                try {if (nc != null) nc.close(); } catch (Throwable t3) {}
+            }
+
+        } catch (Throwable t) {
+            accessibleViaNC4 = String2.canonical(
+                MessageFormat.format(noXxxBecause2, ".nc4",
+                    resourceNotFound + " netcdf-c library"));
+            String2.log(t.toString() + "\n" + accessibleViaNC4);
+        }
+//        File2.delete(testNc4Name);
+*/
+
+        searchHintsTooltip = 
+            "<div class=\"standard_max_width\">" +
+            searchHintsTooltip + "\n" +
+            (useLuceneSearchEngine? searchHintsLuceneTooltip : searchHintsOriginalTooltip) +
+            "</div>";
         advancedSearchDirections = String2.replaceAll(advancedSearchDirections, "&searchButton;", searchButton);
 
-        //always non-https: url
-        convertOceanicAtmosphericAcronymsService      = MessageFormat.format(convertOceanicAtmosphericAcronymsService, erddapUrl) + "\n";
-        convertOceanicAtmosphericVariableNamesService = MessageFormat.format(convertOceanicAtmosphericVariableNamesService, erddapUrl) + "\n";
-        convertFipsCountyService = MessageFormat.format(convertFipsCountyService, erddapUrl) + "\n";
-        convertKeywordsService   = MessageFormat.format(convertKeywordsService,   erddapUrl) + "\n";
-        convertTimeNotes         = MessageFormat.format(convertTimeNotes,         erddapUrl, convertTimeUnitsHelp) + "\n";
-        convertTimeService       = MessageFormat.format(convertTimeService,       erddapUrl) + "\n"; 
-        convertUnitsFilter       = MessageFormat.format(convertUnitsFilter,       erddapUrl, units_standard) + "\n";
-        convertUnitsService      = MessageFormat.format(convertUnitsService,      erddapUrl) + "\n"; 
+        convertOceanicAtmosphericAcronymsService      = MessageFormat.format(convertOceanicAtmosphericAcronymsService, preferredErddapUrl) + "\n";
+        convertOceanicAtmosphericVariableNamesService = MessageFormat.format(convertOceanicAtmosphericVariableNamesService, preferredErddapUrl) + "\n";
+        convertFipsCountyService = MessageFormat.format(convertFipsCountyService, preferredErddapUrl) + "\n";
+        convertKeywordsService   = MessageFormat.format(convertKeywordsService,   preferredErddapUrl) + "\n";
+        convertTimeNotes         = MessageFormat.format(convertTimeNotes,         preferredErddapUrl, convertTimeUnitsHelp) + "\n";
+        convertTimeService       = MessageFormat.format(convertTimeService,       preferredErddapUrl) + "\n"; 
+        convertUnitsFilter       = MessageFormat.format(convertUnitsFilter,       preferredErddapUrl, units_standard) + "\n";
+        convertUnitsService      = MessageFormat.format(convertUnitsService,      preferredErddapUrl) + "\n"; 
+        convertURLsService       = MessageFormat.format(convertURLsService,       preferredErddapUrl) + "\n"; 
 
-        //standardContact is used by legal
         String tEmail = SSR.getSafeEmailAddress(adminEmail);
         filesDocumentation = String2.replaceAll(filesDocumentation, "&adminEmail;", tEmail); 
-        standardContact    = String2.replaceAll(standardContact,    "&adminEmail;", tEmail);
-        legal = String2.replaceAll(legal,"[standardContact]",                   standardContact                   + "\n\n"); 
-        legal = String2.replaceAll(legal,"[standardDataLicenses]",              standardDataLicenses              + "\n\n"); 
-        legal = String2.replaceAll(legal,"[standardDisclaimerOfExternalLinks]", standardDisclaimerOfExternalLinks + "\n\n"); 
-        legal = String2.replaceAll(legal,"[standardDisclaimerOfEndorsement]",   standardDisclaimerOfEndorsement   + "\n\n"); 
-        legal = String2.replaceAll(legal,"[standardPrivacyPolicy]",             standardPrivacyPolicy             + "\n\n"); 
 
         loginProblems      = String2.replaceAll(loginProblems,      "&cookiesHelp;",   cookiesHelp);
         loginProblems      = String2.replaceAll(loginProblems,      "&adminContact;",  adminContact()) + "\n\n"; 
@@ -2453,13 +2967,6 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
         theLongDescriptionHtml = String2.replaceAll(theLongDescriptionHtml, "&ssUse;", slideSorterActive? ssUse : "");
         theLongDescriptionHtml = String2.replaceAll(theLongDescriptionHtml, "&requestFormatExamplesHtml;", requestFormatExamplesHtml);
         theLongDescriptionHtml = String2.replaceAll(theLongDescriptionHtml, "&resultsFormatExamplesHtml;", resultsFormatExamplesHtml);
-
-        standardShortDescriptionHtml = String2.replaceAll(standardShortDescriptionHtml, "&convertTimeReference;", convertersActive? convertTimeReference : "");
-        standardShortDescriptionHtml = String2.replaceAll(standardShortDescriptionHtml, "&wmsManyDatasets;", wmsActive? wmsManyDatasets : "");
-
-        theShortDescriptionHtml = String2.replaceAll(theShortDescriptionHtml, "[standardShortDescriptionHtml]", standardShortDescriptionHtml);
-        theShortDescriptionHtml = String2.replaceAll(theShortDescriptionHtml, "&requestFormatExamplesHtml;",    requestFormatExamplesHtml);
-        theShortDescriptionHtml = String2.replaceAll(theShortDescriptionHtml, "&resultsFormatExamplesHtml;",    resultsFormatExamplesHtml);
 
         try {
             computerName = System.getenv("COMPUTERNAME");  //windows 
@@ -2475,6 +2982,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
         } catch (Throwable t2) {
             computerName = "";
         }
+
 
         //**************************************************************** 
         //other initialization
@@ -2501,10 +3009,81 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
     }
   
     /** 
+     * 'logLevel' determines how many diagnostic messages are sent to the log.txt file.
+     * It can be set to "warning" (the fewest messages), "info" (the default), or "all" (the most messages). 
+     * 
+     * @param logLevel invalid becomes "info"
+     * @return the valid value of logLevel
+     */
+    public static String setLogLevel(String logLevel) {
+        if (!String2.isSomething(logLevel))
+            logLevel = "info";
+        logLevel = logLevel.toLowerCase();  
+        if (!logLevel.equals("warning") &&
+            !logLevel.equals("all"))
+            logLevel = "info";
+
+        verbose = !logLevel.equals("warning");
+        AxisDataAccessor.verbose = verbose;
+        Boundaries.verbose = verbose;
+        Calendar2.verbose = verbose;
+        EDD.verbose = verbose;
+        EDV.verbose = verbose;      
+        EDUnits.verbose = verbose;
+        Erddap.verbose = verbose;
+        File2.verbose = verbose;
+        FileVisitorDNLS.reallyVerbose = reallyVerbose;
+        FilledMarkerRenderer.verbose = verbose;
+        gov.noaa.pfel.coastwatch.griddata.Grid.verbose = verbose;
+        GridDataAccessor.verbose = verbose;
+        GSHHS.verbose = verbose;
+        LoadDatasets.verbose = verbose;
+        NcHelper.verbose = verbose;
+        OutputStreamFromHttpResponse.verbose = verbose;
+        PathCartesianRenderer.verbose = verbose;
+        Projects.verbose = verbose;
+        //ResourceBundle2.verbose = verbose;
+        RunLoadDatasets.verbose = verbose;
+        SgtGraph.verbose = verbose;
+        SgtMap.verbose = verbose;
+        SgtUtil.verbose = verbose;
+        SSR.verbose = verbose;
+        Subscriptions.verbose = verbose;
+        Table.verbose = verbose;
+        TaskThread.verbose = verbose;
+
+        reallyVerbose = logLevel.equals("all");
+        AxisDataAccessor.reallyVerbose = reallyVerbose;
+        Boundaries.reallyVerbose = reallyVerbose;
+        Calendar2.reallyVerbose = reallyVerbose;
+        EDD.reallyVerbose = reallyVerbose;
+        EDV.reallyVerbose = reallyVerbose;
+        File2.reallyVerbose = reallyVerbose;
+        FileVisitorDNLS.reallyVerbose = reallyVerbose;
+        FilledMarkerRenderer.reallyVerbose = reallyVerbose;
+        GridDataAccessor.reallyVerbose = reallyVerbose;
+        GSHHS.reallyVerbose = reallyVerbose;
+        LoadDatasets.reallyVerbose = reallyVerbose;
+        NcHelper.reallyVerbose = reallyVerbose;
+        PathCartesianRenderer.reallyVerbose = reallyVerbose;
+        SgtGraph.reallyVerbose = reallyVerbose;
+        SgtMap.reallyVerbose = reallyVerbose;
+        SgtUtil.reallyVerbose = reallyVerbose;
+        SSR.reallyVerbose = reallyVerbose;
+        Subscriptions.reallyVerbose = reallyVerbose;
+        Table.reallyVerbose = reallyVerbose;
+        //Table.debug = reallyVerbose; //for debugging
+        TaskThread.reallyVerbose = reallyVerbose;
+
+        String2.log("logLevel=" + logLevel + ": verbose=" + verbose + " reallyVerbose=" + reallyVerbose);
+        return logLevel;
+    }
+
+    /** 
      * If loggedInAs is null, this returns baseUrl, else baseHttpsUrl
      *  (neither has slash at end).
      *
-     * @param loggedInAs
+     * @param loggedInAs   
      * @return If loggedInAs == null, this returns baseUrl, else baseHttpsUrl
      *  (neither has slash at end).
      */
@@ -2524,17 +3103,33 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
         return loggedInAs == null? erddapUrl : erddapHttpsUrl;  //works because of loggedInAsHttps
     }
 
-    /** 
-     * If publicAccess, this returns erddapUrl, else erddapHttpsUrl
-     *  (neither has slash at end).
+    /**
+     * This determines if a URL points to this server (even in development).
      *
-     * @param publicAccess
-     * @return If public access, this returns erddapUrl, else erddapHttpsUrl
-     *  (neither has slash at end).
+     * @param tUrl
      */
-    public static String publicErddapUrl(boolean publicAccess) {
-        return publicAccess? erddapUrl : erddapHttpsUrl;
+    public static boolean urlIsThisComputer(String tUrl) {
+        return 
+            tUrl.startsWith(baseUrl) ||  
+            tUrl.startsWith(preferredErddapUrl) ||  //will be baseHttpsUrl if active
+            urlIsLocalhost(tUrl);
     }
+
+    /**
+     * This determines if a URL points to this server (even in development).
+     *
+     * @param tUrl
+     */
+    public static boolean urlIsLocalhost(String tUrl) {
+        if (!tUrl.startsWith("http"))
+            return false;
+        return 
+            tUrl.startsWith("https://localhost") ||
+            tUrl.startsWith("http://localhost")  ||
+            tUrl.startsWith("https://127.0.0.1") ||
+            tUrl.startsWith("http://127.0.0.1");
+    }
+
 
     /** 
      * If loggedInAs is null, this returns imageDirUrl, else imageDirHttpsUrl
@@ -2550,7 +3145,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
 
     /** 
      * This returns the html needed to display the external.png image 
-     * with the warning that the link is to an external web site.
+     * with the warning that the link is to an external website.
      *
      * @param tErddapUrl
      * @return the html needed to display the external.png image and messages.
@@ -2559,8 +3154,30 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
         return 
             "<img\n" +
             "    src=\"" + tErddapUrl + "/images/external.png\" " +
-                "align=\"bottom\" alt=\"" + externalLink + "\"\n" + 
-            "    title=\"" + externalWebSite + "\"/>";
+                "alt=\"" + externalLink + "\"\n" + 
+            "    title=\"" + externalWebSite + "\">";
+    }
+
+    /** 
+     * This returns the html documentation for acceptEncoding.
+     *
+     * @param headingType  e.g., h2 or h3
+     * @param tErddapUrl
+     * @return the html needed to document acceptEncodig.
+     */
+    public static String acceptEncodingHtml(String headingType, String tErddapUrl) {
+        String s = String2.replaceAll(acceptEncodingHtml, "&headingType;",      headingType);
+        return     String2.replaceAll(s,                  "&externalLinkHtml;", externalLinkHtml(tErddapUrl));
+    }
+
+    /** 
+     * This returns the html documentation for the /files/ system.
+     *
+     * @param tErddapUrl
+     * @return the html needed to document acceptEncodig.
+     */
+    public static String filesDocumentation(String tErddapUrl) {
+        return String2.replaceAll(filesDocumentation, "&acceptEncodingHtml;", acceptEncodingHtml("h3", tErddapUrl));
     }
 
     /**
@@ -2584,7 +3201,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
      */
     public static String youAreHere(String loggedInAs, String protocol) {
         return 
-            "\n<h1>" + erddapHref(erddapUrl(loggedInAs)) +
+            "\n<h1 class=\"nowrap\">" + erddapHref(erddapUrl(loggedInAs)) +
             " &gt; " + protocol + "</h1>\n";
     }
 
@@ -2612,8 +3229,8 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
     public static String youAreHere(String loggedInAs, String protocol, String datasetID) {
         String tErddapUrl = erddapUrl(loggedInAs);
         return 
-            "\n<h1>" + erddapHref(tErddapUrl) +
-            "\n &gt; <a rel=\"contents\" rev=\"chapter\" " +
+            "\n<h1 class=\"nowrap\">" + erddapHref(tErddapUrl) +
+            "\n &gt; <a rel=\"contents\" " +
                 "href=\"" + XML.encodeAsHTMLAttribute(protocolUrl(tErddapUrl, protocol)) +
                 "\">" + protocol + "</a>" +
             "\n &gt; " + datasetID + "</h1>\n";
@@ -2631,7 +3248,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
     public static String youAreHereWithHelp(String loggedInAs, String protocol, String htmlHelp) {
         String tErddapUrl = erddapUrl(loggedInAs);
         return 
-            "\n<h1>" + erddapHref(tErddapUrl) + 
+            "\n<h1 class=\"nowrap\">" + erddapHref(tErddapUrl) + 
             "\n &gt; " + protocol + 
             "\n" + htmlTooltipImage(loggedInAs, htmlHelp) +
             "\n</h1>\n";
@@ -2652,8 +3269,8 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
 
         String tErddapUrl = erddapUrl(loggedInAs);
         return 
-            "\n<h1>" + erddapHref(tErddapUrl) + 
-            "\n &gt; <a rel=\"contents\" rev=\"chapter\" " +
+            "\n<h1 class=\"nowrap\">" + erddapHref(tErddapUrl) + 
+            "\n &gt; <a rel=\"contents\" " +
                 "href=\"" + XML.encodeAsHTMLAttribute(protocolUrl(tErddapUrl, protocol)) + 
                 "\">" + protocol + "</a>" +
             "\n &gt; " + datasetID + 
@@ -2692,7 +3309,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
      *
      * @param html  the html tooltip text, e.g., "Hi,<br>there!".
      *     It needs explicit br tags to set window width correctly.
-     *     For plain text, generate html from XML.encodeAsPreHTML(plainText, 100).
+     *     For plain text, generate html from XML.encodeAsPreHTML(plainText, 82).
      */
     public static String htmlTooltipImage(String loggedInAs, String html) {
         return HtmlWidgets.htmlTooltipImage(
@@ -2759,14 +3376,16 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
 
         String destType = 
             //long and char aren't handled by getAtomicType. I don't think ever used.
-            destinationDataTypeClass == long.class? "Int64" :   
-            destinationDataTypeClass == char.class? "UInt16" :  //???   
+            destinationDataTypeClass == long.class? "long" :   
+            destinationDataTypeClass == char.class? "char" :  //???   
             OpendapHelper.getAtomicType(destinationDataTypeClass);
 
         StringBuilder sb = OpendapHelper.dasToStringBuilder(
             destType + " " + destinationName, attributes, false); //false, do encoding below
         //String2.log("htmlTooltipImage sb=" + sb.toString());
-        return htmlTooltipImage(loggedInAs, XML.encodeAsPreHTML(sb.toString(), 100));
+        return htmlTooltipImage(loggedInAs, 
+            "<div class=\"standard_max_width\">" + XML.encodeAsPreHTML(sb.toString()) +
+            "</div>");
     }
 
 
@@ -2805,17 +3424,18 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
 
         //write the email to the log
         String emailAddressesCSSV = String2.toCSSVString(emailAddresses);
-        String localTime = Calendar2.getCurrentISODateTimeStringLocal();
+        String localTime = Calendar2.getCurrentISODateTimeStringLocalTZ();
         boolean logIt = !subject.startsWith(DONT_LOG_THIS_EMAIL);
         if (!logIt) 
             subject = subject.substring(DONT_LOG_THIS_EMAIL.length());
-        subject = (computerName.length() > 0? computerName + " ": "") + "ERDDAP: " + subject;
-
-        //Always note that email sent in log.
-        String2.log("Emailing \"" + subject + "\" to " + emailAddressesCSSV);
+        subject = (computerName.length() > 0? computerName + " ": "") + "ERDDAP: " + 
+            String2.replaceAll(subject, '\n', ' ');
 
         //almost always write to emailLog
         try {
+            //Always note that email sent in regular log.
+            String2.log("Emailing \"" + subject + "\" to " + emailAddressesCSSV);
+
             String date = localTime.substring(0, 10);
             if (!emailLogDate.equals(date) || emailLogFile == null) {
                 //update emailLogDate
@@ -2841,11 +3461,11 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
             emailLogFile.write(
 "\n==== BEGIN =====================================================================" +
 "\n     To: " + emailAddressesCSSV + 
-"\nSubject: " + subject +  //always non-https url
+"\nSubject: " + subject +  
 "\n   Date: " + localTime + 
 "\n--------------------------------------------------------------------------------" +
 (logIt?
-"\n" + erddapUrl + " reports:" +  //always non-https url
+"\n" + preferredErddapUrl + " reports:" +  
 "\n" + content : 
 "\n[CONFIDENTIAL]") +
 "\n==== END =======================================================================" +
@@ -2853,10 +3473,13 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
             emailLogFile.flush();
 
         } catch (Throwable t) {
-            String2.log(MustBe.throwable("Error: Writing to emailLog failed.", t));
+            try {
+                String2.log(MustBe.throwable("Error: Writing to emailLog failed.", t));
+            } catch (Throwable t2) {
+            }
             if (emailLogFile != null) {
                 try {emailLogFile.close(); 
-                } catch (Throwable t2) {
+                } catch (Throwable t3) {
                 }
                 emailLogFile = null;
             }
@@ -2887,10 +3510,12 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
                 SSR.sendEmail(emailSmtpHost, emailSmtpPort, emailUserName, 
                     emailPassword, emailProperties, emailFromAddress, emailAddressesCSSV, 
                     subject, 
-                    erddapUrl + " reports:\n" + content); //always non-https url
+                    preferredErddapUrl + " reports:\n" + content);
         } catch (Throwable t) {
             String msg = "Error: Sending email to " + emailAddressesCSSV + " failed";
-            String2.log(MustBe.throwable(msg, t));
+            try {String2.log(MustBe.throwable(msg, t));
+            } catch (Throwable t4) {
+            }
             errors = msg + ": " + t.toString() + "\n";
         }
 
@@ -3027,8 +3652,8 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
      * This adds the common, publicly accessible statistics to the StringBuilder.
      */
     public static void addIntroStatistics(StringBuilder sb) {
-        sb.append("Current time is " + Calendar2.getCurrentISODateTimeStringLocal()  + " local time\n");
-        sb.append("Startup was at  " + startupLocalDateTime + " local time\n");
+        sb.append("Current time is " + Calendar2.getCurrentISODateTimeStringLocalTZ()  + "\n");
+        sb.append("Startup was at  " + startupLocalDateTime + "\n");
         long loadTime = lastMajorLoadDatasetsStopTimeMillis - lastMajorLoadDatasetsStartTimeMillis;
         sb.append("Last major LoadDatasets started " + Calendar2.elapsedTimeString(1000 * 
             Math2.roundToInt((System.currentTimeMillis() - lastMajorLoadDatasetsStartTimeMillis)/1000) ) + 
@@ -3039,7 +3664,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
         sb.append("nTableDatasets = " + nTableDatasets + "\n");
         sb.append("nTotalDatasets = " + (nGridDatasets + nTableDatasets) + "\n");
         sb.append(datasetsThatFailedToLoad);
-        sb.append(duplicateDatasetIDsMsg);
+        sb.append(errorsDuringMajorReload);
         sb.append("Response Failed    Time (since last major LoadDatasets) ");
         sb.append(String2.getBriefDistributionStatistics(failureTimesDistributionLoadDatasets) + "\n");
         sb.append("Response Failed    Time (since last Daily Report)       ");
@@ -3076,9 +3701,11 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
      * This adds the common, publicly accessible statistics to the StringBuffer.
      */
     public static void addCommonStatistics(StringBuilder sb) {
-        if (memoryUseLoadDatasetsSB.length() > 0) {
-            sb.append("Memory Use Summary (time series from ends of major LoadDatasets)\n");
-            sb.append(memoryUseLoadDatasetsSB);
+        if (majorLoadDatasetsTimeSeriesSB.length() > 0) {
+            sb.append(
+"Major LoadDatasets Time Series: MLD    Datasets Loaded     Requests (median times in ms)       Number of Threads      Memory (MB)\n" +
+"  timestamp                    time   nTry nFail nTotal  nSuccess (median) nFailed (median)  tomWait inotify other  inUse highWater\n");
+            sb.append(majorLoadDatasetsTimeSeriesSB);
             sb.append("\n\n");
         }
         
@@ -3094,11 +3721,6 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
         sb.append(String2.getDistributionStatistics(minorLoadDatasetsDistributionTotal)); sb.append('\n');
         sb.append('\n');
 
-        if (failureTimesLoadDatasetsSB.length() > 0) {
-            sb.append("Response Failed Summary (time series from between major LoadDatasets)\n");
-            sb.append(failureTimesLoadDatasetsSB);
-            sb.append('\n');
-        }
         sb.append("Response Failed Time Distribution (since last major LoadDatasets):\n");
         sb.append(String2.getDistributionStatistics(failureTimesDistributionLoadDatasets)); sb.append('\n');
         sb.append("Response Failed Time Distribution (since last Daily Report):\n");
@@ -3107,11 +3729,6 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
         sb.append(String2.getDistributionStatistics(failureTimesDistributionTotal)); sb.append('\n');
         sb.append('\n');
 
-        if (responseTimesLoadDatasetsSB.length() > 0) {
-            sb.append("Response Succeeded Summary (time series from between major LoadDatasets)\n");
-            sb.append(responseTimesLoadDatasetsSB);
-            sb.append('\n');
-        }
         sb.append("Response Succeeded Time Distribution (since last major LoadDatasets):\n");
         sb.append(String2.getDistributionStatistics(responseTimesDistributionLoadDatasets)); sb.append('\n');
         sb.append("Response Succeeded Time Distribution (since last Daily Report):\n");
@@ -3162,7 +3779,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
         if (!fullRequestUrl.startsWith("https://")) 
             return null;
 
-        //request is via https, but authentication=""?
+        //request is via https, but authentication=""?  then can't be logged in
         if (authentication.length() == 0)
             return loggedInAsHttps;
 
@@ -3179,7 +3796,9 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
         String loggedInAs = null;
         if (authentication.equals("custom") ||
             authentication.equals("email") ||
-            authentication.equals("google")) {
+            authentication.equals("google") ||
+            authentication.equals("orcid") ||
+            authentication.equals("oauth2")) {
             loggedInAs = (String)session.getAttribute("loggedInAs:" + warName);
 
         //} else if (authentication.equals("openid")) 
@@ -3199,7 +3818,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
         return String2.passwordDigest("SHA-256",
             Math2.random(Integer.MAX_VALUE) + "_" + 
             System.currentTimeMillis() + "_" +
-            basis + "_" + EDStatic.flagKeyKey); 
+            basis + "_" + flagKeyKey); 
     }
 
     /** This allows LoadDatasets to set EDStatic.userHashMap (which is private).
@@ -3211,8 +3830,9 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
     }
 
     /**
-     * This returns true if the plaintextPassword (after passwordEncoding as 
-     * specified in setup.xml) matches the stored password for user.
+     * For "custom" authentication, this returns true if the plaintextPassword 
+     * (after passwordEncoding as specified in setup.xml) 
+     * matches the stored password for user.
      *
      * @param username the user's log in name
      * @param plaintextPassword that the user entered on a log-in form
@@ -3221,10 +3841,20 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
      *    If user==null or user has no password defined in datasets.xml, this returns false.
      */
     public static boolean doesPasswordMatch(String username, String plaintextPassword) {
-        if (username == null || username.length() == 0 ||
-            !username.equals(String2.justPrintable(username)) ||
-            plaintextPassword == null || plaintextPassword.length() < minimumPasswordLength)
+        if (username == null || plaintextPassword == null)
             return false;
+
+        username = username.trim();
+        plaintextPassword = plaintextPassword.trim();
+        if (username.length() == 0 || !username.equals(String2.justPrintable(username))) {
+            String2.log("username=" + username + " doesn't match basic requirements."); 
+            return false;
+        }
+        if (plaintextPassword.length() < minimumPasswordLength ||
+            !plaintextPassword.equals(String2.justPrintable(plaintextPassword))) {
+            String2.log("plaintextPassword for username=" + username + " doesn't match basic requirements."); 
+            return false;
+        }
 
         Object oar[] = (Object[])userHashMap.get(username);
         if (oar == null) {
@@ -3247,9 +3877,8 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
             observed = String2.passwordDigest("SHA-256", username + ":ERDDAP:" + plaintextPassword); //it will be lowercase
         else throw new RuntimeException("Unexpected passwordEncoding=" + passwordEncoding);
         //only for debugging:
-        //String2.log("username=" + username +
-        //    "\nobsPassword=" + observed +
-        //    "\nexpPassword=" + expected);
+        //String2.log("username=" + username + " plaintextPassword=" + plaintextPassword +
+        //    "\nobsPassword=" + observed + "\nexpPassword=" + expected);
 
         boolean ok = observed.equals(expected);
         if (reallyVerbose)
@@ -3276,10 +3905,12 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
      *
      * @param loggedInAs the user's logged in name (or null if not logged in)
      * @return the roles for the user.
-     *    If user==null or user has no roles defined in datasets.xml, this returns null.
+     *    If user==null, this returns null.
+     *    Anyone logged in automatically gets role=anyoneLoggedIn ("[anyoneLoggedIn]"). 
      */
     public static String[] getRoles(String loggedInAs) {
-        if (loggedInAs == null)
+        if (loggedInAs == null ||
+            loggedInAs == loggedInAsHttps)
             return null;
 
         //???future: for authentication="basic", use tomcat-defined roles???
@@ -3287,7 +3918,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
         //all other authentication methods
         Object oar[] = (Object[])userHashMap.get(loggedInAs);
         if (oar == null)
-            return null;
+            return anyoneLoggedInRoles; //no <user> tag, but still gets role=[anyoneLoggedIn]
         return (String[])oar[1];
     }
 
@@ -3308,7 +3939,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
         HttpServletResponse response, String datasetID, 
         boolean graphsAccessibleToPublic) throws Throwable {
 
-        String message = null;
+        String message = "The user is not authorized to make that request."; //default
         try {
             tally.add("Request refused: not authorized (since startup)", datasetID); 
             tally.add("Request refused: not authorized (since last daily report)", datasetID);
@@ -3321,10 +3952,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
                     loggedInAsHttps.equals(loggedInAs)? "" : loggedInAs, 
                     datasetID);
 
-            if (message == null)
-                response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
-            else 
-                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, message);
+            lowSendError(response, HttpServletResponse.SC_UNAUTHORIZED, message);
 
         } catch (Throwable t2) {
             EDStatic.rethrowClientAbortException(t2);  //first thing in catch{}
@@ -3355,7 +3983,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
             return loggedInAs == null || loggedInAsHttps.equals(loggedInAs)?  //ie not logged in
                 //always use the erddapHttpsUrl for login/logout pages
                 "<a href=\"" + erddapHttpsUrl + "/login.html\">" + login + "</a>" :
-                "<a href=\"" + erddapHttpsUrl + "/login.html\"><b>" + XML.encodeAsHTML(loggedInAs) + "</b></a> | \n" + 
+                "<a href=\"" + erddapHttpsUrl + "/login.html\"><strong>" + XML.encodeAsHTML(loggedInAs) + "</strong></a> | \n" + 
                 "<a href=\"" + erddapHttpsUrl + "/logout.html\">" + logout + "</a>";
         }
     }
@@ -3378,14 +4006,26 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
                 getLoginHtml(loggedInAs) +
                 startBodyHtml.substring(ampLoginInfoPo + ampLoginInfo.length());
         }
+        //String2.log(">> EDStatic startBodyHtml=" + s);
         return String2.replaceAll(s, "&erddapUrl;", erddapUrl(loggedInAs));
     }
 
     /**
      * @param tErddapUrl  from EDStatic.erddapUrl(loggedInAs)  (erddapUrl, or erddapHttpsUrl if user is logged in)
      */
-    public static String endBodyHtml(            String tErddapUrl) {return String2.replaceAll(endBodyHtml,    "&erddapUrl;", tErddapUrl); }
-    public static String legal(                  String tErddapUrl) {return String2.replaceAll(legal,          "&erddapUrl;", tErddapUrl); }
+    public static String endBodyHtml(String tErddapUrl) {
+        return String2.replaceAll(endBodyHtml, "&erddapUrl;", tErddapUrl); 
+    }
+    public static String legal(String tErddapUrl) {
+        StringBuilder tsb = new StringBuilder(legal);
+        String2.replaceAll(tsb, "[standardContact]",                   standardContact                   + "\n\n"); 
+        String2.replaceAll(tsb, "[standardDataLicenses]",              standardDataLicenses              + "\n\n"); 
+        String2.replaceAll(tsb, "[standardDisclaimerOfExternalLinks]", standardDisclaimerOfExternalLinks + "\n\n"); 
+        String2.replaceAll(tsb, "[standardDisclaimerOfEndorsement]",   standardDisclaimerOfEndorsement   + "\n\n"); 
+        String2.replaceAll(tsb, "[standardPrivacyPolicy]",             standardPrivacyPolicy             + "\n\n"); 
+        String2.replaceAll(tsb, "&erddapUrl;",                         tErddapUrl); 
+        return tsb.toString();
+    }
 
     /** @param addToTitle has not yet been encodeAsHTML(addToTitle). */
     public static String startHeadHtml(          String tErddapUrl, String addToTitle) {
@@ -3402,7 +4042,6 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
             "href=\"" + tErddapUrl + "/index.html\">" + ProgramName + "</a>"; 
     }
 
-    
     /** This calls pEncode then hEncode. */
     public static String phEncode(String tUrl) {
         return hEncode(pEncode(tUrl));
@@ -3436,14 +4075,12 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
      * aren't available.
      */
     public static String htmlForException(Throwable t) {
-        String message = MustBe.getShortErrorMessage(t);
-        String2.log("HtmlForException is processing:\n " + 
-            MustBe.throwableToString(t)); //log full message with stack trace
+        String message = MustBe.throwableToShortString(t);
         return 
             "<p>&nbsp;<hr>\n" +
-            "<p><font class=\"warningColor\"><b>" + errorOnWebPage + "</b></font>\n" +
-            "<pre>" + XML.encodeAsPreHTML(message, 120) +
-            "</pre>\n";
+            "<p><span class=\"warningColor\"><strong>" + errorOnWebPage + "</strong></span>\n" +
+            "<pre>" + XML.encodeAsPreHTML(message, 100) +
+            "</pre><hr><p>&nbsp;<p>\n";
     }
 
     /** This interrupts/kill all of the thredds in runningThreads. 
@@ -3595,7 +4232,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
                     String tError = "\n*** Error: EDStatic is interrupting a stalled taskThread (" +
                         Calendar2.elapsedTimeString(eTime) + " > " + 
                         Calendar2.elapsedTimeString(maxTime) + ") at " + 
-                        Calendar2.getCurrentISODateTimeStringLocal();
+                        Calendar2.getCurrentISODateTimeStringLocalTZ();
                     email(emailEverythingToCsv, "taskThread Stalled", tError);
                     String2.log("\n*** " + tError);
 
@@ -3609,7 +4246,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
             } else {
                 //it isn't alive
                 String2.log("\n*** EDStatic noticed that taskThread is finished (" + 
-                    Calendar2.getCurrentISODateTimeStringLocal() + ")\n");
+                    Calendar2.getCurrentISODateTimeStringLocalTZ() + ")\n");
                 lastFinishedTask = nextTask - 1;
                 taskThread = null;
                 return false;
@@ -3637,7 +4274,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
                 taskThread = new TaskThread(nextTask);
                 runningThreads.put(taskThread.getName(), taskThread); 
                 String2.log("\n*** new taskThread started at " + 
-                    Calendar2.getCurrentISODateTimeStringLocal() + " nPendingTasks=" + nPending + "\n");
+                    Calendar2.getCurrentISODateTimeStringLocalTZ() + " nPendingTasks=" + nPending + "\n");
                 taskThread.start();
                 return;            
             } catch (Throwable t) {
@@ -3691,7 +4328,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
         table.addColumn("fullName", col2);
         String lines[] = String2.readLinesFromFile(
             contextDirectory + "WEB-INF/classes/gov/noaa/pfel/erddap/util/OceanicAtmosphericAcronyms.tsv",
-            "ISO-8859-1", 1);
+            String2.ISO_8859_1, 1);
         int nLines = lines.length;
         for (int i = 1; i < nLines; i++) { //1 because skip colNames
             String s = lines[i].trim();
@@ -3711,7 +4348,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
      * <br>varNames are all lower-case.  long_names are mostly first letter of each word capitalized.
      * <br>The table is basically sorted by varName.
      * <br>Many of these are from
-     * http://www.esrl.noaa.gov/psd/data/gridded/conventions/variable_abbreviations.html
+     * https://www.esrl.noaa.gov/psd/data/gridded/conventions/variable_abbreviations.html
      *
      * @return the oceanic/atmospheric variable names table
      * @throws Exception if trouble (e.g., file not found)
@@ -3724,7 +4361,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
         table.addColumn("fullName", col2);
         String lines[] = String2.readLinesFromFile(
             contextDirectory + "WEB-INF/classes/gov/noaa/pfel/erddap/util/OceanicAtmosphericVariableNames.tsv",
-            "ISO-8859-1", 1);
+            String2.ISO_8859_1, 1);
         int nLines = lines.length;
         for (int i = 1; i < nLines; i++) {
             String s = lines[i].trim();
@@ -3833,7 +4470,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
         Table table = new Table();
         table.readASCII(
             contextDirectory + "WEB-INF/classes/gov/noaa/pfel/erddap/util/FipsCounty.tsv", 
-            0, 1, null, null, null, null, false); //false = don't simplify
+            0, 1, "", null, null, null, null, false); //false = don't simplify
         return table;
     }
     
@@ -3885,7 +4522,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
      * @return true during the initial loadDatasets, else false.
      */
     public static boolean initialLoadDatasets() {
-        return memoryUseLoadDatasetsSB.length() == 0;
+        return majorLoadDatasetsTimeSeriesSB.length() == 0;
     }
 
     /** This is called by the ERDDAP constructor to initialize Lucene. */
@@ -3928,7 +4565,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
             luceneIndexWriter.setInfoStream(
                 verbose? new PrintStream(new String2LogOutputStream()) : null); 
             String2.log("  createLuceneIndexWriter finished.  time=" +
-                (System.currentTimeMillis() - tTime));
+                (System.currentTimeMillis() - tTime) + "ms");
         } catch (Throwable t) {
             throw new RuntimeException(t);
         }
@@ -3975,7 +4612,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
                     luceneIndexReader = IndexReader.open(luceneDirectory); // read-only=true
                     luceneIndexSearcher = new IndexSearcher(luceneIndexReader);
                     String2.log("  new luceneIndexReader+Searcher time=" + 
-                        (System.currentTimeMillis() - rTime));
+                        (System.currentTimeMillis() - rTime) + "ms");
 
                     //create the luceneDatasetIDFieldCache
                     //save memory by sharing the canonical strings  
@@ -3987,7 +4624,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
                     for (int i = 0; i < n; i++)
                         luceneDatasetIDFieldCache[i] = String2.canonical(luceneDatasetIDFieldCache[i]);
                     String2.log("  new luceneDatasetIDFieldCache time=" + 
-                        (System.currentTimeMillis() - rTime));
+                        (System.currentTimeMillis() - rTime) + "ms");
 
                     //if successful, we no longer needNewLuceneIndexReader
                     needNewLuceneIndexReader = false;  
@@ -4037,7 +4674,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
             try {
                 //long qTime = System.currentTimeMillis();
                 Query q = luceneQueryParser.parse(searchString);
-                //String2.log("  luceneParseQuery finished.  time=" + (System.currentTimeMillis() - qTime)); //always 0
+                //String2.log("  luceneParseQuery finished.  time=" + (System.currentTimeMillis() - qTime) + "ms"); //always 0
                 return q;
             } catch (Throwable t) {
                 String2.log("Lucene failed to parse searchString=" + searchString + "\n" +
@@ -4219,7 +4856,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
      * @param lastPage
      * @param relevant true=most relevant first, false=sorted alphabetically
      * @param urlWithQuery percentEncoded, but not HTML/XML encoded, 
-     *    e.g., http://coastwatch.pfeg.noaa.gov/erddap/search/index.html?page=1&itemsPerPage=1000&searchFor=temperature%20wind
+     *    e.g., https://coastwatch.pfeg.noaa.gov/erddap/search/index.html?page=1&itemsPerPage=1000&searchFor=temperature%20wind
      * @return string with HTML content
      */
     public static String nMatchingDatasetsHtml(int nMatches, int page, int lastPage,
@@ -4251,20 +4888,30 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
             if (ampPo < 0)
                 ampPo = urlWithQuery.length();
 
-            String url1 = "&nbsp;<a href=\"" + 
+            String url0 = "&nbsp;<a ";
+            String url1 = "href=\"" + 
                           XML.encodeAsHTMLAttribute(urlWithQuery.substring(0, pageNumberPo));  // + p
             String url2 = XML.encodeAsHTMLAttribute(urlWithQuery.substring(ampPo)) + "\">";    // + p   
             String url3 = "</a>&nbsp;\n";        
+            String prev = "rel=\"prev\" ";
+            String next = "rel=\"next\" ";
+            String bmrk = "rel=\"bookmark\" ";
 
             //links, e.g. if page=5 and lastPage=12: _1 ... _4  5 _6 ... _12 
             StringBuilder sb = new StringBuilder();
-            if (page >= 2)            sb.append(url1 + 1          + url2 + 1          + url3);
-            if (page >= 4)            sb.append("...\n");
-            if (page >= 3)            sb.append(url1 + (page - 1) + url2 + (page - 1) + url3);
+            if (page >= 2)            sb.append(
+                url0 + (page==2? prev : bmrk) +          url1 + 1          + url2 + 1          + url3);
+            if (page >= 4)            sb.append(
+                "...\n");
+            if (page >= 3)            sb.append(
+                url0 + (page>2? prev : bmrk) +           url1 + (page - 1) + url2 + (page - 1) + url3);
             sb.append("&nbsp;" + page + "&nbsp;(" + EDStatic.nMatchingCurrent + ")&nbsp;\n"); //always show current page
-            if (page <= lastPage - 2) sb.append(url1 + (page + 1) + url2 + (page + 1) + url3);
-            if (page <= lastPage - 3) sb.append("...\n");
-            if (page <= lastPage - 1) sb.append(url1 + lastPage   + url2 + lastPage   + url3);
+            if (page <= lastPage - 2) sb.append(
+                url0 + (page<lastPage-1? next : bmrk) +  url1 + (page + 1) + url2 + (page + 1) + url3);
+            if (page <= lastPage - 3) sb.append(
+                "...\n");
+            if (page <= lastPage - 1) sb.append(
+                url0 + (page==lastPage-1? next : bmrk) + url1 + lastPage   + url2 + lastPage   + url3);
 
             //append to results
             results.append("&nbsp;&nbsp;" +
@@ -4279,6 +4926,225 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
     /** If query is null or "", this returns ""; otherwise, this returns "?" + query. */
     public static String questionQuery(String query) {
         return query == null || query.length() == 0? "" : "?" + query;
+    }
+
+
+    /** 
+     * This updates out-of-date http: references to https: within a string.
+     * This is very safe won't otherwise change the string (even "" or null).
+     */
+    public static String updateUrls(String s) {
+        if (!String2.isSomething(s))
+            return s;
+
+        //change some non-http things
+        StringBuilder sb = new StringBuilder(s);
+        String2.replaceAll(sb,  //reversed in naming_authority
+            "gov.noaa.pfel.",
+            "gov.noaa.pfeg."); 
+
+        int n = updateUrlsFrom.length;
+        for (int i = 0; i < n; i++)
+            String2.replaceAll(sb, updateUrlsFrom[i], updateUrlsTo[i]);
+        return sb.toString();
+    }
+
+    /**
+     * This calls updateUrls for every String attribute (except EDStatic.updateUrlsSkipAttributes)
+     * and writes changes to addAtts.
+     * 
+     * @param sourceAtts may be null
+     * @param addAtts mustn't be null.
+     */
+    public static void updateUrls(Attributes sourceAtts, Attributes addAtts) {
+        //get all the attribute names
+        HashSet<String> hs = new HashSet();
+        String names[];
+        if (sourceAtts != null) {
+            names = sourceAtts.getNames();
+            for (int i = 0; i < names.length; i++)
+                hs.add(names[i]);
+        }
+        names = addAtts.getNames();
+        for (int i = 0; i < names.length; i++)
+            hs.add(names[i]);
+        names = hs.toArray(new String[]{});
+
+        //updateUrls in all attributes
+        for (int i = 0; i < names.length; i++) {
+            if (String2.indexOf(updateUrlsSkipAttributes, names[i]) >= 0)
+                continue;
+            PrimitiveArray pa = addAtts.get(names[i]);
+            if (pa == null && sourceAtts != null)
+                pa = sourceAtts.get(names[i]);
+            if (pa != null && pa.size() > 0 && pa.elementClass() == String.class) {
+                String oValue = pa.getString(0);        
+                String value = updateUrls(oValue);
+                if (!value.equals(oValue))
+                    addAtts.set(names[i], value); 
+            }
+        }
+    }
+
+
+    /**
+     * Create tasks to download files so a local dir mimics a remote dir.
+     * <br>This won't throw an exception.
+     *
+     * @param maxTasks This let's you just see what would happen (0), 
+     *    or just make a limited or unlimited (Integer.MAX_VALUE) number
+     *    of download tasks.
+     * @param tDatasetID 
+     * @param the number of files that will be downloaded
+     */
+    public static int makeCopyFileTasks(String tClassName, int maxTasks, 
+        String tDatasetID, 
+        String tSourceUrl, String tFileNameRegex, boolean tRecursive, String tPathRegex, 
+        String tLocalDir) {
+
+        if (verbose) String2.log("* " + tDatasetID + " " + 
+            tClassName + ".makeCopyFileTasks from " + tSourceUrl +
+            "\npathRegex=" + tPathRegex + "  fileNameRegex=" + tFileNameRegex);
+        long startTime = System.currentTimeMillis();
+        int nFilesToDownload = 0;
+        int lastTask = -1;
+
+        try {
+            //if previous tasks are still running, return
+            ensureTaskThreadIsRunningIfNeeded();  //ensure info is up-to-date
+            Integer datasetLastAssignedTask = (Integer)lastAssignedTask.get(tDatasetID);
+            boolean pendingTasks = datasetLastAssignedTask != null &&  
+                lastFinishedTask < datasetLastAssignedTask.intValue();
+            if (verbose) 
+                String2.log("  " + tClassName + 
+                    ".makeCopyFileTasks: lastFinishedTask=" + lastFinishedTask + 
+                    " < datasetLastAssignedTask(" + tDatasetID + ")=" + datasetLastAssignedTask + 
+                    "? pendingTasks=" + pendingTasks);
+            if (pendingTasks) 
+                return 0;
+
+            //make sure local dir exists or can be created
+            File2.makeDirectory(tLocalDir); //throws exception if unable to comply
+
+            //get remote file info
+            Table remoteFiles = FileVisitorDNLS.oneStep(tSourceUrl, 
+                tFileNameRegex, tRecursive, tPathRegex, false); //tDirectoriesToo
+            if (remoteFiles.nRows() == 0) {
+                if (verbose) String2.log("  " + tClassName + ".makeCopyFileTasks: no matching source files.");
+                return 0;
+            }
+            remoteFiles.leftToRightSort(2); //should be already
+            StringArray remoteDirs    = (StringArray)remoteFiles.getColumn(FileVisitorDNLS.DIRECTORY);
+            StringArray remoteNames   = (StringArray)remoteFiles.getColumn(FileVisitorDNLS.NAME);
+            LongArray   remoteLastMod =   (LongArray)remoteFiles.getColumn(FileVisitorDNLS.LASTMODIFIED);
+            LongArray   remoteSize    =   (LongArray)remoteFiles.getColumn(FileVisitorDNLS.SIZE);
+
+            //get local file info
+            Table localFiles = FileVisitorDNLS.oneStep(tLocalDir, 
+                tFileNameRegex, tRecursive, tPathRegex, false); //tDirectoriesToo
+            localFiles.leftToRightSort(2); //should be already
+            StringArray localDirs    = (StringArray)localFiles.getColumn(FileVisitorDNLS.DIRECTORY);
+            StringArray localNames   = (StringArray)localFiles.getColumn(FileVisitorDNLS.NAME);
+            LongArray   localLastMod =   (LongArray)localFiles.getColumn(FileVisitorDNLS.LASTMODIFIED);
+            LongArray   localSize    =   (LongArray)localFiles.getColumn(FileVisitorDNLS.SIZE);
+
+            //make tasks to download files
+            boolean remoteErrorLogged = false;  //just display 1st offender
+            boolean fileErrorLogged   = false;  //just display 1st offender
+            int nRemote = remoteNames.size();
+            int nLocal = localNames.size();
+            int localI = 0; //next to look at
+            for (int remoteI = 0; remoteI < nRemote; remoteI++) {
+                try {
+                    String remoteRelativeDir = remoteDirs.get(remoteI).substring(tSourceUrl.length());               
+
+                    //skip local files with DIRS which are less than the remote file's dir
+                    while (localI < nLocal &&
+                           localDirs.get( localI).substring(tLocalDir.length()).compareTo(remoteRelativeDir) < 0) 
+                        localI++;
+
+                    //skip local files in same dir with FILENAMES which are less than the remote file
+                    while (localI < nLocal &&
+                           localDirs.get( localI).substring(tLocalDir.length()).equals(remoteRelativeDir) &&  
+                           localNames.get(localI).compareTo(remoteNames.get(remoteI)) < 0) 
+                        localI++;
+
+                    //same local file exists?
+                    String reason = "new remote file";
+                    if (localI < nLocal &&
+                        localDirs.get( localI).substring(tLocalDir.length()).equals(remoteRelativeDir) &&
+                        localNames.get(localI).equals(remoteNames.get(remoteI))) {
+                        //same or vague lastMod and size
+
+                        if (remoteLastMod.get(remoteI) != Long.MAX_VALUE &&
+                            remoteLastMod.get(remoteI) != localLastMod.get(localI)) {
+                            //remoteLastMod may be imprecise (e.g., to the minute),
+                            //but local should be set to exactly match it whatever it is
+                            reason = "different lastModified";
+                        } else if (remoteSize.get(remoteI) != Long.MAX_VALUE &&
+                                   (remoteSize.get(remoteI) < localSize.get(localI) * 0.9 ||
+                                    remoteSize.get(remoteI) > localSize.get(localI) * 1.1)) {
+                            //remote size may be imprecise (e.g., 1.1MB)
+                            //(also, does remote mean KB=1000 or 1024?!)
+                            //so this just tests match within +/-10%
+                            reason = "different size";
+                        } else {
+                            //local is ~equivalent of remote
+                            localI++;
+                            continue;
+                        }
+                        reason = "different size";
+                    }
+
+                    //make a task to download remoteFile to localFile
+                    // taskOA[1]=remoteUrl, taskOA[2]=fullFileName, taskOA[3]=lastModified (Long)
+                    Object taskOA[] = new Object[7];
+                    taskOA[0] = TaskThread.TASK_DOWNLOAD;  
+                    taskOA[1] = remoteDirs.get(remoteI) + remoteNames.get(remoteI);
+                    taskOA[2] = tLocalDir + remoteRelativeDir + remoteNames.get(remoteI);
+                    taskOA[3] = new Long(remoteLastMod.get(remoteI));  //or if unknown?
+                    nFilesToDownload++;
+                    int tTaskNumber = nFilesToDownload <= maxTasks? 
+                        (lastTask = addTask(taskOA)) : -nFilesToDownload;                        
+                    if (reallyVerbose)
+                        String2.log( 
+                            (tTaskNumber < 0? "% didn't create" : "% created") +
+                            " task#" + Math.abs(tTaskNumber) + " TASK_DOWNLOAD reason=" + reason +
+                            "\n    from=" + taskOA[1] +
+                            "\n    to=" + taskOA[2]);
+                } catch (Exception e) {
+                    String2.log(tClassName + ".makeCopyFileTasks caught " + String2.ERROR + 
+                        " while processing file #" + remoteI + "=" +  
+                        remoteDirs.get(remoteI) + remoteNames.get(remoteI) + "\n" +
+                        MustBe.throwableToString(e));               
+                }
+            }
+
+            //create task to flag dataset to be reloaded
+            if (lastTask >= 0) {
+                Object taskOA[] = new Object[2];
+                taskOA[0] = TaskThread.TASK_SET_FLAG;
+                taskOA[1] = tDatasetID;
+                lastTask = addTask(taskOA); //TASK_SET_FLAG will always be added
+                if (reallyVerbose)
+                    String2.log("% created task#" + lastTask + " TASK_SET_FLAG " + tDatasetID);
+                lastAssignedTask.put(tDatasetID, new Integer(lastTask));
+                ensureTaskThreadIsRunningIfNeeded();  //ensure info is up-to-date
+            }
+
+            if (verbose) String2.log("% " + tDatasetID + " " + 
+                tClassName + ".makeCopyFileTasks finished." +
+                " nFilesToDownload=" + nFilesToDownload + " maxTasks=" + maxTasks +
+                " time=" + (System.currentTimeMillis() - startTime) + "ms");
+
+
+        } catch (Throwable t) {
+            if (verbose)
+                String2.log("ERROR in " + tClassName + 
+                    ".makeCopyFileTasks for datasetID=" + tDatasetID + "\n" +
+                    MustBe.throwableToString(t));
+        }
+        return nFilesToDownload;
     }
 
 
@@ -4310,6 +5176,198 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
             throw t;
     }
 
+    /**
+     * Set the standard DAP header information. Call this before getting outputStream.
+     *
+     * @param response
+     * @throws Throwable if trouble
+     */
+    public static void standardDapHeader(HttpServletResponse response) throws Throwable {
+        String rfc822date = Calendar2.getCurrentRFC822Zulu();
+        response.setHeader("Date", rfc822date);             //DAP 2.0, 7.1.4.1
+        response.setHeader("Last-Modified", rfc822date);    //DAP 2.0, 7.1.4.2   //this is not a good implementation
+        //response.setHeader("Server", );                   //DAP 2.0, 7.1.4.3  optional
+        response.setHeader("xdods-server", serverVersion);  //DAP 2.0, 7.1.7 (http header field names are case-insensitive)
+        response.setHeader(programname + "-server", erddapVersion);  
+    }
+
+    /**
+     * Given a throwable t, this sends an appropriate HTTP error code and a DAP-formatted dods-error response message.
+     * Most users will call return in their method after calling this since the response is committed and closed.
+     */
+    public static void sendError(HttpServletRequest request, 
+        HttpServletResponse response, Throwable t) throws ServletException {
+
+        //defaults
+        int errorNo = HttpServletResponse.SC_INTERNAL_SERVER_ERROR; //http error 500
+        String tError = "Internal server error.";
+
+        try {
+            if (isClientAbortException(t)) {
+                String2.log("*** sendErrorCode caught " + String2.ERROR + "=ClientAbortException");
+                return; //do nothing
+            }
+
+            //String2.log("Bob: sendErrorCode t.toString=" + t.toString());        
+            tError = MustBe.getShortErrorMessage(t);
+            String tRequestURI = request == null? "[unknown requestURI]" : request.getRequestURI();
+            String tExt = File2.getExtension(tRequestURI);
+            String tRequest = tRequestURI + (request == null? "" : questionQuery(request.getQueryString()));
+            //String2.log(">> tError=" + tError);
+
+            //log the error            
+            String tErrorLC = tError.toLowerCase();
+            if      (tError.indexOf(resourceNotFound) >= 0 ||
+                     tError.indexOf(MustBe.THERE_IS_NO_DATA) >= 0)  //check this first, since may also be Query error
+                errorNo = HttpServletResponse.SC_NOT_FOUND;  //http error 404  (might succeed later)
+                //I wanted to use 204 No Content or 205 (similar) but browsers don't show any change for these codes
+            else if (tError.indexOf(queryError) >= 0) 
+                errorNo = HttpServletResponse.SC_BAD_REQUEST; //http error 400 (won't succeed later)
+            else if (tError.indexOf(REQUESTED_RANGE_NOT_SATISFIABLE) >= 0) 
+                errorNo = HttpServletResponse.SC_REQUESTED_RANGE_NOT_SATISFIABLE; //http error 416
+            else if (tError.indexOf(Math2.memoryTooMuchData) >= 0 ||
+                     tError.indexOf(Math2.memoryThanCurrentlySafe) >= 0 ||
+                     tError.indexOf(Math2.memoryThanSafe) >= 0 ||
+                     tError.indexOf(Math2.memoryArraySize) >= 0 ||
+                     tError.indexOf(MustBe.OutOfMemoryError) >= 0 ||
+                     tError.indexOf("OutOfMemoryError") >= 0) //Java error wording
+                errorNo = HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE; //http error 413 (the old name for Payload Too Large)
+            else if (tErrorLC.indexOf("unauthorized") >= 0) 
+                errorNo = HttpServletResponse.SC_UNAUTHORIZED; //http error 401
+            else if (tErrorLC.indexOf("forbidden") >= 0) 
+                errorNo = HttpServletResponse.SC_FORBIDDEN; //http error 403
+            else if (tErrorLC.indexOf("timeout") >= 0 ||
+                     tErrorLC.indexOf("time out") >= 0 ||
+                     tErrorLC.indexOf("timed out") >= 0) //testDescendingAxisGeotif sees this  
+                errorNo = HttpServletResponse.SC_REQUEST_TIMEOUT; //http error 408
+            else //everything else
+                errorNo = HttpServletResponse.SC_INTERNAL_SERVER_ERROR; //http error 500
+            String2.log(
+                "*** sendErrorCode " + errorNo + " for " + tRequest + //not decoded
+                "\n" + MustBe.throwableToString(t).trim());  //always log full stack trace
+
+            lowSendError(response, errorNo, tError);
+
+        } catch (Throwable t2) {
+            //an exception occurs if response is committed
+            throw new ServletException(t2);
+        }
+
+    }
+
+    /**
+     * This is the lower level version of sendError. Use this if the http errorNo
+     * is known.
+     *
+     * @param response
+     * @param errorNo  the HTTP status code / error number.
+     *   Note that DAP 2.0 says error code is 1 digit, but doesn't provide
+     *   a list of codes and meanings. I use HTTP status codes (3 digits).
+     * @param msg suitable for the user (not the full diagnostic information).
+     */
+    public static void lowSendError(HttpServletResponse response, int errorNo, String msg) {
+        try {
+            msg = String2.isSomething(msg)? msg.trim() : "(no details)";
+
+            //put the HTTP status code name at the start of the message (from Wikipedia list
+            // https://en.wikipedia.org/wiki/List_of_HTTP_status_codes
+            if      (errorNo == HttpServletResponse.SC_BAD_REQUEST)  //http error 400
+                msg = "Bad Request: " + msg;    //Don't translate these (or at least keep English first) so user can look for them
+            else if (errorNo == HttpServletResponse.SC_UNAUTHORIZED) //http error 401
+                msg = "Unauthorized: " + msg;
+            else if (errorNo == HttpServletResponse.SC_FORBIDDEN)    //http error 403
+                msg = "Forbidden: " + msg;
+            else if (errorNo == HttpServletResponse.SC_NOT_FOUND)    //http error 404
+                msg = "Not Found: " + msg;
+            else if (errorNo == HttpServletResponse.SC_REQUEST_TIMEOUT)   //http error 408
+                msg = "Request Timeout: " + msg;
+            else if (errorNo == HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE) //http error 413 (the old name for Payload Too Large)
+                msg = "Payload Too Large: " + msg;
+            else if (errorNo == HttpServletResponse.SC_REQUESTED_RANGE_NOT_SATISFIABLE) //http error 416
+                msg = "Requested Range Not Satisfiable: " + msg;
+            else if (errorNo == HttpServletResponse.SC_INTERNAL_SERVER_ERROR) //http error 500
+                msg = "Internal Server Error: " + msg;
+
+            //always log the error
+            String fullMsg = 
+                "Error {\n" +
+                "    code=" + errorNo + ";\n" +
+                "    message=" + String2.toJson65536(msg) + ";\n" +
+                "}\n";
+            String2.log("*** lowSendError: isCommitted=" + (response == null || response.isCommitted()) + 
+                " fullMessage=\n" +
+                fullMsg); // + MustBe.getStackTrace());
+
+            //if response isCommitted, nothing more can be done
+            if (response == null) {
+                String2.log("  response=null, so I'm not sending anything");
+            } else if (!response.isCommitted()) {
+                standardDapHeader(response);
+                response.setStatus(errorNo);
+                //set content type both ways in hopes of overwriting any previous settings
+                response.setHeader("Content-Type", "text/plain; charset=UTF-8"); 
+                response.setContentType("text/plain");
+                response.setCharacterEncoding(String2.UTF_8);
+                response.setHeader("Content-Description", "dods-error"); 
+                response.setHeader("Content-Encoding", "identity");  //not e.g. deflate
+                OutputStream outputStream = new BufferedOutputStream(response.getOutputStream()); //after all setHeader
+                Writer writer = null;
+                try {
+                    writer = new BufferedWriter(new OutputStreamWriter(outputStream, String2.UTF_8));
+                    //from DAP 2.0 section 7.2.4
+                    writer.write(fullMsg);
+
+                } finally {
+                    if (writer != null) 
+                        writer.close();
+                    else outputStream.close();
+                }                
+            }
+        } catch (Throwable t) {
+            String2.log(String2.ERROR + " in lowSendError: " + MustBe.throwableToString(t));
+        } finally {
+            //last thing, try hard to close the outputstream
+            try {
+                //was if (!response.isCommitted()) 
+                    response.getOutputStream().close();
+            } catch (Exception e2) {}
+        }
+    }
+
+
+    public static void testUpdateUrls() throws Exception {
+        String2.log("\n***** EDStatic.testUpdateUrls");
+        Attributes source = new Attributes();
+        Attributes add    = new Attributes();
+        source.set("a", "http://coastwatch.pfel.noaa.gov");  //purposely out-of-date
+        source.set("nine", 9.0);
+        add.set(   "b", "http://www.whoi.edu"); //purposely out-of-date
+        add.set(   "ten", 10.0);
+        add.set(   "sourceUrl", "http://coastwatch.pfel.noaa.gov"); //purposely out-of-date
+        EDStatic.updateUrls(source, add);
+        String results = add.toString();
+        String expected = 
+"    a=https://coastwatch.pfeg.noaa.gov\n" +
+"    b=https://www.whoi.edu\n" +
+"    sourceUrl=http://coastwatch.pfel.noaa.gov\n" + //unchanged
+"    ten=10.0d\n";
+        Test.ensureEqual(results, expected, "results=\n" + results);
+
+        source = new Attributes();
+        add    = new Attributes();
+        add.set("a", "http://coastwatch.pfel.noaa.gov");
+        add.set("b", "http://www.whoi.edu");
+        add.set("nine", 9.0);
+        add.set("sourceUrl", "http://coastwatch.pfel.noaa.gov");
+        EDStatic.updateUrls(null, add);
+        results = add.toString();
+        expected = 
+"    a=https://coastwatch.pfeg.noaa.gov\n" +
+"    b=https://www.whoi.edu\n" +
+"    nine=9.0d\n" +
+"    sourceUrl=http://coastwatch.pfel.noaa.gov\n"; //unchanged
+        Test.ensureEqual(results, expected, "results=\n" + results);
+    }
 
     /** 
      * This tests some of the methods in this class.
@@ -4317,6 +5375,7 @@ wcsActive                  = false; //setup.getBoolean(         "wcsActive",    
      */
     public static void test() throws Throwable {
         String2.log("\n*** EDStatic.test");
+        testUpdateUrls();
     }
 
 }

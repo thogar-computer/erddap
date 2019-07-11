@@ -6,6 +6,7 @@ package gov.noaa.pfel.erddap.variable;
 
 import com.cohort.array.Attributes;
 import com.cohort.array.PrimitiveArray;
+import com.cohort.array.StringArray;
 import com.cohort.util.Calendar2;
 import com.cohort.util.Math2;
 import com.cohort.util.MustBe;
@@ -40,18 +41,16 @@ public class EDV {
     public static boolean reallyVerbose = false; 
 
     /**
-     * Set this to true (by calling debug=true in your program, not by changing the code here)
+     * Set this to true (by calling debugMode=true in your program, not by changing the code here)
      * if you want lots and lots of diagnostic messages sent to String2.log.
      */
-    public static boolean debug = false; 
+    public static boolean debugMode = false; 
 
     /** 
      * These are the standardized variable names, long names, CF standard names, 
      * and units for the lon, lat, alt, and time axes in the results. 
-     * These names are suggested by
-     * http://www.unidata.ucar.edu/software/netcdf-java/formats/UnidataObsConvention.html 
-     * and match the CF standard names
-     * (see http://cfconventions.org/Data/cf-standard-names/27/build/cf-standard-name-table.html).
+     * These names match the CF standard names
+     * (see http://cfconventions.org/standard-names.html).
      */
     public final static String
         LON_NAME  = "longitude", LON_LONGNAME  = "Longitude", LON_STANDARD_NAME  = "longitude", LON_UNITS  = "degrees_east",        
@@ -145,7 +144,8 @@ public class EDV {
     /**
      * The start of the url for observedProperty for cf standardNames.
      */
-    public final static String cfObservedPropertyUrl = "http://marinemetadata.org/cf#";
+    public final static String cfObservedPropertyUrl = "https://mmisw.org/ont/cf/parameter/";
+        //was "http://marinemetadata.org/cf#";
     
     /** The valid options for colorBarScale. 
      * A given scale's index may change when new scales are added. */
@@ -157,6 +157,10 @@ public class EDV {
     /** The time variable attribute that has the precision specification for 
         Calendar2.epochSecondsToLimitedIsoStringT. */
     public final static String TIME_PRECISION = "time_precision"; 
+
+    /** The float or double variable attribute that specifies the 
+        number of decimal digits for a variable. */
+    public final static String DECIMAL_DIGITS = "decimal_digits"; 
 
     /** This is the standard slider size. */
     public final static int SLIDER_PIXELS = 501;
@@ -208,21 +212,26 @@ public class EDV {
     protected double destinationMissingValue = Double.NaN;
     protected double destinationFillValue = Double.NaN;
     protected double safeDestinationMissingValue = Double.NaN;
+    protected String stringMissingValue = ""; //won't be null
+    protected String stringFillValue = ""; //won't be null
+    protected String safeStringMissingValue = ""; //won't be null. If not "", then there is probably no 1 source MV 
     protected boolean hasColorBarMinMax = false;
-    protected byte[] sliderCsvValues = null;
+    protected byte[] sliderCsvValues = null; //stored as utf8Bytes
 
     protected boolean isBoolean = false;
     protected boolean scaleAddOffset = false;
-    //used for scaleAddOffset. Only true, if scaleAddOffset is true, too.
-    //Thus 'true' also indicates: And this class is unpacking to to a larger datatype.
+    //used for scaleAddOffset. Only true if scaleAddOffset is true, too.
+    //Thus 'true' also indicates: And this class is unpacking to a larger datatype.
     protected boolean sourceIsUnsigned = false; 
     protected double scaleFactor = 1, addOffset = 0;
+    protected int decimal_digits = Integer.MAX_VALUE; //not used
 
     /**
      * The constructor.
      * In general, subclasses call this as the first step in construction.
      * Non-Lon,Lat,Alt,Time variables use the other constructor.
-     * This constructor DOESN'T look for actual_range, data_min, or data_max attributes, 
+     * This constructor DOESN'T look for actual_range, actual_min, actual_max, 
+     * data_min, or data_max attributes, 
      * assuming that the subclasses' constructor will do that! 
      *
      * <p> This removes any scale_factor and add_offset attributes
@@ -260,11 +269,13 @@ public class EDV {
      * @param tSourceMin is the minimum value of the source variable
      *    (scale_factor and add_offset, if any, haven't been applied).     
      *    <br>If unknown, or tSourceName is a fixed value, you can just use Double.NaN here.
-     *    <br>This constructor DOESN'T look for actual_range, data_min, or data_max attribute! 
+     *    <br>This constructor DOESN'T look for actual_range, actual_min, actual_max, 
+     *    <br>data_min, or data_max attribute! 
      * @param tSourceMax is the maximum value of the source variable
      *    (scale_factor and add_offset, if any, haven't been applied).
      *    <br>If unknown, or tSourceName is a fixed value, you can just use Double.NaN here.
-     *    <br>This constructor DOESN'T look for actual_range, data_min, or data_max attribute! 
+     *    <br>This constructor DOESN'T look for actual_range, actual_min, actual_max,
+     *    <br>data_min, or data_max attribute! 
      * @throws Throwable if trouble
      */
     public EDV(String tSourceName, String tDestinationName,
@@ -314,16 +325,6 @@ public class EDV {
                 sourceDataType + " for sourceName=" + sourceName);
         }
 
-        if (isFixedValue()) {
-            destinationMin = String2.parseDouble(fixedValue); //if String, will be NaN (as it should be)
-            destinationMax = destinationMin;
-        } else if (sourceDataType.equals("float")) {  //destinationDataType not known yet
-            destinationMin = Math2.floatToDouble(tSourceMin);  //unbruise them
-            destinationMax = Math2.floatToDouble(tSourceMax);
-        } else {
-            destinationMin = tSourceMin;  
-            destinationMax = tSourceMax;
-        }
         //String2.pressEnterToContinue("!!!sourceName=" + sourceName + " type=" + sourceDataType + " min=" + destinationMin);
 
         //makeCombinedAttributes
@@ -337,10 +338,24 @@ public class EDV {
         if (longName == null)
             longName = destinationName;
         units = combinedAttributes().getString("units"); //may be null; already canonical
+        decimal_digits = combinedAttributes().getInt(DECIMAL_DIGITS); //may be null -> MAX_VALUE
+        if (decimal_digits < 0 || decimal_digits >= Math2.Ten.length)
+            decimal_digits = Integer.MAX_VALUE;
 
-        //extractScaleAddOffset     It sets destinationDataType
+        //extractScaleAddOffset     It sets destinationDataType and destinationDataTypeClass
         extractScaleAddOffset(); 
-        setDestinationMinMaxFromSource(destinationMin, destinationMax); //ensures order is correct
+
+        if (isFixedValue()) {
+            destinationMin = String2.parseDouble(fixedValue); //if String, will be NaN (as it should be)
+            destinationMax = destinationMin;
+        } else {
+            setDestinationMinMaxFromSource(tSourceMin, tSourceMax);
+            if (sourceDataType.equals("float")) {  //destinationDataType not known yet
+                destinationMin = Math2.floatToDouble(destinationMin);  //unbruise them
+                destinationMax = Math2.floatToDouble(destinationMax);
+            }            
+        }
+
         //after extractScaleAddOffset, get sourceMissingValue and sourceFillValue
         //and convert to destinationDataType (from scaleAddOffset)
         //???eek!!! can there be String missing_value or _FillValue?
@@ -352,28 +367,48 @@ public class EDV {
         PrimitiveArray pa = combinedAttributes.get("missing_value"); 
         if (pa != null) {
             //attributes are supposed to be unsigned if _Unsigned=true, but sometimes aren't
+            stringMissingValue = pa.getString(0);
             sourceMissingValue = sourceIsUnsigned? 
                 pa.getUnsignedDouble(0) : 
                 pa.getNiceDouble(0); 
             destinationMissingValue = sourceMissingValue * scaleFactor + addOffset;
-            PrimitiveArray pa2 = PrimitiveArray.factory(destinationDataTypeClass, 1, false);
-            pa2.addDouble(destinationMissingValue);
-            combinedAttributes.set("missing_value", pa2);
+            if (destinationDataTypeClass == String.class ||
+                destinationDataTypeClass == char.class) {
+                stringMissingValue = String2.canonical(
+                    stringMissingValue == null? "" : stringMissingValue);
+                combinedAttributes.remove("missing_value");
+            } else {
+                stringMissingValue = "";
+                PrimitiveArray pa2 = PrimitiveArray.factory(destinationDataTypeClass, 1, false);
+                pa2.addDouble(destinationMissingValue);
+                combinedAttributes.set("missing_value", pa2);
+            }
         }
         pa = combinedAttributes.get("_FillValue"); 
         if (pa != null) {
             //attributes are supposed to be unsigned if _Unsigned=true, but sometimes aren't
+            stringFillValue = pa.getString(0);
             sourceFillValue = sourceIsUnsigned?
                 pa.getUnsignedDouble(0) :
                 pa.getNiceDouble(0);
             destinationFillValue = sourceFillValue * scaleFactor + addOffset;
-            PrimitiveArray pa2 = PrimitiveArray.factory(destinationDataTypeClass, 1, false);
-            pa2.addDouble(destinationFillValue);
-            combinedAttributes.set("_FillValue", pa2);
-            //String2.log(">>EDV " + tSourceName + " _FillValue pa2=" + pa2.toString());
+            if (destinationDataTypeClass == String.class ||
+                destinationDataTypeClass == char.class) {
+                stringFillValue = String2.canonical(
+                    stringFillValue == null? "" : stringFillValue);
+                combinedAttributes.remove("_FillValue");
+            } else {
+                stringFillValue = "";
+                PrimitiveArray pa2 = PrimitiveArray.factory(destinationDataTypeClass, 1, false);
+                pa2.addDouble(destinationFillValue);
+                combinedAttributes.set("_FillValue", pa2);
+                //String2.log(">>EDV " + tSourceName + " _FillValue pa2=" + pa2.toString());
+            }
         }
         safeDestinationMissingValue = Double.isNaN(destinationFillValue)? //fill has precedence
             destinationMissingValue : destinationFillValue;
+        safeStringMissingValue = String2.isSomething(stringFillValue)?
+            stringFillValue : stringMissingValue;
 
         //after extractScaleAddOffset, adjust valid_range
         PrimitiveArray vr = combinedAttributes.remove("unpacked_valid_range"); 
@@ -415,7 +450,7 @@ public class EDV {
      * variables where the sourceMin and sourceMax are not
      * explicitly defined.
      * This constructor tries to set destinationMin and destinationMax by looking for
-     * actual_range, data_min, or data_max metadata.
+     * actual_range, actual_min, actual_max, data_min, or data_max metadata.
      *
      * <p>For EDVGridAxis, actual_range should indicate order of storage (first, last).
      *  Sometimes latitude is max,min.
@@ -433,12 +468,9 @@ public class EDV {
             tSourceAttributes, tAddAttributes, tSourceDataType,
             Double.NaN, Double.NaN);
 
-        //min max  from actual_range, data_min, or data_max
+        //min max  from actual_range, actual_min, actual_max, data_min, or data_max
         double mm[] = extractActualRange();  //may be low,high or high,low
-        if (Double.isNaN(destinationMin) && Double.isNaN(destinationMax)) 
-            setDestinationMinMax(
-                mm[0] * scaleFactor + addOffset,
-                mm[1] * scaleFactor + addOffset); 
+        setDestinationMinMax(mm[0], mm[1]); 
     }
 
 
@@ -447,7 +479,7 @@ public class EDV {
      */
     protected void makeCombinedAttributes() throws Throwable {
         combinedAttributes = new Attributes(addAttributes, sourceAttributes); //order is important
-        combinedAttributes.removeValue("null");
+        combinedAttributes.removeValue("\"null\"");
 
         //test presence and validity of colorBar attributes
         //ERDDAP.doWmsGetMap relies on these tests.
@@ -458,11 +490,11 @@ public class EDV {
         String tPalette    = combinedAttributes.getString("colorBarPalette");
         String tContinuous = combinedAttributes.getString("colorBarContinuous");
         String tScale      = combinedAttributes.getString("colorBarScale");
-        if (tMinS != null && !Math2.isFinite(tMin))
+        if (tMinS != null && !Double.isFinite(tMin))
             throw new IllegalArgumentException("colorBarMinimum=" + tMin + " must be a valid number.");
-        if (tMaxS != null && !Math2.isFinite(tMax))
+        if (tMaxS != null && !Double.isFinite(tMax))
             throw new IllegalArgumentException("colorBarMaximum=" + tMax + " must be a valid number.");
-        hasColorBarMinMax = Math2.isFinite(tMin) && Math2.isFinite(tMax);  
+        hasColorBarMinMax = Double.isFinite(tMin) && Double.isFinite(tMax);  
         if (hasColorBarMinMax && tMin >= tMax) //this may change if flipped range is allowed
             throw new IllegalArgumentException("colorBarMinimum=" + tMin + 
                " must be less than colorBarMaximum=" + tMax + ".");
@@ -524,6 +556,7 @@ public class EDV {
                 //if floating type, '_Unsigned'=true is nonsense
                 PrimitiveArray.isIntegerType(sourceDataTypeClass)) 
                 combinedAttributes.set("_Unsigned", un); //re-set it
+            //but destinationDataType(Class) is left as new data type
         }
         if (verbose && scaleAddOffset)
             String2.log("EDV sourceName=" + sourceName + 
@@ -533,7 +566,8 @@ public class EDV {
     }
 
     /** 
-     * This tries to get the actual_range, data_min, or data_max attribute values from combinedAttributes.
+     * This tries to get the actual_range, actual_min, actual_max, 
+     * data_min, or data_max attribute values from combinedAttributes.
      * This removes the actual_range, data_min, or data_max attribute from source- add- and combinedAttributes.
      *
      * @return a double[2] (always) with sourceMin and sourceMax values from 
@@ -542,41 +576,79 @@ public class EDV {
      */
     protected double[] extractActualRange() {
 
-        double mm[] = {combinedAttributes.getDouble("data_min"),   //NaN if not found
-                       combinedAttributes.getDouble("data_max")};
-        combinedAttributes.remove("data_min");
-        combinedAttributes.remove("data_max");
+        //if any are specified, they must be the same data type as destinationClass.
+        Class destClass = destinationDataTypeClass();
+        PrimitiveArray pa;
+        String msg = 
+            String2.ERROR + " for data variable=" + destinationName() +  
+            ": If actual_min, actual_max, data_min, data_max, or actual_range are specified " +
+            "when add_offset!=0.0 or scale_factor!=1.0, " +
+            "they must be the same dataType as the variable's destination dataType " +
+            "or float(s) or double(s). destClass=" +
+            PrimitiveArray.elementClassToString(destClass) + ".";
+        boolean willChange = sourceIsUnsigned || scaleAddOffset;
 
-        PrimitiveArray actualRange = combinedAttributes.get("actual_range");
-        if (actualRange != null) {
-            //if (reallyVerbose) String2.log("  actual_range metadata for " + destinationName + ": " + actualRange);
-            if (actualRange.size() == 2) {
-                mm[0] = actualRange.getNiceDouble(0); //sourceMin
-                mm[1] = actualRange.getNiceDouble(1); //sourceMax
-            }
-            combinedAttributes.remove("actual_range");
+        //always remove
+        double amm[] = {combinedAttributes.getNiceDouble("actual_min"),   //NaN if not found
+                        combinedAttributes.getNiceDouble("actual_max")};
+        pa = combinedAttributes.remove("actual_min");
+        if (pa != null && pa.elementClass() != destClass &&
+            willChange && !pa.isFloatingPointType())
+            throw new RuntimeException(msg); 
+        pa = combinedAttributes.remove("actual_max");
+        if (pa != null && pa.elementClass() != destClass &&
+            willChange && !pa.isFloatingPointType())
+            throw new RuntimeException(msg); 
+
+        //always remove
+        double dmm[] = {combinedAttributes.getNiceDouble("data_min"),   //NaN if not found
+                        combinedAttributes.getNiceDouble("data_max")};
+        pa = combinedAttributes.remove("data_min");
+        if (pa != null && pa.elementClass() != destClass &&
+            willChange && !pa.isFloatingPointType())
+            throw new RuntimeException(msg); 
+        pa = combinedAttributes.remove("data_max");
+        if (pa != null && pa.elementClass() != destClass &&
+            willChange && !pa.isFloatingPointType())
+            throw new RuntimeException(msg); 
+
+        //priority to actual_range
+        pa = combinedAttributes.remove("actual_range"); //always remove
+        if (pa != null && pa.elementClass() != destClass &&
+            willChange && !pa.isFloatingPointType())
+            throw new RuntimeException(msg); 
+        if (pa != null && pa.size() == 2) {
+            if (reallyVerbose) String2.log("  actual_range metadata for " + destinationName + ": " + pa);
+            return new double[] {pa.getNiceDouble(0),
+                                 pa.getNiceDouble(1)};
         }
 
-        return mm;
+        //2nd priority to actual_min actual_max
+        if (Double.isFinite(amm[0]) ||
+            Double.isFinite(amm[1]))
+            return amm;
+
+        //3rd to data_min data_max
+        return dmm;
     }
 
     /** 
      * This sets the actual_range attribute in addAttributes and combinedAttributes
      * based on the destinationMin and destinationMax value.
      * destinationDataTypeClass must be already set correctly.
-     * "actual_range" is defined in [CDC COARDS] 
-     * http://www.cdc.noaa.gov/cdc/conventions/cdc_netcdf_standard.shtml 
-     * as "actual data range for variable. Same type as unpacked values."
-     * Later, it says "The range values are used to indicate order of storage 
-     * (e.g., 90,-90 would indicate the latitudes started with 90 and ended with -90)."
+     * This is now defined in CF-1.7, with unpacked values, smallest and largest.
      *
      * <p>EDVGridAxis overwrites this to use firstDestinationValue and lastDestinationValue.
      */
     public void setActualRangeFromDestinationMinMax() {
 
         //actual_range is useful information for .das and will be replaced by actual_range of data subset.
+        combinedAttributes.remove("actual_min");
+        combinedAttributes.remove("actual_max");
         combinedAttributes.remove("data_min");
         combinedAttributes.remove("data_max");
+        if (reallyVerbose) String2.log("  " + destinationName + " destinationMin=" + destinationMin + 
+            " max=" + destinationMax + " class=" + PrimitiveArray.elementClassToString(destinationDataTypeClass()));
         if (Double.isNaN(destinationMin) && Double.isNaN(destinationMax)) {
             combinedAttributes.remove("actual_range");
         } else {
@@ -594,12 +666,7 @@ public class EDV {
      */
     public void extractAndSetActualRange() {
         double mm[] = extractActualRange(); 
-        if (Double.isNaN(destinationMin)) 
-            setDestinationMin(mm[0] * scaleFactor + addOffset);
-        if (Double.isNaN(destinationMax)) 
-            setDestinationMax(mm[1] * scaleFactor + addOffset);
-        if (destinationMin > destinationMax) { //in Java, only true if neither if NaN
-            double d = destinationMin; destinationMin = destinationMax; destinationMax = d; }
+        setDestinationMinMax(mm[0], mm[1]);
         setActualRangeFromDestinationMinMax();
     }
 
@@ -616,7 +683,7 @@ public class EDV {
     public void ensureValid(String errorInMethod) throws Throwable {
         errorInMethod += "\ndatasets.xml/EDV.ensureValid error for variable destinationName=" + 
             destinationName + ":\n";
-        Test.ensureSomethingUtf8(sourceName,      errorInMethod + "sourceName");
+        Test.ensureSomethingUnicode(sourceName,      errorInMethod + "sourceName");
         Test.ensureFileNameSafe( destinationName, errorInMethod + "destinationName");
         if (destinationName.indexOf(".") >= 0 || destinationName.indexOf("-") >= 0)
             throw new IllegalArgumentException(errorInMethod + 
@@ -626,7 +693,7 @@ public class EDV {
             //so valid variable name in Matlab and ...
         } else throw new IllegalArgumentException(errorInMethod + 
             "destinationName=\"" + destinationName + "\" must start with a letter (A-Z, a-z).");
-        Test.ensureSomethingUtf8(longName,        errorInMethod + "longName");
+        Test.ensureSomethingUnicode(longName,        errorInMethod + "longName");
         try {
             //should already by set, but ensure consistent and valid
             sourceDataTypeClass = PrimitiveArray.elementStringToClass(sourceDataType); 
@@ -642,17 +709,28 @@ public class EDV {
                 "destinationDataType=" + destinationDataType + " isn't supported.");
         }
         //units may be null
+
+        if ((destinationDataTypeClass == float.class ||
+             destinationDataTypeClass == double.class) &&
+            decimal_digits >= 0 && decimal_digits < Math2.Ten.length) {
+            //okay
+        } else { 
+            decimal_digits = Integer.MAX_VALUE;
+            combinedAttributes.remove(DECIMAL_DIGITS);
+        }
+
         if (EDStatic.variablesMustHaveIoosCategory) {
             String ic = combinedAttributes().getString("ioos_category");
-            Test.ensureSomethingUtf8(ic, errorInMethod + "ioos_category");
+            Test.ensureSomethingUnicode(ic, errorInMethod + "ioos_category");
             Test.ensureTrue(String2.indexOf(IOOS_CATEGORIES, ic) >= 0,
                 errorInMethod + "ioos_category=\"" + ic + "\" isn't a valid category.");
         }
 
-        //Don't test Test.ensureSomethingUtf8(sourceAttributes,    errorInMethod + "sourceAttributes");
-        //Admin can't control source and addAttributes may override offending characters.
-        Test.ensureSomethingUtf8(addAttributes,       errorInMethod + "addAttributes");
-        Test.ensureSomethingUtf8(combinedAttributes,  
+        //Don't test Test.ensureSomethingUnicode(sourceAttributes,    errorInMethod + "sourceAttributes");
+        //Admin can't control source and addAttributes may overwrite offending characters.
+        Test.ensureSomethingUnicode(addAttributes,       errorInMethod + "addAttributes");
+        EDStatic.updateUrls(null, combinedAttributes);
+        Test.ensureSomethingUnicode(combinedAttributes,  
             errorInMethod + "combinedAttributes (but probably caused by the source attributes)");
         if (scaleAddOffset && destinationDataTypeClass == String.class)
             throw new IllegalArgumentException(errorInMethod +
@@ -720,6 +798,21 @@ public class EDV {
             oLongName.length()     > 0? oLongName :
             fromAbbrev    != null? fromAbbrev :
             tSourceName;
+        //String2.log(">> suggestLongName ttName=" + ttName);
+
+        //shorten the name?
+        String seek = "aasg:"; //special case
+        int po = -1;
+        if (ttName.length() > 6)
+            po = ttName.substring(0, ttName.length() - 1).lastIndexOf(seek);
+        //NOT YET. Most sourceNames aren't too long. aasg is the only known exception.
+        //look for last '/', but not at very end
+        //  and avoid e.g., several something_quality -> quality
+        //if (po < 0 && ttName.length() > 60) 
+        //    po = ttName.substring(0, ttName.length() - 30).lastIndexOf(seek = "/");
+        if (po >= 0)
+            ttName = ttName.substring(po + seek.length());
+
         if ("pH".equals(ttName))
             return ttName;
         StringBuilder tName = new StringBuilder(ttName.trim());
@@ -770,19 +863,6 @@ public class EDV {
                 result = tName.toString();
             }
         }
-
-        //shorten the name?
-        String seek = "aasg:"; //special case
-        int po = -1;
-        if (result.length() > 6)
-            po = result.substring(0, result.length() - 1).lastIndexOf(seek);
-        //NOT YET. Most sourceNames aren't too long. aasg is the only known exception.
-        //look for last '/', but not at very end
-        //  and avoid e.g., several something_quality -> quality
-        //if (po < 0 && result.length() > 60) 
-        //    po = result.substring(0, result.length() - 30).lastIndexOf(seek = "/");
-        if (po >= 0)
-            result = result.substring(po + seek.length());
 
         //return
         //String2.log(">> suggestLongName o=" + oLongName + " sourceName=" + tSourceName + 
@@ -1002,6 +1082,9 @@ public class EDV {
      */
     public double destinationMax() {return destinationMax;}
 
+    /** This is used with the actual (possibly unpacked) source values are known,
+     * e.g., from the data files. 
+     */
     public void setDestinationMinMaxFromSource(double sourceMin, double sourceMax) {
         if (scaleAddOffset) 
             setDestinationMinMax(
@@ -1015,6 +1098,9 @@ public class EDV {
      * If tMin &gt; tMax, this will swap them.
      */
     public void setDestinationMinMax(double tMin, double tMax) {
+        if (!Double.isFinite(tMin) &&
+            !Double.isFinite(tMax))
+            return;
         if (tMin > tMax) { //if either is NaN, result in Java is false
             double d = tMin; tMin = tMax; tMax = d;}
         setDestinationMin(tMin);
@@ -1032,7 +1118,7 @@ public class EDV {
     }
 
     /** 
-     * This is the destinationMin value (time overrides this to format as ISO string).  
+     * This is the destinationMin value (time overwrites this to format as ISO string).  
      *
      * @return the destinationMin (or "" if unknown)
      */
@@ -1041,11 +1127,13 @@ public class EDV {
             destinationDataTypeClass == float.class? "" + (float)destinationMin :
             destinationDataTypeClass == double.class?
                 "" + Math2.niceDouble(destinationMin, 15) :  //was "" + destinationMin
+            destinationDataTypeClass == char.class?
+                String2.toJson("" + Math2.roundToChar(destinationMin), 65536) :
                 "" + Math2.roundToLong(destinationMin);  //ints are nicer without trailing ".0"
     }
 
     /** 
-     * This is the destinationMax value (time overrides this to format as ISO string).  
+     * This is the destinationMax value (time overwrites this to format as ISO string).  
      *
      * @return the destinationMax  (or "" if unknown or time=~now)
      */
@@ -1054,6 +1142,8 @@ public class EDV {
             destinationDataTypeClass == float.class? "" + (float)destinationMax :
             destinationDataTypeClass == double.class?
                 "" + Math2.niceDouble(destinationMax, 15) :
+            destinationDataTypeClass == char.class?
+                String2.toJson("" + Math2.roundToChar(destinationMax), 65536) :
                 "" + Math2.roundToLong(destinationMax);  //ints are nicer without trailing ".0"
     }
 
@@ -1126,14 +1216,26 @@ public class EDV {
      * Some subclasses overwrite this.   (Time variables will return a DoubleArray.)
      * 
      * @param source
-     * @return a PrimitiveArray 
+     * @return a PrimitiveArray with destinationDataTypeClass
      *   (the same Primitive array if the data type wasn't changed)
-     * with source values converted to destinationValues.
+     *   with source values converted to destinationValues.
      */
     public PrimitiveArray toDestination(PrimitiveArray source) {
+        
+        //convert String mv and fv to ""
+        if (destinationDataTypeClass == String.class) {
+            if (String2.isSomething(stringMissingValue))
+                source.switchFromTo(stringMissingValue, "");
+            if (String2.isSomething(stringFillValue) && 
+                !stringMissingValue.equals(stringFillValue))
+                source.switchFromTo(stringFillValue, "");
+        }
+
+        //change to destType and scaleAddOffset if needed
         return scaleAddOffset?
-            source.scaleAddOffset(sourceIsUnsigned, destinationDataTypeClass, scaleFactor, addOffset):
-            source;        
+            source.scaleAddOffset(sourceIsUnsigned, destinationDataTypeClass,
+                scaleFactor, addOffset):
+            PrimitiveArray.factory(destinationDataTypeClass, source); 
     }
 
     /**
@@ -1150,6 +1252,11 @@ public class EDV {
      * with destination values converted to sourceValues.
      */
     public PrimitiveArray toSource(PrimitiveArray destination) {
+
+        //convert String mv and fv to ""
+        if (destinationDataTypeClass == String.class) 
+            destination.switchFromTo("", safeStringMissingValue);
+
         return scaleAddOffset?
 //sourceIsUnsigned?
             destination.addOffsetScale(sourceDataTypeClass, -addOffset, 1/scaleFactor): //note different method
@@ -1166,16 +1273,18 @@ public class EDV {
      * this returns null.
      */
     public String sliderCsvValues() throws Throwable {
+        //already exists? return it
         byte scv[] = sliderCsvValues; //local copy avoids concurrency problems
         if (scv != null) 
-            return String2.utf8ToString(scv);
+            return String2.utf8BytesToString(scv);
 
+        //else make it
         try {
             boolean isTimeStamp = false; //EDVTimeStamp overwrites this method
             double tMin = destinationMin;
             double tMax = destinationMax;
-            if (!Math2.isFinite(tMin)) return null;  //quick rejection is important
-            if (!Math2.isFinite(tMax)) return null;
+            if (!Double.isFinite(tMin)) return null;  //quick rejection is important
+            if (!Double.isFinite(tMax)) return null;
             boolean isFloat = destinationDataTypeClass == float.class;
             double dVal;
             String sVal;
@@ -1185,7 +1294,7 @@ public class EDV {
                 dVal = tMin;
                 sVal = isFloat? "" + (float)dVal : "" + dVal;
                 String csv = toSliderString(sVal, isTimeStamp);
-                sliderCsvValues = String2.getUTF8Bytes(csv); //do last
+                sliderCsvValues = String2.stringToUtf8Bytes(csv); //do last
                 return csv;
             }
 
@@ -1214,7 +1323,7 @@ public class EDV {
                 " tMin=" + tMin + " tMax=" + tMax + " stride=" + stride + 
                 " base=" + base + " nValues=" + (nDiv + 1));
             String csv = sb.toString();
-            sliderCsvValues = String2.getUTF8Bytes(csv); //do last
+            sliderCsvValues = String2.stringToUtf8Bytes(csv); //do last
             return csv;
         } catch (Throwable t) {
             EDStatic.rethrowClientAbortException(t);  //first thing in catch{}
@@ -1235,6 +1344,29 @@ public class EDV {
     }
 
     /**
+     * This is an alternative way to get a slider csv string
+     * for when a list of distinct options is available.
+     *
+     * @param distinct is the list of distinct values ([0] is the non-option ""). 
+     *    Times are ISO 8601 times.  The values in this array won't be changed.
+     * @return CSV string with each value as a JSON String.
+     */
+    public static String getSliderCSVFromDistinctOptions(String[] distinct) {
+        int n = distinct.length;
+        int stride = Math.max(1, (n-1) / SLIDER_MAX_NVALUES);  //-1 because [0] will be removed
+        StringArray dsa = new StringArray(distinct);
+        if (stride == 1) {
+            dsa = (StringArray)(dsa.subset(1, 1, n-1));  //make a copy without array[0]
+        } else {
+            dsa = (StringArray)(dsa.subset(1, stride, n-1)); //a copy, without array[0], with stride
+            //add the last value if not already there
+            if (!dsa.get(dsa.size() - 1).equals(distinct[n-1])) 
+                dsa.add(distinct[n-1]); 
+        }
+        return dsa.toJsonCsvString();
+    }
+     
+    /**
      * This converts a value to the nearest slider position (0 .. EDV.SLIDER_PIXELS-1).
      * Out-of-range values (even far off) are converted to nearest, but NaN -> -1.
      * If only one destination value, this returns 0.
@@ -1249,9 +1381,9 @@ public class EDV {
 
         double tMin = destinationMin;
         double tMax = destinationMax;
-        if (!Math2.isFinite(destinationValue)) return -1;
-        if (!Math2.isFinite(tMin)) return -1;
-        if (!Math2.isFinite(tMax)) {
+        if (!Double.isFinite(destinationValue)) return -1;
+        if (!Double.isFinite(tMin)) return -1;
+        if (!Double.isFinite(tMax)) {
             if (this instanceof EDVTimeStamp) {
                 //next midnight Z
                 GregorianCalendar gc = Calendar2.newGCalendarZulu();
@@ -1271,6 +1403,27 @@ public class EDV {
         if (frac >= 1) return EDV.SLIDER_PIXELS - 1;
         return Math2.roundToInt(Math.floor(frac * EDV.SLIDER_PIXELS));
     }
+
+    /** 
+     * For destinationType=String variables, 
+     * this is the source's String missingValue (or ""). 
+     * For numeric variables, this is "".
+     */
+    public String stringMissingValue() {return stringMissingValue;}
+
+    /** 
+     * For destinationType=String variables, 
+     * this is the source's String _FillValue (or ""). 
+     * For numeric variables, this is "".
+     */
+    public String stringFillValue() {return stringFillValue;}
+
+    /** 
+     * For destinationType=String variables, 
+     * this is the safeStringMissingValue (perhaps ""). 
+     * For numeric variables, this is "".
+     */
+    public String safeStringMissingValue() {return safeStringMissingValue;}
 
     /** 
      * This is the value of the source's missing value stand-in (e.g., -9999999.0). 
@@ -1404,6 +1557,77 @@ public class EDV {
              String2.parseDouble(location.substring(degPo + 1, minPo)) / 60 +
              String2.parseDouble(location.substring(minPo + 1, secPo)) / 3600);
     }
+
+    /**
+     * This returns true if this variable is probably longitude.
+     */
+    public static boolean probablyLon(String tName, String tUnits) {
+        if (!String2.isSomething(tName))
+            return false;
+        tName = tName.toLowerCase();
+        return  
+           //must check name, since uCurrent and uWind use degrees_east, too          
+           (tName.startsWith("lon") ||  //startsWith allows for e.g., "lon (degE)", "long"
+            tName.indexOf("longitude") >= 0 ||
+            tName.equals("x") ||
+            tName.equals("xax")) &&  
+           couldBeLonUnits(tUnits);
+    }
+
+    /**
+     * This returns true if this variable is probably latitude.
+     */
+    public static boolean probablyLat(String tName, String tUnits) {
+        if (!String2.isSomething(tName))
+            return false;
+        tName = tName.toLowerCase();
+        return  
+           //must check name, since uCurrent and uWind use degrees_east, too          
+           (tName.startsWith("lat") ||  //startsWith allows for e.g., "lat (degN)", "lat"
+            tName.indexOf("latitude") >= 0 ||
+            tName.equals("y") ||
+            tName.equals("yax")) &&  
+           couldBeLatUnits(tUnits);
+    }
+
+    /**
+     * This returns true if the units are consistent with longitude units.
+     * Use this if the var name is e.g., lon.
+     */
+    public static boolean couldBeLonUnits(String tUnits) {
+        if (tUnits == null || tUnits.length() == 0)
+            return true;
+        tUnits = tUnits.toLowerCase();
+        if (tUnits.indexOf("north") >= 0 ||
+            tUnits.indexOf("south") >= 0)
+            return false;
+        return "deg".equals(tUnits) || "degree".equals(tUnits) || "degrees".equals(tUnits) || 
+            tUnits.indexOf("decimal degrees") >= 0 || //BCO-DMO has "decimal degrees; negative = South of Equator"
+            tUnits.indexOf("degrees east") >= 0 || 
+            tUnits.indexOf("degree west") >= 0 ||   //some goofy datasets
+            tUnits.indexOf("degrees west") >= 0 ||  //some goofy datasets
+            tUnits.startsWith("ddd.d") ||
+            String2.indexOf(LON_UNITS_VARIANTS, tUnits) >= 0;
+    }
+
+    /**
+     * This returns true if the units are consistent with latitude units.
+     * Use this if the var name is e.g., lat.
+     */
+    public static boolean couldBeLatUnits(String tUnits) {
+        if (tUnits == null || tUnits.length() == 0)
+            return true;
+        tUnits = tUnits.toLowerCase();
+        if (tUnits.indexOf("east") >= 0 ||
+            tUnits.indexOf("west") >= 0)
+            return false;
+        return "deg".equals(tUnits) || "degree".equals(tUnits) || "degrees".equals(tUnits) || 
+            tUnits.indexOf("decimal degrees") >= 0 ||
+            tUnits.indexOf("degrees north") >= 0 || 
+            tUnits.startsWith("dd.d") ||
+            String2.indexOf(LAT_UNITS_VARIANTS, tUnits) >= 0;
+    }
+
 
     /**
      * This tests the methods of this class.
